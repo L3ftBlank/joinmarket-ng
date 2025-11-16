@@ -242,15 +242,11 @@ This will log comprehensive status including:
 
 ### Docker Health Check
 
-The Docker Compose setup includes automatic health checks using the HTTP endpoint:
+The Docker image includes automatic health checks using the CLI command:
 
-```yaml
-healthcheck:
-  test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8080/health"]
-  interval: 30s
-  timeout: 5s
-  retries: 3
-  start_period: 10s
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD ["jm-directory-server", "health"]
 ```
 
 Check container health status:

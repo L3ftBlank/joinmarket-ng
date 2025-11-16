@@ -11,8 +11,6 @@ services:
       - PORT=5222
       - MAX_PEERS=1000
       - LOG_LEVEL=TRACE
-    volumes:
-      - ./logs:/app/logs
     networks:
       - joinmarket_directory_internal
     restart: always

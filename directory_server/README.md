@@ -87,16 +87,15 @@ By default, docker-compose.yml uses the pre-built image `ghcr.io/m0wer/joinmarke
 
 ```
 directory_server/
-├── tor/
-│   ├── conf/
-│   │   └── torrc                    # Tor config (755, uid 1000)
-│   ├── data/                        # Hidden service keys (700, uid 1000)
-│   │   ├── hostname                 # Your .onion address (auto-generated)
-│   │   ├── hs_ed25519_public_key    # Public key (auto-generated)
-│   │   ├── hs_ed25519_secret_key    # Private key (auto-generated)
-│   │   └── authorized_clients/      # For client auth (optional)
-│   └── run/                         # Tor runtime files (755, uid 1000)
-└── logs/                            # Directory server logs
+└── tor/
+    ├── conf/
+    │   └── torrc                    # Tor config (755, uid 1000)
+    ├── data/                        # Hidden service keys (700, uid 1000)
+    │   ├── hostname                 # Your .onion address (auto-generated)
+    │   ├── hs_ed25519_public_key    # Public key (auto-generated)
+    │   ├── hs_ed25519_secret_key    # Private key (auto-generated)
+    │   └── authorized_clients/      # For client auth (optional)
+    └── run/                         # Tor runtime files (755, uid 1000)
 ```
 
 #### Vanity Onion Address (Optional)

@@ -6,6 +6,7 @@ Implements Open/Closed Principle: extensible without modification.
 
 import asyncio
 import json
+from datetime import datetime
 
 from jmcore.models import MessageEnvelope, NetworkType, PeerStatus
 from jmcore.network import ConnectionPool, TCPConnection
@@ -14,6 +15,7 @@ from loguru import logger
 
 from directory_server.config import Settings
 from directory_server.handshake_handler import HandshakeError, HandshakeHandler
+from directory_server.health import HealthCheckServer
 from directory_server.message_router import MessageRouter
 from directory_server.peer_registry import PeerRegistry
 
@@ -35,6 +37,10 @@ class DirectoryServer:
 
         self.server: asyncio.Server | None = None
         self._shutdown = False
+        self._start_time = datetime.utcnow()
+        self.health_server = HealthCheckServer(
+            host=settings.health_check_host, port=settings.health_check_port
+        )
 
     async def start(self) -> None:
         self.server = await asyncio.start_server(
@@ -46,12 +52,16 @@ class DirectoryServer:
             f"Directory server started on {addr[0]}:{addr[1]} (network: {self.network.value})"
         )
 
+        self.health_server.start(self)
+
         async with self.server:
             await self.server.serve_forever()
 
     async def stop(self) -> None:
         logger.info("Shutting down directory server...")
         self._shutdown = True
+
+        self.health_server.stop()
 
         if self.server:
             self.server.close()
@@ -219,6 +229,13 @@ class DirectoryServer:
 
         await connection.send(data)
 
+    def is_healthy(self) -> bool:
+        return (
+            self.server is not None
+            and not self._shutdown
+            and self.peer_registry.count() < self.settings.max_peers
+        )
+
     def get_stats(self) -> dict:
         return {
             "network": self.network.value,
@@ -226,3 +243,44 @@ class DirectoryServer:
             "max_peers": self.settings.max_peers,
             "active_connections": len(self.connections),
         }
+
+    def get_detailed_stats(self) -> dict:
+        uptime = (datetime.utcnow() - self._start_time).total_seconds()
+        registry_stats = self.peer_registry.get_stats()
+
+        connected_peers = self.peer_registry.get_all_connected()
+        orderbook_watchers = self.peer_registry.get_orderbook_watchers()
+
+        return {
+            "network": self.network.value,
+            "uptime_seconds": uptime,
+            "server_status": "running" if not self._shutdown else "stopping",
+            "max_peers": self.settings.max_peers,
+            "stats": registry_stats,
+            "connected_peers": {
+                "total": len(connected_peers),
+                "nicks": [p.nick for p in connected_peers],
+            },
+            "orderbook_watchers": {
+                "total": len(orderbook_watchers),
+                "nicks": [p.nick for p in orderbook_watchers],
+            },
+            "active_connections": len(self.connections),
+        }
+
+    def log_status(self) -> None:
+        stats = self.get_detailed_stats()
+        logger.info("=== Directory Server Status ===")
+        logger.info(f"Network: {stats['network']}")
+        logger.info(f"Uptime: {stats['uptime_seconds']:.0f}s")
+        logger.info(f"Status: {stats['server_status']}")
+        logger.info(f"Connected peers: {stats['connected_peers']['total']}/{stats['max_peers']}")
+        logger.info(f"  Nicks: {', '.join(stats['connected_peers']['nicks'][:10])}")
+        if len(stats["connected_peers"]["nicks"]) > 10:
+            logger.info(f"  ... and {len(stats['connected_peers']['nicks']) - 10} more")
+        logger.info(f"Orderbook watchers: {stats['orderbook_watchers']['total']}")
+        logger.info(f"  Nicks: {', '.join(stats['orderbook_watchers']['nicks'][:10])}")
+        if len(stats["orderbook_watchers"]["nicks"]) > 10:
+            logger.info(f"  ... and {len(stats['orderbook_watchers']['nicks']) - 10} more")
+        logger.info(f"Active connections: {stats['active_connections']}")
+        logger.info("===============================")

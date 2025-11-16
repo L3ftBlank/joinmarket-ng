@@ -19,6 +19,7 @@ class PeerRegistry:
         self.max_peers = max_peers
         self._peers: dict[str, PeerInfo] = {}
         self._nick_to_key: dict[str, str] = {}
+        self._orderbook_watchers: set[str] = set()
 
     def register(self, peer: PeerInfo) -> None:
         if len(self._peers) >= self.max_peers:
@@ -88,3 +89,30 @@ class PeerRegistry:
     def clear(self) -> None:
         self._peers.clear()
         self._nick_to_key.clear()
+        self._orderbook_watchers.clear()
+
+    def mark_orderbook_watcher(self, key: str) -> None:
+        self._orderbook_watchers.add(key)
+
+    def get_orderbook_watchers(self, network: NetworkType | None = None) -> list[PeerInfo]:
+        peers = [
+            p
+            for p in self._peers.values()
+            if p.status == PeerStatus.HANDSHAKED
+            and (
+                p.nick in self._orderbook_watchers
+                or (p.location_string() in self._orderbook_watchers)
+            )
+        ]
+        if network:
+            peers = [p for p in peers if p.network == network]
+        return peers
+
+    def get_stats(self) -> dict[str, int]:
+        connected = len([p for p in self._peers.values() if p.status == PeerStatus.HANDSHAKED])
+        orderbook_watchers = len(self._orderbook_watchers)
+        return {
+            "total_peers": len(self._peers),
+            "connected_peers": connected,
+            "orderbook_watchers": orderbook_watchers,
+        }

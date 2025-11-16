@@ -1,0 +1,128 @@
+"""
+CLI commands for directory server management.
+"""
+
+import argparse
+import json
+import sys
+from urllib.error import URLError
+from urllib.request import urlopen
+
+
+def format_status_output(stats: dict) -> str:
+    lines = [
+        "=== Directory Server Status ===",
+        f"Network: {stats['network']}",
+        f"Uptime: {stats['uptime_seconds']:.0f}s ({stats['uptime_seconds'] / 3600:.1f}h)",
+        f"Status: {stats['server_status']}",
+        f"Connected peers: {stats['connected_peers']['total']}/{stats['max_peers']}",
+    ]
+
+    if stats["connected_peers"]["nicks"]:
+        lines.append(f"  Nicks: {', '.join(stats['connected_peers']['nicks'][:20])}")
+        if len(stats["connected_peers"]["nicks"]) > 20:
+            remaining = len(stats["connected_peers"]["nicks"]) - 20
+            lines.append(f"  ... and {remaining} more")
+
+    lines.extend(
+        [
+            f"Orderbook watchers: {stats['orderbook_watchers']['total']}",
+        ]
+    )
+
+    if stats["orderbook_watchers"]["nicks"]:
+        lines.append(f"  Nicks: {', '.join(stats['orderbook_watchers']['nicks'][:20])}")
+        if len(stats["orderbook_watchers"]["nicks"]) > 20:
+            remaining = len(stats["orderbook_watchers"]["nicks"]) - 20
+            lines.append(f"  ... and {remaining} more")
+
+    lines.extend(
+        [
+            f"Active connections: {stats['active_connections']}",
+            "===============================",
+        ]
+    )
+
+    return "\n".join(lines)
+
+
+def status_command(args: argparse.Namespace) -> int:
+    url = f"http://{args.host}:{args.port}/status"
+
+    try:
+        with urlopen(url, timeout=5) as response:
+            data = json.loads(response.read().decode())
+
+            if args.json:
+                print(json.dumps(data, indent=2))
+            else:
+                print(format_status_output(data))
+
+            return 0
+
+    except URLError as e:
+        print(f"Error: Could not connect to server at {url}", file=sys.stderr)
+        print(f"Details: {e}", file=sys.stderr)
+        return 1
+    except json.JSONDecodeError as e:
+        print("Error: Invalid JSON response from server", file=sys.stderr)
+        print(f"Details: {e}", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
+def health_command(args: argparse.Namespace) -> int:
+    url = f"http://{args.host}:{args.port}/health"
+
+    try:
+        with urlopen(url, timeout=5) as response:
+            data = json.loads(response.read().decode())
+
+            if args.json:
+                print(json.dumps(data, indent=2))
+            else:
+                status = data.get("status", "unknown")
+                print(f"Server status: {status}")
+
+            return 0 if data.get("status") == "healthy" else 1
+
+    except URLError:
+        print("Error: Server unhealthy or unreachable", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="JoinMarket Directory Server CLI")
+    parser.add_argument(
+        "--host", default="127.0.0.1", help="Health check server host (default: 127.0.0.1)"
+    )
+    parser.add_argument(
+        "--port", type=int, default=8080, help="Health check server port (default: 8080)"
+    )
+
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    status_parser = subparsers.add_parser("status", help="Get server status")
+    status_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    status_parser.set_defaults(func=status_command)
+
+    health_parser = subparsers.add_parser("health", help="Check server health")
+    health_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    health_parser.set_defaults(func=health_command)
+
+    args = parser.parse_args()
+
+    if not args.command:
+        parser.print_help()
+        sys.exit(1)
+
+    sys.exit(args.func(args))
+
+
+if __name__ == "__main__":
+    main()

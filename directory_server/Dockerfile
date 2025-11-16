@@ -2,6 +2,8 @@ FROM python:3.14-slim
 
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y --no-install-recommends wget && rm -rf /var/lib/apt/lists/*
+
 # Install jmcore dependencies first (cached layer)
 COPY jmcore/requirements.txt /app/jmcore/requirements.txt
 RUN pip install --no-cache-dir -r /app/jmcore/requirements.txt
@@ -19,11 +21,13 @@ RUN useradd -m -u 1000 jm && \
 
 USER jm
 
-EXPOSE 5222
+EXPOSE 5222 8080
 
 ENV NETWORK=mainnet
 ENV HOST=0.0.0.0
 ENV PORT=5222
 ENV LOG_LEVEL=INFO
+ENV HEALTH_CHECK_HOST=0.0.0.0
+ENV HEALTH_CHECK_PORT=8080
 
 CMD ["jm-directory-server"]

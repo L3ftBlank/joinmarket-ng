@@ -45,12 +45,18 @@ async def run_server() -> None:
 
     loop = asyncio.get_running_loop()
 
-    def signal_handler():
+    def shutdown_handler() -> None:
         logger.info("Received shutdown signal")
         asyncio.create_task(server.stop())
 
+    def status_handler() -> None:
+        logger.info("Received status signal")
+        server.log_status()
+
     for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, signal_handler)
+        loop.add_signal_handler(sig, shutdown_handler)
+
+    loop.add_signal_handler(signal.SIGUSR1, status_handler)
 
     try:
         await server.start()

@@ -159,6 +159,120 @@ LOG_LEVEL=DEBUG jm-directory-server
 
 **Note**: When running locally, you need to set up Tor separately and configure it to forward traffic to your local directory server.
 
+## Health Check & Monitoring
+
+The directory server provides comprehensive health check and monitoring capabilities.
+
+### Health Check Endpoint
+
+An HTTP server runs on port 8080 (configurable via `HEALTH_CHECK_HOST` and `HEALTH_CHECK_PORT`) providing:
+
+**`GET /health`** - Basic health check
+```bash
+curl http://localhost:8080/health
+# {"status": "healthy"}
+```
+
+**`GET /status`** - Detailed server statistics
+```bash
+curl http://localhost:8080/status
+# {
+#   "network": "mainnet",
+#   "uptime_seconds": 3600,
+#   "server_status": "running",
+#   "max_peers": 1000,
+#   "stats": {
+#     "total_peers": 150,
+#     "connected_peers": 150,
+#     "orderbook_watchers": 45
+#   },
+#   "connected_peers": {
+#     "total": 150,
+#     "nicks": ["maker1", "maker2", ...]
+#   },
+#   "orderbook_watchers": {
+#     "total": 45,
+#     "nicks": ["maker1", "maker5", ...]
+#   },
+#   "active_connections": 150
+# }
+```
+
+### CLI Tool
+
+Use `jm-directory-ctl` to query server status:
+
+```bash
+# Check server health
+jm-directory-ctl health
+
+# Get detailed status (human-readable)
+jm-directory-ctl status
+
+# Get status as JSON
+jm-directory-ctl status --json
+
+# Query remote server
+jm-directory-ctl status --host 192.168.1.10 --port 8080
+```
+
+### Signal-based Status Logging
+
+Send `SIGUSR1` signal to trigger detailed status logging to the server logs:
+
+```bash
+# Docker
+docker kill -s SIGUSR1 joinmarket_directory_server
+
+# Local process
+kill -USR1 $(pgrep jm-directory-server)
+```
+
+This will log comprehensive status including:
+- Network type and uptime
+- Connected peers count and list
+- Orderbook watchers (peers sending offers)
+- Active connections
+
+### Docker Health Check
+
+The Docker Compose setup includes automatic health checks using the HTTP endpoint:
+
+```yaml
+healthcheck:
+  test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8080/health"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 10s
+```
+
+Check container health status:
+```bash
+docker ps  # Shows (healthy) or (unhealthy)
+docker inspect joinmarket_directory_server | grep -A 10 Health
+```
+
+### Monitoring Metrics
+
+The server tracks:
+- **Connected Peers**: Total number of handshaked peers
+- **Orderbook Watchers**: Peers actively sending public orderbook messages
+- **Active Connections**: Current TCP connections
+- **Uptime**: Server uptime in seconds
+- **Network**: mainnet/testnet/signet/regtest
+
+### Configuration
+
+Add to your `.env` file:
+```bash
+# Health check server (optional, defaults shown)
+HEALTH_CHECK_HOST=127.0.0.1
+HEALTH_CHECK_PORT=8080
+```
+
+For Docker deployments, set `HEALTH_CHECK_HOST=0.0.0.0` to allow health checks from the Docker network.
+
 ## Architecture
 
 ### Components

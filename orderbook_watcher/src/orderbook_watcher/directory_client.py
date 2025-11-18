@@ -9,6 +9,7 @@ import base64
 import binascii
 import json
 import struct
+from collections.abc import Callable
 from decimal import Decimal
 from typing import Any
 
@@ -88,6 +89,7 @@ class DirectoryClient:
         socks_port: int = 9050,
         timeout: float = 30.0,
         max_message_size: int = 40000,
+        on_disconnect: Callable[[], None] | None = None,
     ) -> None:
         self.onion_address = onion_address
         self.port = port
@@ -102,6 +104,7 @@ class DirectoryClient:
         self.bonds: dict[str, FidelityBond] = {}
         self.last_seen: dict[str, float] = {}
         self.running = False
+        self.on_disconnect = on_disconnect
 
     async def connect(self) -> None:
         try:
@@ -568,9 +571,13 @@ class DirectoryClient:
                 except Exception as e:
                     logger.warning(f"Failed to send ping: {e}")
                     self.connection = None
+                    if self.on_disconnect:
+                        self.on_disconnect()
             except Exception as e:
                 logger.error(f"Error in continuous listener: {e}")
                 self.connection = None
+                if self.on_disconnect:
+                    self.on_disconnect()
                 await asyncio.sleep(5)
 
     def _cleanup_stale_offers(self, current_time: float, stale_timeout: float) -> int:

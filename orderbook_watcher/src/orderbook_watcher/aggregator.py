@@ -201,8 +201,18 @@ class OrderbookAggregator:
 
         logger.info(f"Connecting to directory: {node_id}")
 
+        def on_disconnect() -> None:
+            logger.info(f"Directory node {node_id} disconnected")
+            status.mark_disconnected()
+
         client = DirectoryClient(
-            onion_address, port, self.network, self.socks_host, self.socks_port, self.timeout
+            onion_address,
+            port,
+            self.network,
+            self.socks_host,
+            self.socks_port,
+            self.timeout,
+            on_disconnect=on_disconnect,
         )
 
         try:

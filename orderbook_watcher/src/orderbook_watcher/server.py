@@ -70,6 +70,15 @@ class OrderbookServer:
         for node, offers in offers_by_directory.items():
             directory_stats[node] = {"offer_count": len(offers)}
 
+        for node_id in self.aggregator.directory_nodes:
+            node_str = f"{node_id[0]}:{node_id[1]}"
+            if node_str not in directory_stats:
+                directory_stats[node_str] = {"offer_count": 0}
+
+        for node_id, status in self.aggregator.node_statuses.items():
+            if node_id in directory_stats:
+                directory_stats[node_id].update(status.to_dict())
+
         grouped_offers: dict[tuple[str, int], dict[str, Any]] = {}
         for offer in orderbook.offers:
             key = (offer.counterparty, offer.oid)

@@ -79,19 +79,45 @@ function updateDirectoryBreakdown() {
         badge.textContent = abbr;
         badge.title = node;
 
+        const statusIcon = document.createElement('span');
+        statusIcon.className = 'status-icon';
+        if (data.connected) {
+            statusIcon.textContent = '🟢';
+            statusIcon.title = 'Connected';
+        } else if (data.connection_attempts > 0) {
+            statusIcon.textContent = '🔴';
+            statusIcon.title = 'Disconnected';
+        } else {
+            statusIcon.textContent = '⚪';
+            statusIcon.title = 'Not attempted';
+        }
+
         const name = document.createElement('span');
         name.className = 'directory-name';
         name.textContent = node;
 
+        nameContainer.appendChild(statusIcon);
         nameContainer.appendChild(badge);
         nameContainer.appendChild(name);
+
+        const infoContainer = document.createElement('div');
+        infoContainer.className = 'directory-info';
 
         const count = document.createElement('span');
         count.className = 'directory-count';
         count.textContent = `${data.offer_count} offers`;
+        infoContainer.appendChild(count);
+
+        if (data.uptime_percentage !== undefined) {
+            const uptime = document.createElement('span');
+            uptime.className = 'directory-uptime';
+            uptime.textContent = `${data.uptime_percentage}% uptime`;
+            uptime.title = `${data.successful_connections} successful connections`;
+            infoContainer.appendChild(uptime);
+        }
 
         item.appendChild(nameContainer);
-        item.appendChild(count);
+        item.appendChild(infoContainer);
         breakdown.appendChild(item);
     });
 }

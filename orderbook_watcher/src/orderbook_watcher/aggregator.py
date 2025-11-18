@@ -18,6 +18,58 @@ from loguru import logger
 from orderbook_watcher.directory_client import DirectoryClient
 
 
+class DirectoryNodeStatus:
+    def __init__(self, node_id: str) -> None:
+        self.node_id = node_id
+        self.connected = False
+        self.last_connected: datetime | None = None
+        self.last_disconnected: datetime | None = None
+        self.connection_attempts = 0
+        self.successful_connections = 0
+        self.total_uptime_seconds = 0.0
+        self.current_session_start: datetime | None = None
+
+    def mark_connected(self) -> None:
+        self.connected = True
+        self.last_connected = datetime.utcnow()
+        self.current_session_start = datetime.utcnow()
+        self.successful_connections += 1
+
+    def mark_disconnected(self) -> None:
+        if self.connected and self.current_session_start:
+            session_duration = (datetime.utcnow() - self.current_session_start).total_seconds()
+            self.total_uptime_seconds += session_duration
+        self.connected = False
+        self.last_disconnected = datetime.utcnow()
+        self.current_session_start = None
+
+    def get_uptime_percentage(self) -> float:
+        if self.successful_connections == 0:
+            return 0.0
+        if not self.last_connected:
+            return 0.0
+        total_time = (datetime.utcnow() - self.last_connected).total_seconds()
+        if total_time == 0:
+            return 0.0
+        current_uptime = self.total_uptime_seconds
+        if self.connected and self.current_session_start:
+            current_uptime += (datetime.utcnow() - self.current_session_start).total_seconds()
+        return (current_uptime / total_time) * 100.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "node_id": self.node_id,
+            "connected": self.connected,
+            "last_connected": self.last_connected.isoformat() if self.last_connected else None,
+            "last_disconnected": self.last_disconnected.isoformat()
+            if self.last_disconnected
+            else None,
+            "connection_attempts": self.connection_attempts,
+            "successful_connections": self.successful_connections,
+            "uptime_percentage": round(self.get_uptime_percentage(), 2),
+        }
+
+
 class OrderbookAggregator:
     def __init__(
         self,
@@ -27,6 +79,8 @@ class OrderbookAggregator:
         socks_port: int = 9050,
         timeout: float = 30.0,
         mempool_api_url: str = "https://mempool.space/api",
+        max_retry_attempts: int = 3,
+        retry_delay: float = 5.0,
     ) -> None:
         self.directory_nodes = directory_nodes
         self.network = network
@@ -34,9 +88,10 @@ class OrderbookAggregator:
         self.socks_port = socks_port
         self.timeout = timeout
         self.mempool_api_url = mempool_api_url
+        self.max_retry_attempts = max_retry_attempts
+        self.retry_delay = retry_delay
         socks_proxy = f"socks5://{socks_host}:{socks_port}"
         logger.info(f"Configuring MempoolAPI with SOCKS proxy: {socks_proxy}")
-        # Use longer timeout for SOCKS proxy connections
         mempool_timeout = 60.0
         self.mempool_api = MempoolAPI(
             base_url=mempool_api_url, socks_proxy=socks_proxy, timeout=mempool_timeout
@@ -52,6 +107,12 @@ class OrderbookAggregator:
         self._bond_cache: dict[str, FidelityBond] = {}
         self._last_offers_hash: int = 0
         self._mempool_semaphore = asyncio.Semaphore(5)
+        self.node_statuses: dict[str, DirectoryNodeStatus] = {}
+        self._retry_tasks: list[asyncio.Task] = []
+
+        for onion_address, port in directory_nodes:
+            node_id = f"{onion_address}:{port}"
+            self.node_statuses[node_id] = DirectoryNodeStatus(node_id)
 
     async def fetch_from_directory(
         self, onion_address: str, port: int
@@ -132,39 +193,89 @@ class OrderbookAggregator:
             except Exception as e:
                 logger.error(f"Error in background bond calculator: {e}")
 
+    async def _connect_to_node(self, onion_address: str, port: int) -> DirectoryClient | None:
+        node_id = f"{onion_address}:{port}"
+        status = self.node_statuses[node_id]
+        status.connection_attempts += 1
+
+        logger.info(f"Attempting to connect to {node_id}")
+
+        client = DirectoryClient(
+            onion_address, port, self.network, self.socks_host, self.socks_port, self.timeout
+        )
+
+        try:
+            await client.connect()
+            await client.get_peerlist()
+
+            pubmsg = {
+                "type": 687,
+                "line": f"{client.nick}!PUBLIC!!orderbook",
+            }
+
+            if not client.connection:
+                raise RuntimeError("Client not connected")
+            await client.connection.send(json.dumps(pubmsg).encode("utf-8"))
+
+            status.mark_connected()
+            logger.info(f"Successfully connected to {node_id}")
+            return client
+
+        except Exception as e:
+            logger.warning(f"Connection to {node_id} failed: {e}")
+            await client.close()
+            status.mark_disconnected()
+            return None
+
+    async def _retry_failed_connection(self, onion_address: str, port: int) -> None:
+        node_id = f"{onion_address}:{port}"
+
+        while True:
+            await asyncio.sleep(60)
+
+            if node_id in self.clients:
+                continue
+
+            logger.info(f"Retrying connection to {node_id}...")
+            client = await self._connect_to_node(onion_address, port)
+
+            if client:
+                self.clients[node_id] = client
+                task = asyncio.create_task(client.listen_continuously())
+                self.listener_tasks.append(task)
+                logger.info(f"Successfully reconnected to {node_id}")
+                break
+
     async def start_continuous_listening(self) -> None:
         logger.info("Starting continuous listening on all directory nodes")
 
         self._bond_calculation_task = asyncio.create_task(self._background_bond_calculator())
 
-        for onion_address, port in self.directory_nodes:
+        connection_tasks = [
+            self._connect_to_node(onion_address, port)
+            for onion_address, port in self.directory_nodes
+        ]
+
+        clients = await asyncio.gather(*connection_tasks, return_exceptions=True)
+
+        for (onion_address, port), client in zip(self.directory_nodes, clients):
             node_id = f"{onion_address}:{port}"
-            client = DirectoryClient(
-                onion_address, port, self.network, self.socks_host, self.socks_port, self.timeout
-            )
 
-            try:
-                await client.connect()
-                await client.get_peerlist()
+            if isinstance(client, Exception):
+                logger.error(f"Connection to {node_id} raised exception: {client}")
+                client = None
 
-                pubmsg = {
-                    "type": 687,
-                    "line": f"{client.nick}!PUBLIC!!orderbook",
-                }
-
-                if not client.connection:
-                    raise RuntimeError("Client not connected")
-                await client.connection.send(json.dumps(pubmsg).encode("utf-8"))
-                logger.info(f"Initial !orderbook request sent to {node_id}")
-
+            if client:
                 self.clients[node_id] = client
-
                 task = asyncio.create_task(client.listen_continuously())
                 self.listener_tasks.append(task)
                 logger.info(f"Started listener task for {node_id}")
-
-            except Exception as e:
-                logger.error(f"Failed to start listener for {node_id}: {e}")
+            else:
+                retry_task = asyncio.create_task(
+                    self._retry_failed_connection(onion_address, port)
+                )
+                self._retry_tasks.append(retry_task)
+                logger.info(f"Scheduled retry task for {node_id}")
 
     async def stop_listening(self) -> None:
         logger.info("Stopping all directory listeners")
@@ -173,6 +284,12 @@ class OrderbookAggregator:
             self._bond_calculation_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._bond_calculation_task
+
+        for task in self._retry_tasks:
+            task.cancel()
+
+        if self._retry_tasks:
+            await asyncio.gather(*self._retry_tasks, return_exceptions=True)
 
         for client in self.clients.values():
             client.stop()
@@ -183,11 +300,13 @@ class OrderbookAggregator:
         if self.listener_tasks:
             await asyncio.gather(*self.listener_tasks, return_exceptions=True)
 
-        for client in self.clients.values():
+        for node_id, client in self.clients.items():
+            self.node_statuses[node_id].mark_disconnected()
             await client.close()
 
         self.clients.clear()
         self.listener_tasks.clear()
+        self._retry_tasks.clear()
 
     async def get_live_orderbook(self, calculate_bonds: bool = True) -> OrderBook:
         orderbook = OrderBook(timestamp=datetime.utcnow())

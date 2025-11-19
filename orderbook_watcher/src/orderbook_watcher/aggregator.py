@@ -27,35 +27,41 @@ class DirectoryNodeStatus:
         self.successful_connections = 0
         self.total_uptime_seconds = 0.0
         self.current_session_start: datetime | None = None
+        self.tracking_started: datetime | None = None
 
-    def mark_connected(self) -> None:
+    def mark_connected(self, current_time: datetime | None = None) -> None:
+        now = current_time or datetime.utcnow()
+        if not self.tracking_started:
+            self.tracking_started = now
         self.connected = True
-        self.last_connected = datetime.utcnow()
-        self.current_session_start = datetime.utcnow()
+        self.last_connected = now
+        self.current_session_start = now
         self.successful_connections += 1
 
-    def mark_disconnected(self) -> None:
+    def mark_disconnected(self, current_time: datetime | None = None) -> None:
+        now = current_time or datetime.utcnow()
         if self.connected and self.current_session_start:
-            session_duration = (datetime.utcnow() - self.current_session_start).total_seconds()
+            session_duration = (now - self.current_session_start).total_seconds()
             self.total_uptime_seconds += session_duration
         self.connected = False
-        self.last_disconnected = datetime.utcnow()
+        self.last_disconnected = now
         self.current_session_start = None
 
-    def get_uptime_percentage(self) -> float:
+    def get_uptime_percentage(self, current_time: datetime | None = None) -> float:
         if self.successful_connections == 0:
             return 0.0
-        if not self.last_connected:
+        if not self.tracking_started:
             return 0.0
-        total_time = (datetime.utcnow() - self.last_connected).total_seconds()
+        now = current_time or datetime.utcnow()
+        total_time = (now - self.tracking_started).total_seconds()
         if total_time == 0:
             return 0.0
         current_uptime = self.total_uptime_seconds
         if self.connected and self.current_session_start:
-            current_uptime += (datetime.utcnow() - self.current_session_start).total_seconds()
+            current_uptime += (now - self.current_session_start).total_seconds()
         return (current_uptime / total_time) * 100.0
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, current_time: datetime | None = None) -> dict[str, Any]:
         return {
             "node_id": self.node_id,
             "connected": self.connected,
@@ -65,7 +71,7 @@ class DirectoryNodeStatus:
             else None,
             "connection_attempts": self.connection_attempts,
             "successful_connections": self.successful_connections,
-            "uptime_percentage": round(self.get_uptime_percentage(), 2),
+            "uptime_percentage": round(self.get_uptime_percentage(current_time), 2),
         }
 
 
@@ -112,6 +118,24 @@ class OrderbookAggregator:
         for onion_address, port in directory_nodes:
             node_id = f"{onion_address}:{port}"
             self.node_statuses[node_id] = DirectoryNodeStatus(node_id)
+
+    def _handle_client_disconnect(self, onion_address: str, port: int) -> None:
+        node_id = f"{onion_address}:{port}"
+        client = self.clients.pop(node_id, None)
+        if client:
+            client.stop()
+        self._schedule_reconnect(onion_address, port)
+
+    def _schedule_reconnect(self, onion_address: str, port: int) -> None:
+        node_id = f"{onion_address}:{port}"
+        self._retry_tasks = [task for task in self._retry_tasks if not task.done()]
+        if any(task.get_name() == f"retry:{node_id}" for task in self._retry_tasks):
+            logger.debug(f"Retry already scheduled for {node_id}")
+            return
+        retry_task = asyncio.create_task(self._retry_failed_connection(onion_address, port))
+        retry_task.set_name(f"retry:{node_id}")
+        self._retry_tasks.append(retry_task)
+        logger.info(f"Scheduled retry task for {node_id}")
 
     async def fetch_from_directory(
         self, onion_address: str, port: int
@@ -203,6 +227,7 @@ class OrderbookAggregator:
         def on_disconnect() -> None:
             logger.info(f"Directory node {node_id} disconnected")
             status.mark_disconnected()
+            self._handle_client_disconnect(onion_address, port)
 
         client = DirectoryClient(
             onion_address,
@@ -224,6 +249,7 @@ class OrderbookAggregator:
             logger.warning(f"Connection to directory {node_id} failed: {e}")
             await client.close()
             status.mark_disconnected()
+            self._schedule_reconnect(onion_address, port)
             return None
 
     async def _retry_failed_connection(self, onion_address: str, port: int) -> None:
@@ -233,7 +259,8 @@ class OrderbookAggregator:
             await asyncio.sleep(60)
 
             if node_id in self.clients:
-                continue
+                logger.debug(f"Node {node_id} already connected, stopping retry")
+                return
 
             logger.info(f"Retrying connection to directory {node_id}...")
             client = await self._connect_to_node(onion_address, port)
@@ -243,7 +270,7 @@ class OrderbookAggregator:
                 task = asyncio.create_task(client.listen_continuously())
                 self.listener_tasks.append(task)
                 logger.info(f"Successfully reconnected to directory: {node_id}")
-                break
+                return
 
     async def start_continuous_listening(self) -> None:
         logger.info("Starting continuous listening on all directory nodes")

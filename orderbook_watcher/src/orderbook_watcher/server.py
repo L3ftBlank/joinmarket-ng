@@ -77,7 +77,7 @@ class OrderbookServer:
 
         for node_id, status in self.aggregator.node_statuses.items():
             if node_id in directory_stats:
-                directory_stats[node_id].update(status.to_dict())
+                directory_stats[node_id].update(status.to_dict(orderbook.timestamp))
 
         grouped_offers: dict[tuple[str, int], dict[str, Any]] = {}
         for offer in orderbook.offers:

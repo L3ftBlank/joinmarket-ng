@@ -244,7 +244,11 @@ function showBondModal(bondData, bondAmount) {
 
     document.getElementById('bond-maker-nick').textContent = bondData.maker_nick;
 
-    const mempoolUrl = orderbookData.mempool_url || 'https://mempool.space';
+    let mempoolUrl = orderbookData.mempool_url || 'https://mempool.space';
+    if (window.location.hostname.endsWith('.onion') && orderbookData.mempool_onion_url) {
+        mempoolUrl = orderbookData.mempool_onion_url;
+    }
+
     const txidElement = document.getElementById('bond-txid');
     txidElement.innerHTML = `<a href="${mempoolUrl}/tx/${bondData.utxo_txid}" target="_blank">${bondData.utxo_txid}</a>`;
 

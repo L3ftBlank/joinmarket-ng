@@ -23,7 +23,6 @@ The orderbook watcher follows the clean architecture principles of this reposito
   - **directory_client.py**: Connects to directory nodes
   - **aggregator.py**: Aggregates orderbooks from multiple nodes
   - **server.py**: HTTP server for API and static files
-  - **bond_validator.py**: Validates fidelity bonds
 
 ## Quick Start
 
@@ -95,13 +94,51 @@ All configuration is done via environment variables:
 | `DIRECTORY_NODES` | Comma-separated list of directory nodes (host:port) | (required) |
 | `TOR_SOCKS_HOST` | Tor SOCKS proxy host | 127.0.0.1 |
 | `TOR_SOCKS_PORT` | Tor SOCKS proxy port | 9050 |
-| `MEMPOOL_API_URL` | Mempool.space API base URL | https://mempool.sgn.space/api |
+| `MEMPOOL_API_URL` | Mempool.space API base URL | http://mempoolhqx4isw62xs7abwphsq7s7j7l5q5t5lk46o3v6drqd.onion/api |
+| `MEMPOOL_WEB_URL` | Base URL for transaction links (optional) | https://mempool.sgn.space |
+| `MEMPOOL_WEB_ONION_URL` | Onion base URL for transaction links (optional) | http://mempoolhqx4isw62xs7abwphsq7s7j7l5q5t5lk46o3v6drqd.onion |
 | `HTTP_HOST` | HTTP server bind address | 0.0.0.0 |
 | `HTTP_PORT` | HTTP server port | 8000 |
 | `UPDATE_INTERVAL` | Orderbook update interval in seconds | 60 |
 | `LOG_LEVEL` | Logging level (DEBUG/INFO/WARNING/ERROR) | INFO |
 | `MAX_MESSAGE_SIZE` | Maximum message size in bytes | 40000 |
 | `CONNECTION_TIMEOUT` | Connection timeout in seconds | 30.0 |
+
+## Exposing as a Tor Hidden Service
+
+You can expose the orderbook watcher as a Tor hidden service using the existing Tor container.
+
+1. Update your `tor/conf/torrc` file:
+
+```conf
+SocksPort 0.0.0.0:9050
+ControlPort 0.0.0.0:9051
+CookieAuthentication 1
+DataDirectory /var/lib/tor
+SafeLogging 0
+Log notice stdout
+
+# hidden service
+HiddenServiceDir /var/lib/tor/hidden_service/
+HiddenServiceVersion 3
+HiddenServicePort 80 orderbook_watcher:8000
+```
+
+2. Restart the Tor container:
+```bash
+docker-compose restart tor
+```
+
+3. Get your onion address:
+```bash
+cat tor/data/hidden_service/hostname
+```
+
+4. (Optional) Configure onion-friendly links:
+   If you want the web interface to use onion links for Mempool.space when visited via Tor, add this to your `.env`:
+```bash
+MEMPOOL_WEB_ONION_URL=http://mempoolhqx4isw62xs7abwphsq7s7j7l5q5t5lk46o3v6drqd.onion
+```
 
 ## API Endpoints
 

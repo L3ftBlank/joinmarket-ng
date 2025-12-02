@@ -121,7 +121,9 @@ class OrderbookServer:
             ],
             "directory_nodes": orderbook.directory_nodes,
             "directory_stats": directory_stats,
-            "mempool_url": self.settings.mempool_api_url.replace("/api", ""),
+            "mempool_url": self.settings.mempool_web_url
+            or self.settings.mempool_api_url.replace("/api", ""),
+            "mempool_onion_url": self.settings.mempool_web_onion_url,
         }
 
     async def _handle_health(self, _request: web.Request) -> web.Response:

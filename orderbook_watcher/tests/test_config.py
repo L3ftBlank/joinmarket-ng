@@ -31,3 +31,14 @@ def test_empty_directory_nodes() -> None:
     settings = Settings(directory_nodes="")
     nodes = settings.get_directory_nodes()
     assert len(nodes) == 0
+
+
+def test_mempool_urls() -> None:
+    settings = Settings(
+        mempool_api_url="https://api.example.com",
+        mempool_web_url="https://web.example.com",
+        mempool_web_onion_url="http://onion.example.com",
+    )
+    assert settings.mempool_api_url == "https://api.example.com"
+    assert settings.mempool_web_url == "https://web.example.com"
+    assert settings.mempool_web_onion_url == "http://onion.example.com"

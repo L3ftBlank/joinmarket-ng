@@ -117,7 +117,13 @@ function updateDirectoryBreakdown() {
             const uptime = document.createElement('span');
             uptime.className = 'directory-uptime';
             uptime.textContent = `${data.uptime_percentage}% uptime`;
-            uptime.title = `${data.successful_connections} successful connections`;
+
+            let tooltipText = `${data.successful_connections} successful connections`;
+            if (data.tracking_started) {
+                const trackingStart = new Date(data.tracking_started);
+                tooltipText += `\nTracking since: ${trackingStart.toLocaleString()}`;
+            }
+            uptime.title = tooltipText;
             infoContainer.appendChild(uptime);
         }
 

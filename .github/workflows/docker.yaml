@@ -28,12 +28,24 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Directory server - production
           - context: .
             dockerfile: ./directory_server/Dockerfile
             image: ghcr.io/${{ github.repository }}-directory-server
+            target: production
+            tag_suffix: ""
+          # Directory server - debug (with pdbpp, memray, full debug symbols)
+          - context: .
+            dockerfile: ./directory_server/Dockerfile
+            image: ghcr.io/${{ github.repository }}-directory-server
+            target: debug
+            tag_suffix: "-debug"
+          # Orderbook watcher
           - context: .
             dockerfile: ./orderbook_watcher/Dockerfile
             image: ghcr.io/${{ github.repository }}-orderbook-watcher
+            target: ""
+            tag_suffix: ""
 
     permissions:
       contents: read
@@ -58,12 +70,15 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ matrix.image }}
+          flavor: |
+            suffix=${{ matrix.tag_suffix }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target || '' }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

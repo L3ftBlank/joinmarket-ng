@@ -83,6 +83,42 @@ docker compose down
 
 By default, docker-compose.yml uses the pre-built image `ghcr.io/m0wer/joinmarket-v2-directory-server:master`. To build locally, uncomment the `build` section and comment out the `image` line in docker-compose.yml.
 
+#### Debug Image
+
+A debug variant is available with full Python debug symbols and debugging tools pre-installed:
+
+- **pdbpp**: Enhanced Python debugger with syntax highlighting, tab completion, and sticky mode
+- **memray**: Memory profiler for tracking allocations and finding memory leaks
+
+```bash
+# Pull the debug image
+docker pull ghcr.io/m0wer/joinmarket-v2-directory-server:master-debug
+
+# Run with debug image
+docker run -it --rm \
+  -e LOG_LEVEL=DEBUG \
+  ghcr.io/m0wer/joinmarket-v2-directory-server:master-debug
+
+# Profile memory usage with memray
+docker run -it --rm \
+  -v $(pwd)/memray-output:/app/memray-output \
+  ghcr.io/m0wer/joinmarket-v2-directory-server:master-debug \
+  memray run -o /app/memray-output/profile.bin -m directory_server.main
+
+# Attach debugger (requires adding breakpoint() in code)
+docker run -it --rm \
+  ghcr.io/m0wer/joinmarket-v2-directory-server:master-debug
+```
+
+To build the debug image locally:
+```bash
+# Build debug target
+docker build --target debug -t directory-server:debug -f directory_server/Dockerfile .
+
+# Build production target (default)
+docker build --target production -t directory-server:latest -f directory_server/Dockerfile .
+```
+
 #### Directory Structure After Setup
 
 ```

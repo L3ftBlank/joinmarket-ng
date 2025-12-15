@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
+from functools import cached_property
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
@@ -53,6 +54,7 @@ class PeerInfo(BaseModel):
             raise ValueError("Port must be between 1 and 65535")
         return v
 
+    @cached_property
     def location_string(self) -> str:
         if self.onion_address == "NOT-SERVING-ONION":
             return "NOT-SERVING-ONION"

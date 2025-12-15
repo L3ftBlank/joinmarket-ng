@@ -4,6 +4,7 @@ Peer registry for tracking active peers and their metadata.
 Implements Single Responsibility Principle: only manages peer state.
 """
 
+from collections.abc import Iterator
 from datetime import datetime
 
 from jmcore.models import NetworkType, PeerInfo, PeerStatus
@@ -24,7 +25,7 @@ class PeerRegistry:
         if len(self._peers) >= self.max_peers:
             raise ValueError(f"Maximum peers reached: {self.max_peers}")
 
-        location = peer.location_string()
+        location = peer.location_string
         key = peer.nick if location == "NOT-SERVING-ONION" else location
 
         self._peers[key] = peer
@@ -43,7 +44,7 @@ class PeerRegistry:
             del self._nick_to_key[peer.nick]
 
         del self._peers[key]
-        logger.info(f"Unregistered peer: {peer.nick} at {peer.location_string()}")
+        logger.info(f"Unregistered peer: {peer.nick} at {peer.location_string}")
 
     def get_by_key(self, key: str) -> PeerInfo | None:
         return self._peers.get(key)
@@ -64,23 +65,26 @@ class PeerRegistry:
             if status in (PeerStatus.CONNECTED, PeerStatus.HANDSHAKED):
                 peer.last_seen = datetime.utcnow()
 
+    def _iter_connected(self, network: NetworkType | None = None) -> Iterator[PeerInfo]:
+        """Memory-efficient iterator over connected peers."""
+        for p in self._peers.values():
+            if (
+                p.status == PeerStatus.HANDSHAKED
+                and not p.is_directory
+                and (network is None or p.network == network)
+            ):
+                yield p
+
     def get_all_connected(self, network: NetworkType | None = None) -> list[PeerInfo]:
-        peers = [
-            p
-            for p in self._peers.values()
-            if p.status == PeerStatus.HANDSHAKED and not p.is_directory
-        ]
-        if network:
-            peers = [p for p in peers if p.network == network]
-        return peers
+        return list(self._iter_connected(network))
 
     def get_peerlist_for_network(self, network: NetworkType) -> list[tuple[str, str]]:
-        peers = self.get_all_connected(network)
-        result = []
-        for peer in peers:
-            if peer.onion_address != "NOT-SERVING-ONION":
-                result.append((peer.nick, peer.location_string()))
-        return result
+        # Use generator to avoid intermediate list
+        return [
+            (peer.nick, peer.location_string)
+            for peer in self._iter_connected(network)
+            if peer.onion_address != "NOT-SERVING-ONION"
+        ]
 
     def count(self) -> int:
         return len(self._peers)
@@ -96,16 +100,7 @@ class PeerRegistry:
         These are typically orderbook watchers/takers that don't host their own
         onion service but connect to the directory to watch offers.
         """
-        peers = [
-            p
-            for p in self._peers.values()
-            if p.status == PeerStatus.HANDSHAKED
-            and p.onion_address == "NOT-SERVING-ONION"
-            and not p.is_directory
-        ]
-        if network:
-            peers = [p for p in peers if p.network == network]
-        return peers
+        return [p for p in self._iter_connected(network) if p.onion_address == "NOT-SERVING-ONION"]
 
     def get_active_peers(self, network: NetworkType | None = None) -> list[PeerInfo]:
         """
@@ -114,43 +109,21 @@ class PeerRegistry:
         These are typically makers that host their own onion service and
         publish offers to the orderbook.
         """
-        peers = [
-            p
-            for p in self._peers.values()
-            if p.status == PeerStatus.HANDSHAKED
-            and p.onion_address != "NOT-SERVING-ONION"
-            and not p.is_directory
-        ]
-        if network:
-            peers = [p for p in peers if p.network == network]
-        return peers
+        return [p for p in self._iter_connected(network) if p.onion_address != "NOT-SERVING-ONION"]
 
     def get_stats(self) -> dict[str, int]:
-        connected = len(
-            [
-                p
-                for p in self._peers.values()
-                if p.status == PeerStatus.HANDSHAKED and not p.is_directory
-            ]
-        )
-        passive = len(
-            [
-                p
-                for p in self._peers.values()
-                if p.status == PeerStatus.HANDSHAKED
-                and p.onion_address == "NOT-SERVING-ONION"
-                and not p.is_directory
-            ]
-        )
-        active = len(
-            [
-                p
-                for p in self._peers.values()
-                if p.status == PeerStatus.HANDSHAKED
-                and p.onion_address != "NOT-SERVING-ONION"
-                and not p.is_directory
-            ]
-        )
+        connected = 0
+        passive = 0
+        active = 0
+
+        for p in self._peers.values():
+            if p.status == PeerStatus.HANDSHAKED and not p.is_directory:
+                connected += 1
+                if p.onion_address == "NOT-SERVING-ONION":
+                    passive += 1
+                else:
+                    active += 1
+
         return {
             "total_peers": len(self._peers),
             "connected_peers": connected,

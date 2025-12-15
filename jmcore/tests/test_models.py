@@ -33,14 +33,14 @@ def test_peer_info_location_string():
         port=5222,
     )
     assert (
-        peer.location_string()
+        peer.location_string
         == "abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrstuvwx.onion:5222"
     )
 
 
 def test_peer_info_not_serving():
     peer = PeerInfo(nick="test", onion_address="NOT-SERVING-ONION", port=-1)
-    assert peer.location_string() == "NOT-SERVING-ONION"
+    assert peer.location_string == "NOT-SERVING-ONION"
 
 
 def test_peer_info_invalid_port():

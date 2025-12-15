@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     max_message_size: int = 2097152  # 2MB
     message_rate_limit: int = 100
 
+    # Batch size for concurrent broadcasts to limit memory usage
+    # Lower values = less memory, higher values = faster broadcasts
+    broadcast_batch_size: int = 50
+
     log_level: str = "INFO"
 
     motd: str = "JoinMarket Directory Server https://github.com/m0wer/joinmarket-v2"

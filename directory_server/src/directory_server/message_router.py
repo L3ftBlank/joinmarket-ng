@@ -15,11 +15,21 @@ from directory_server.peer_registry import PeerRegistry
 
 SendCallback = Callable[[str, bytes], Awaitable[None]]
 
+# Default batch size for concurrent broadcasts to limit memory usage
+# This can be overridden via Settings.broadcast_batch_size
+DEFAULT_BROADCAST_BATCH_SIZE = 50
+
 
 class MessageRouter:
-    def __init__(self, peer_registry: PeerRegistry, send_callback: SendCallback):
+    def __init__(
+        self,
+        peer_registry: PeerRegistry,
+        send_callback: SendCallback,
+        broadcast_batch_size: int = DEFAULT_BROADCAST_BATCH_SIZE,
+    ):
         self.peer_registry = peer_registry
         self.send_callback = send_callback
+        self.broadcast_batch_size = broadcast_batch_size
 
     async def route_message(self, envelope: MessageEnvelope, from_key: str) -> None:
         if envelope.message_type == MessageType.PUBMSG:
@@ -51,23 +61,23 @@ class MessageRouter:
 
         connected_peers = self.peer_registry.get_all_connected(from_peer.network)
 
-        # Build list of send tasks for concurrent broadcast
-        tasks = []
+        # Pre-serialize envelope once instead of per-peer
+        envelope_bytes = envelope.to_bytes()
+
+        # Build list of (peer_key, nick) tuples to send to
+        targets: list[tuple[str, str | None]] = []
         for peer in connected_peers:
             peer_key = (
-                peer.nick
-                if peer.location_string() == "NOT-SERVING-ONION"
-                else peer.location_string()
+                peer.nick if peer.location_string == "NOT-SERVING-ONION" else peer.location_string
             )
             if peer_key == from_key:
                 continue
-            tasks.append(self._safe_send(peer_key, envelope.to_bytes(), peer.nick))
+            targets.append((peer_key, peer.nick))
 
-        # Execute all sends concurrently
-        if tasks:
-            await asyncio.gather(*tasks)
+        # Execute sends in batches to limit memory usage
+        await self._batched_broadcast(targets, envelope_bytes)
 
-        logger.trace(f"Broadcasted public message from {from_nick} to {len(tasks)} peers")
+        logger.trace(f"Broadcasted public message from {from_nick} to {len(targets)} peers")
 
     async def _safe_send(self, peer_key: str, data: bytes, nick: str | None = None) -> None:
         """Send with exception handling to prevent one failed send from affecting others."""
@@ -75,6 +85,19 @@ class MessageRouter:
             await self.send_callback(peer_key, data)
         except Exception as e:
             logger.warning(f"Failed to send to {nick or peer_key}: {e}")
+
+    async def _batched_broadcast(self, targets: list[tuple[str, str | None]], data: bytes) -> None:
+        """
+        Broadcast data to targets in batches to limit memory usage.
+
+        Instead of creating all coroutines at once (which caused 2GB+ memory usage),
+        we process in batches of broadcast_batch_size to keep memory bounded.
+        """
+        for i in range(0, len(targets), self.broadcast_batch_size):
+            batch = targets[i : i + self.broadcast_batch_size]
+            tasks = [self._safe_send(peer_key, data, nick) for peer_key, nick in batch]
+            if tasks:
+                await asyncio.gather(*tasks)
 
     async def _handle_private_message(self, envelope: MessageEnvelope, from_key: str) -> None:
         parsed = parse_jm_message(envelope.payload)
@@ -97,8 +120,8 @@ class MessageRouter:
         try:
             to_peer_key = (
                 to_peer.nick
-                if to_peer.location_string() == "NOT-SERVING-ONION"
-                else to_peer.location_string()
+                if to_peer.location_string == "NOT-SERVING-ONION"
+                else to_peer.location_string
             )
             await self.send_callback(to_peer_key, envelope.to_bytes())
             logger.trace(f"Routed private message: {from_nick} -> {to_nick}")
@@ -143,7 +166,7 @@ class MessageRouter:
         if peer_info.onion_address == "NOT-SERVING-ONION":
             return
 
-        entry = create_peerlist_entry(peer_info.nick, peer_info.location_string())
+        entry = create_peerlist_entry(peer_info.nick, peer_info.location_string)
         envelope = MessageEnvelope(message_type=MessageType.PEERLIST, payload=entry)
 
         try:
@@ -156,21 +179,23 @@ class MessageRouter:
         if not peer or not peer.nick:
             return
 
-        entry = create_peerlist_entry(peer.nick, peer.location_string(), disconnected=True)
+        entry = create_peerlist_entry(peer.nick, peer.location_string, disconnected=True)
         envelope = MessageEnvelope(message_type=MessageType.PEERLIST, payload=entry)
 
         connected_peers = self.peer_registry.get_all_connected(network)
 
-        # Build list of send tasks for concurrent broadcast
-        tasks = []
+        # Pre-serialize envelope once instead of per-peer
+        envelope_bytes = envelope.to_bytes()
+
+        # Build list of (peer_key, nick) tuples to send to
+        targets: list[tuple[str, str | None]] = []
         for p in connected_peers:
-            if p.location_string() == peer_location:
+            if p.location_string == peer_location:
                 continue
-            peer_key = p.nick if p.location_string() == "NOT-SERVING-ONION" else p.location_string()
-            tasks.append(self._safe_send(peer_key, envelope.to_bytes(), p.nick))
+            peer_key = p.nick if p.location_string == "NOT-SERVING-ONION" else p.location_string
+            targets.append((peer_key, p.nick))
 
-        # Execute all sends concurrently
-        if tasks:
-            await asyncio.gather(*tasks)
+        # Execute sends in batches to limit memory usage
+        await self._batched_broadcast(targets, envelope_bytes)
 
-        logger.info(f"Broadcasted disconnect for {peer.nick} to {len(tasks)} peers")
+        logger.info(f"Broadcasted disconnect for {peer.nick} to {len(targets)} peers")

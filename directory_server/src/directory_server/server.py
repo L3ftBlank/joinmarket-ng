@@ -29,7 +29,9 @@ class DirectoryServer:
         self.connections = ConnectionPool(max_connections=settings.max_peers)
         self.peer_key_to_conn_id: dict[str, str] = {}
         self.message_router = MessageRouter(
-            peer_registry=self.peer_registry, send_callback=self._send_to_peer
+            peer_registry=self.peer_registry,
+            send_callback=self._send_to_peer,
+            broadcast_batch_size=settings.broadcast_batch_size,
         )
         self.handshake_handler = HandshakeHandler(
             network=self.network, server_nick=f"directory-{settings.network}", motd=settings.motd
@@ -131,7 +133,7 @@ class DirectoryServer:
                 logger.error(f"Failed to send handshake response: {e}")
                 raise
 
-            peer_location = peer_info.location_string()
+            peer_location = peer_info.location_string
             self.peer_registry.register(peer_info)
 
             peer_key = peer_info.nick if peer_location == "NOT-SERVING-ONION" else peer_location
@@ -159,7 +161,7 @@ class DirectoryServer:
         if not peer_info:
             return
 
-        logger.info(f"Peer {peer_info.nick} connected from {peer_info.location_string()}")
+        logger.info(f"Peer {peer_info.nick} connected from {peer_info.location_string}")
 
         while connection.is_connected() and not self._shutdown:
             try:
@@ -183,7 +185,7 @@ class DirectoryServer:
             if peer_info:
                 logger.info(f"Peer {peer_info.nick} disconnected")
                 await self.message_router.broadcast_peer_disconnect(
-                    peer_info.location_string(), peer_info.network
+                    peer_info.location_string, peer_info.network
                 )
                 self.peer_registry.unregister(peer_key)
 

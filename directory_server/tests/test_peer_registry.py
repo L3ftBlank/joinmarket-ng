@@ -59,7 +59,7 @@ def test_max_peers_limit(registry):
 
 def test_unregister_peer(registry, sample_peer):
     registry.register(sample_peer)
-    location = sample_peer.location_string()
+    location = sample_peer.location_string
 
     registry.unregister(location)
 
@@ -69,7 +69,7 @@ def test_unregister_peer(registry, sample_peer):
 
 def test_get_by_location(registry, sample_peer):
     registry.register(sample_peer)
-    location = sample_peer.location_string()
+    location = sample_peer.location_string
 
     retrieved = registry.get_by_location(location)
     assert retrieved is not None
@@ -78,7 +78,7 @@ def test_get_by_location(registry, sample_peer):
 
 def test_update_status(registry, sample_peer):
     registry.register(sample_peer)
-    location = sample_peer.location_string()
+    location = sample_peer.location_string
 
     registry.update_status(location, PeerStatus.HANDSHAKED)
 
@@ -95,7 +95,7 @@ def test_get_all_connected(registry):
             network=NetworkType.MAINNET,
         )
         registry.register(peer)
-        registry.update_status(peer.location_string(), PeerStatus.HANDSHAKED)
+        registry.update_status(peer.location_string, PeerStatus.HANDSHAKED)
 
     connected = registry.get_all_connected(NetworkType.MAINNET)
     assert len(connected) == 3
@@ -111,8 +111,8 @@ def test_get_all_connected_filters_network(registry):
 
     registry.register(mainnet_peer)
     registry.register(testnet_peer)
-    registry.update_status(mainnet_peer.location_string(), PeerStatus.HANDSHAKED)
-    registry.update_status(testnet_peer.location_string(), PeerStatus.HANDSHAKED)
+    registry.update_status(mainnet_peer.location_string, PeerStatus.HANDSHAKED)
+    registry.update_status(testnet_peer.location_string, PeerStatus.HANDSHAKED)
 
     mainnet_peers = registry.get_all_connected(NetworkType.MAINNET)
     assert len(mainnet_peers) == 1
@@ -124,11 +124,11 @@ def test_get_peerlist_for_network(registry):
         nick="peer1", onion_address=f"{'a' * 56}.onion", port=5222, network=NetworkType.MAINNET
     )
     registry.register(peer)
-    registry.update_status(peer.location_string(), PeerStatus.HANDSHAKED)
+    registry.update_status(peer.location_string, PeerStatus.HANDSHAKED)
 
     peerlist = registry.get_peerlist_for_network(NetworkType.MAINNET)
     assert len(peerlist) == 1
-    assert peerlist[0] == ("peer1", peer.location_string())
+    assert peerlist[0] == ("peer1", peer.location_string)
 
 
 def test_clear(registry, sample_peer):

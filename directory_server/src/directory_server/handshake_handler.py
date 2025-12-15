@@ -71,7 +71,7 @@ class HandshakeHandler:
 
             logger.info(
                 f"Handshake accepted: {nick} from {peer_network.value} "
-                f"at {peer_info.location_string()}"
+                f"at {peer_info.location_string}"
             )
 
             return (peer_info, response)

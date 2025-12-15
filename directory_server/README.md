@@ -110,6 +110,28 @@ docker run -it --rm \
   ghcr.io/m0wer/joinmarket-v2-directory-server:master-debug
 ```
 
+#### Live Profiling (Attach)
+
+To attach memray to a running container, the `SYS_PTRACE` capability is required.
+
+1. Add capability in `docker-compose.yml`:
+```yaml
+services:
+  directory_server:
+    image: ghcr.io/m0wer/joinmarket-v2-directory-server:master-debug
+    cap_add:
+      - SYS_PTRACE
+```
+
+2. Attach to the process:
+```bash
+docker exec -it jm_directory_server bash
+# Inside container
+python -m memray attach 1 --verbose
+```
+
+> **Tip**: If it does not work, trying `gdb -p 1` first can provide more details.
+
 To build the debug image locally:
 ```bash
 # Build debug target

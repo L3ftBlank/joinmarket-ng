@@ -66,8 +66,11 @@ class PeerRegistry:
                 peer.last_seen = datetime.utcnow()
 
     def _iter_connected(self, network: NetworkType | None = None) -> Iterator[PeerInfo]:
-        """Memory-efficient iterator over connected peers."""
-        for p in self._peers.values():
+        """Iterator over connected peers.
+
+        Creates a snapshot of peers to avoid RuntimeError if dict is modified during iteration.
+        """
+        for p in list(self._peers.values()):
             if (
                 p.status == PeerStatus.HANDSHAKED
                 and not p.is_directory
@@ -120,7 +123,7 @@ class PeerRegistry:
         passive = 0
         active = 0
 
-        for p in self._peers.values():
+        for p in list(self._peers.values()):
             if p.status == PeerStatus.HANDSHAKED and not p.is_directory:
                 connected += 1
                 if p.onion_address == "NOT-SERVING-ONION":

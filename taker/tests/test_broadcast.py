@@ -209,8 +209,8 @@ class TestTakerBroadcast:
         tx_b64 = base64.b64encode(taker.final_tx).decode("ascii")
         await taker._broadcast_via_maker("J5maker123", tx_b64)
 
-        # Verify !push was sent
-        taker.directory_client.send_privmsg.assert_called_once_with("J5maker123", "!push", tx_b64)
+        # Verify push was sent (without ! prefix - the prefix is only for message routing)
+        taker.directory_client.send_privmsg.assert_called_once_with("J5maker123", "push", tx_b64)
 
     @pytest.mark.asyncio
     async def test_broadcast_via_maker_detects_success(self, taker) -> None:

@@ -214,6 +214,56 @@ def fund_jam_maker_wallet(address: str, amount_btc: float = 2.0) -> bool:
     return True
 
 
+def cleanup_yieldgenerator(maker_id: int, wallet_name: str) -> None:
+    """
+    Clean up any existing yieldgenerator processes and lock files.
+
+    This is necessary to ensure a clean start, especially after test failures
+    or when tests run in sequence and previous cleanup didn't complete.
+
+    Args:
+        maker_id: The maker container ID (1 or 2)
+        wallet_name: Wallet filename (used to find the lock file)
+    """
+    compose_file = get_compose_file()
+
+    # Kill any existing yieldgenerator processes for this wallet
+    kill_cmd = [
+        "docker",
+        "compose",
+        "-f",
+        str(compose_file),
+        "exec",
+        "-T",
+        f"jam-maker{maker_id}",
+        "bash",
+        "-c",
+        f"pkill -f 'yg-privacyenhanced.py.*{wallet_name}' || true",
+    ]
+    subprocess.run(kill_cmd, capture_output=True, timeout=10, check=False)
+
+    # Remove the wallet lock file if it exists
+    lock_file = f"/root/.joinmarket/wallets/.{wallet_name}.lock"
+    rm_cmd = [
+        "docker",
+        "compose",
+        "-f",
+        str(compose_file),
+        "exec",
+        "-T",
+        f"jam-maker{maker_id}",
+        "rm",
+        "-f",
+        lock_file,
+    ]
+    result = subprocess.run(rm_cmd, capture_output=True, timeout=10, check=False)
+    if result.returncode == 0:
+        logger.debug(f"Cleaned up lock file for jam-maker{maker_id}")
+
+    # Give a moment for processes to fully terminate
+    time.sleep(1)
+
+
 def start_yieldgenerator(
     maker_id: int, wallet_name: str, password: str
 ) -> subprocess.Popen[bytes] | None:
@@ -228,6 +278,9 @@ def start_yieldgenerator(
     Returns:
         Popen handle for the process, or None if failed
     """
+    # Clean up any leftover processes or lock files from previous runs
+    cleanup_yieldgenerator(maker_id, wallet_name)
+
     compose_file = get_compose_file()
     cmd = [
         "docker",
@@ -291,14 +344,30 @@ def wait_for_yieldgenerator_ready(
     return False
 
 
-def stop_yieldgenerator(process: subprocess.Popen[bytes]) -> None:
-    """Gracefully stop a yieldgenerator process."""
+def stop_yieldgenerator(
+    process: subprocess.Popen[bytes],
+    maker_id: int | None = None,
+    wallet_name: str | None = None,
+) -> None:
+    """
+    Gracefully stop a yieldgenerator process.
+
+    Args:
+        process: The Popen handle for the docker compose exec process
+        maker_id: Optional maker container ID for proper cleanup
+        wallet_name: Optional wallet name for lock file cleanup
+    """
+    # First terminate the local popen process
     if process.poll() is None:
         process.terminate()
         try:
             process.wait(timeout=10)
         except subprocess.TimeoutExpired:
             process.kill()
+
+    # If we have maker_id and wallet_name, do a proper cleanup inside the container
+    if maker_id is not None and wallet_name is not None:
+        cleanup_yieldgenerator(maker_id, wallet_name)
 
 
 # Mark all tests in this module as requiring Docker reference-maker profile
@@ -390,6 +459,7 @@ def running_yieldgenerators(funded_jam_makers):
     Yields the maker info, then stops the bots on cleanup.
     """
     processes = []
+    started_makers = []
 
     for maker in funded_jam_makers:
         process = start_yieldgenerator(
@@ -397,10 +467,11 @@ def running_yieldgenerators(funded_jam_makers):
         )
         if process:
             processes.append(process)
+            started_makers.append(maker)
         else:
             # Cleanup any started processes
-            for p in processes:
-                stop_yieldgenerator(p)
+            for p, m in zip(processes, started_makers, strict=False):
+                stop_yieldgenerator(p, m["maker_id"], m["wallet_name"])
             pytest.skip(
                 f"Failed to start yieldgenerator for jam-maker{maker['maker_id']}"
             )
@@ -411,10 +482,10 @@ def running_yieldgenerators(funded_jam_makers):
 
     yield funded_jam_makers
 
-    # Cleanup: stop all yieldgenerators
+    # Cleanup: stop all yieldgenerators with proper container cleanup
     logger.info("Stopping yieldgenerators...")
-    for process in processes:
-        stop_yieldgenerator(process)
+    for process, maker in zip(processes, started_makers, strict=False):
+        stop_yieldgenerator(process, maker["maker_id"], maker["wallet_name"])
 
 
 @pytest.mark.asyncio
@@ -596,35 +667,87 @@ async def test_jam_maker_wallet_creation(reference_maker_services):
 @pytest.mark.timeout(180)
 async def test_yieldgenerator_starts(reference_maker_services, funded_jam_makers):
     """Test that yieldgenerator can start and connect to directory."""
+    import fcntl
+    import os
+    import select
+
     maker = funded_jam_makers[0]
 
     process = start_yieldgenerator(
         maker["maker_id"], maker["wallet_name"], maker["password"]
     )
     assert process is not None, "Should be able to start yieldgenerator"
+    assert process.stdout is not None, "Process should have stdout"
 
     try:
-        # Wait a bit for startup
-        await asyncio.sleep(30)
+        # Make stdout non-blocking so we can read it while process runs
+        fd = process.stdout.fileno()
+        fl = fcntl.fcntl(fd, fcntl.F_GETFL)
+        fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
-        # Check process is still running
-        assert process.poll() is None, "Yieldgenerator should still be running"
+        # Collect output over time while waiting for startup
+        output_bytes = b""
+        start_time = time.time()
+        timeout_secs = 60  # Total time to wait for startup indicators
 
-        # Check logs for successful startup
-        result = run_compose_cmd(
-            ["logs", "--tail=50", f"jam-maker{maker['maker_id']}"], check=False
+        # Startup indicators we're looking for - process is ready when it
+        # announces offers or fully connects to message channels
+        startup_indicators = [
+            "offerlist",
+            "all message channels connected",
+            "jm daemon setup complete",
+            "starting yield generator",  # Early indicator that startup is proceeding
+        ]
+
+        while time.time() - start_time < timeout_secs:
+            # Check if process is still running
+            if process.poll() is not None:
+                # Process exited - read any remaining output
+                remaining = process.stdout.read()
+                if remaining:
+                    output_bytes += remaining
+                break
+
+            # Read available output without blocking
+            if select.select([process.stdout], [], [], 1.0)[0]:
+                try:
+                    chunk = process.stdout.read()
+                    if chunk:
+                        output_bytes += chunk
+                except BlockingIOError:
+                    pass
+
+            # Check if we have startup indicators yet
+            output = output_bytes.decode("utf-8", errors="replace").lower()
+            if any(ind in output for ind in startup_indicators):
+                logger.info("Found startup indicators in yieldgenerator output")
+                break
+
+            await asyncio.sleep(1)
+
+        # Decode collected output
+        output = output_bytes.decode("utf-8", errors="replace")
+        output_lower = output.lower()
+
+        logger.info(f"Yieldgenerator output:\n{output[-3000:]}")
+
+        # Check process is still running (should be if successful)
+        if process.poll() is not None:
+            pytest.fail(
+                f"Yieldgenerator exited unexpectedly with code {process.returncode}\n"
+                f"Output: {output[-2000:]}"
+            )
+
+        # Look for signs of successful startup - use same indicators as above
+        has_startup = any(ind in output_lower for ind in startup_indicators)
+
+        assert has_startup, (
+            f"Yieldgenerator should show startup activity in output.\n"
+            f"Output: {output[-2000:]}"
         )
-        logs = result.stdout.lower()
-
-        # Look for signs of successful startup
-        startup_indicators = ["offerlist", "connected", "daemon", "yield"]
-        has_startup = any(ind in logs for ind in startup_indicators)
-
-        logger.info(f"Yieldgenerator logs:\n{result.stdout[-2000:]}")
-        assert has_startup, "Yieldgenerator should show startup activity in logs"
 
     finally:
-        stop_yieldgenerator(process)
+        stop_yieldgenerator(process, maker["maker_id"], maker["wallet_name"])
 
 
 if __name__ == "__main__":

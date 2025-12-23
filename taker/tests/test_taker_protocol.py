@@ -245,8 +245,10 @@ async def test_podle_generation(mock_wallet):
     assert len(commitment.utxo) > 0
 
     # Test commitment serialization
+    # Format: 'P' + 64 hex chars = 65 chars (P prefix for standard PoDLE)
     commitment_str = commitment.to_commitment_str()
-    assert len(commitment_str) == 64  # Should be 32 bytes in hex
+    assert len(commitment_str) == 65  # 'P' + 32 bytes in hex
+    assert commitment_str.startswith("P")
 
     # Test revelation serialization
     revelation = commitment.to_revelation()

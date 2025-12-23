@@ -353,7 +353,11 @@ class TestPoDLECommitment:
         assert revelation["utxo"] == "txid:0"
 
     def test_to_commitment_str(self) -> None:
-        """Test getting commitment as hex string."""
+        """Test getting commitment as hex string with P prefix.
+
+        JoinMarket requires PoDLE commitments to have a 'P' prefix indicating
+        standard PoDLE commitment type. Format: 'P' + hex(commitment)
+        """
         commitment = PoDLECommitment(
             commitment=bytes.fromhex("aa" * 32),
             p=b"\x02" + bytes(32),
@@ -365,7 +369,9 @@ class TestPoDLECommitment:
         )
 
         hex_str = commitment.to_commitment_str()
-        assert hex_str == "aa" * 32
+        # Should be 'P' + 64 hex chars = 65 chars total
+        assert hex_str == "P" + "aa" * 32
+        assert len(hex_str) == 65
 
 
 class TestSerializeRevelation:
@@ -419,8 +425,10 @@ class TestFullFlow:
         commitment = generate_podle(private_key, utxo_str, index=0)
 
         # Taker sends commitment to maker
+        # Commitment string format is: 'P' + hex(commitment) = 65 chars
         commitment_hex = commitment.to_commitment_str()
-        assert len(commitment_hex) == 64
+        assert len(commitment_hex) == 65
+        assert commitment_hex.startswith("P")
 
         # Maker accepts, taker sends revelation
         wire = serialize_revelation(commitment)

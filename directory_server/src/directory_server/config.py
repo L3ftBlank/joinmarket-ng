@@ -30,7 +30,7 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
 
-    motd: str = "JoinMarket Directory Server https://github.com/m0wer/joinmarket-v2"
+    motd: str = "JoinMarket Directory Server https://github.com/m0wer/joinmarket-ng"
 
     health_check_host: str = "127.0.0.1"
     health_check_port: int = 8080

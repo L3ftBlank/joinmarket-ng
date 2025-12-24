@@ -492,7 +492,7 @@ docker compose exec neutrino ping -c 3 jm-bitcoin
 4. Clear neutrino data and restart:
 ```bash
 docker compose stop neutrino
-docker volume rm jm-refactor_neutrino-data
+docker volume rm joinmarket-ng_neutrino-data
 docker compose up -d neutrino
 ```
 

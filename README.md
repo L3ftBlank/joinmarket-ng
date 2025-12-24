@@ -1,4 +1,4 @@
-# JoinMarket Refactor
+# JoinMarket NG
 
 > **⚠️ IMPORTANT NOTICE**
 > This project is production-ready but very new to mainnet usage. While all components are fully implemented and tested, mainnet deployment experience is limited. **USE AT YOUR OWN RISK - NO WARRANTIES PROVIDED.**
@@ -59,7 +59,7 @@ Neutrino takers automatically filter out makers that don't advertise `neutrino_c
 ## Project Structure
 
 ```
-jm-refactor/
+joinmarket-ng/
 ├── jmcore/              # Shared library for all JoinMarket components
 ├── jmwallet/            # Wallet library with pluggable backends
 ├── directory_server/    # Directory/relay server implementation

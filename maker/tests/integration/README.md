@@ -32,7 +32,7 @@ docker exec jm-bitcoin-test bitcoin-cli -regtest -rpcuser=test -rpcpassword=test
 
 ```bash
 # From the maker directory
-cd /home/m0u/code/bitcoin/jm-refactor/maker
+cd /home/m0u/code/bitcoin/joinmarket-ng/maker
 
 # Install dependencies
 pip install -e ../jmwallet[dev]

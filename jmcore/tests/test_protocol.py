@@ -6,9 +6,12 @@ import pytest
 
 from jmcore.protocol import (
     FEATURE_NEUTRINO_COMPAT,
+    FEATURE_PEERLIST_FEATURES,
+    FEATURE_PUSH_ENCRYPTED,
     JM_VERSION,
     JM_VERSION_MIN,
     NOT_SERVING_ONION_HOSTNAME,
+    FeatureSet,
     MessageType,
     ProtocolMessage,
     UTXOMetadata,
@@ -387,3 +390,185 @@ class TestNickVersionDetection:
     def test_get_nick_version_non_digit(self):
         """Nick with non-digit version returns default."""
         assert get_nick_version("JXabcdef") == JM_VERSION_MIN
+
+
+# ==============================================================================
+# FeatureSet Tests
+# ==============================================================================
+
+
+class TestFeatureSet:
+    """Tests for FeatureSet class."""
+
+    def test_empty_featureset(self):
+        """Empty FeatureSet has no features."""
+        fs = FeatureSet()
+        assert len(fs) == 0
+        assert not fs
+        assert FEATURE_NEUTRINO_COMPAT not in fs
+
+    def test_from_list(self):
+        """Create FeatureSet from list."""
+        fs = FeatureSet.from_list([FEATURE_NEUTRINO_COMPAT, FEATURE_PUSH_ENCRYPTED])
+        assert len(fs) == 2
+        assert fs.supports_neutrino_compat()
+        assert fs.supports_push_encrypted()
+
+    def test_from_comma_string_with_commas(self):
+        """Parse FeatureSet from comma-separated string (legacy format)."""
+        fs = FeatureSet.from_comma_string("neutrino_compat,push_encrypted")
+        assert len(fs) == 2
+        assert FEATURE_NEUTRINO_COMPAT in fs
+        assert FEATURE_PUSH_ENCRYPTED in fs
+
+    def test_from_comma_string_with_plus(self):
+        """Parse FeatureSet from plus-separated string (peerlist format)."""
+        fs = FeatureSet.from_comma_string("neutrino_compat+push_encrypted+peerlist_features")
+        assert len(fs) == 3
+        assert FEATURE_NEUTRINO_COMPAT in fs
+        assert FEATURE_PUSH_ENCRYPTED in fs
+        assert FEATURE_PEERLIST_FEATURES in fs
+
+    def test_from_comma_string_empty(self):
+        """Parse empty string returns empty FeatureSet."""
+        fs = FeatureSet.from_comma_string("")
+        assert len(fs) == 0
+
+        fs2 = FeatureSet.from_comma_string("   ")
+        assert len(fs2) == 0
+
+    def test_from_comma_string_single(self):
+        """Parse single feature (no separator)."""
+        fs = FeatureSet.from_comma_string("neutrino_compat")
+        assert len(fs) == 1
+        assert FEATURE_NEUTRINO_COMPAT in fs
+
+    def test_to_comma_string_uses_plus(self):
+        """to_comma_string outputs plus-separated format."""
+        fs = FeatureSet.from_list([FEATURE_NEUTRINO_COMPAT, FEATURE_PUSH_ENCRYPTED])
+        result = fs.to_comma_string()
+        # Should use + separator, sorted alphabetically
+        assert result == "neutrino_compat+push_encrypted"
+        assert "," not in result
+
+    def test_to_dict(self):
+        """Convert to dict for JSON serialization."""
+        fs = FeatureSet.from_list([FEATURE_NEUTRINO_COMPAT, FEATURE_PEERLIST_FEATURES])
+        d = fs.to_dict()
+        assert d[FEATURE_NEUTRINO_COMPAT] is True
+        assert d[FEATURE_PEERLIST_FEATURES] is True
+        assert FEATURE_PUSH_ENCRYPTED not in d
+
+    def test_from_handshake(self):
+        """Extract features from handshake payload."""
+        handshake = {
+            "proto-ver": 5,
+            "features": {
+                FEATURE_NEUTRINO_COMPAT: True,
+                FEATURE_PUSH_ENCRYPTED: False,  # Should be ignored
+                "unknown_feature": True,  # Unknown features included
+            },
+        }
+        fs = FeatureSet.from_handshake(handshake)
+        assert FEATURE_NEUTRINO_COMPAT in fs
+        assert FEATURE_PUSH_ENCRYPTED not in fs  # Was False
+        assert "unknown_feature" in fs
+
+    def test_intersection(self):
+        """Intersection of two FeatureSets."""
+        fs1 = FeatureSet.from_list([FEATURE_NEUTRINO_COMPAT, FEATURE_PUSH_ENCRYPTED])
+        fs2 = FeatureSet.from_list([FEATURE_NEUTRINO_COMPAT, FEATURE_PEERLIST_FEATURES])
+        result = fs1.intersection(fs2)
+        assert len(result) == 1
+        assert FEATURE_NEUTRINO_COMPAT in result
+        assert FEATURE_PUSH_ENCRYPTED not in result
+        assert FEATURE_PEERLIST_FEATURES not in result
+
+    def test_roundtrip_plus_separator(self):
+        """Roundtrip through plus-separated string."""
+        original = FeatureSet.from_list(
+            [FEATURE_NEUTRINO_COMPAT, FEATURE_PUSH_ENCRYPTED, FEATURE_PEERLIST_FEATURES]
+        )
+        serialized = original.to_comma_string()
+        restored = FeatureSet.from_comma_string(serialized)
+        assert original.features == restored.features
+
+
+# ==============================================================================
+# Peerlist Entry with Features Tests
+# ==============================================================================
+
+
+class TestPeerlistEntryFeatures:
+    """Tests for peerlist entries with F: feature suffix."""
+
+    def test_create_entry_with_features(self):
+        """Create peerlist entry with features."""
+        features = FeatureSet.from_list([FEATURE_NEUTRINO_COMPAT, FEATURE_PEERLIST_FEATURES])
+        entry = create_peerlist_entry("J5TestNick", "test.onion:5222", features=features)
+        # Should contain F: prefix with plus-separated features
+        assert "J5TestNick;test.onion:5222;F:" in entry
+        assert "neutrino_compat" in entry
+        assert "peerlist_features" in entry
+        # Should NOT use comma separator (would conflict with peerlist separator)
+        assert ",neutrino" not in entry
+        assert ",peerlist" not in entry
+
+    def test_create_entry_with_features_and_disconnected(self):
+        """Create disconnected peerlist entry with features."""
+        features = FeatureSet.from_list([FEATURE_NEUTRINO_COMPAT])
+        entry = create_peerlist_entry(
+            "J5TestNick", "test.onion:5222", disconnected=True, features=features
+        )
+        assert ";D;" in entry
+        assert ";F:neutrino_compat" in entry
+
+    def test_parse_entry_with_plus_features(self):
+        """Parse peerlist entry with plus-separated features."""
+        entry = "J5TestNick;test.onion:5222;F:neutrino_compat+peerlist_features"
+        nick, location, disco, features = parse_peerlist_entry(entry)
+        assert nick == "J5TestNick"
+        assert location == "test.onion:5222"
+        assert not disco
+        assert len(features) == 2
+        assert FEATURE_NEUTRINO_COMPAT in features
+        assert FEATURE_PEERLIST_FEATURES in features
+
+    def test_parse_entry_disconnected_with_features(self):
+        """Parse disconnected entry with features."""
+        entry = "J5TestNick;test.onion:5222;D;F:neutrino_compat"
+        nick, location, disco, features = parse_peerlist_entry(entry)
+        assert disco
+        assert FEATURE_NEUTRINO_COMPAT in features
+
+    def test_parse_entry_no_features(self):
+        """Parse legacy entry without features."""
+        entry = "J5TestNick;test.onion:5222"
+        nick, location, disco, features = parse_peerlist_entry(entry)
+        assert nick == "J5TestNick"
+        assert location == "test.onion:5222"
+        assert not disco
+        assert len(features) == 0
+
+    def test_roundtrip_peerlist_entry_with_features(self):
+        """Roundtrip peerlist entry creation and parsing."""
+        original_features = FeatureSet.from_list([FEATURE_NEUTRINO_COMPAT, FEATURE_PUSH_ENCRYPTED])
+        entry = create_peerlist_entry(
+            "J5RoundTrip", "round.onion:5222", disconnected=False, features=original_features
+        )
+        nick, location, disco, parsed_features = parse_peerlist_entry(entry)
+        assert nick == "J5RoundTrip"
+        assert location == "round.onion:5222"
+        assert not disco
+        assert parsed_features.features == original_features.features
+
+    def test_invalid_entry_no_separator(self):
+        """Entry without separator raises ValueError."""
+        with pytest.raises(ValueError):
+            parse_peerlist_entry("invalid_entry_no_separator")
+
+    def test_entry_with_empty_features(self):
+        """Entry with empty FeatureSet has no F: suffix."""
+        entry = create_peerlist_entry("J5TestNick", "test.onion:5222", features=FeatureSet())
+        assert ";F:" not in entry
+        assert entry == "J5TestNick;test.onion:5222"

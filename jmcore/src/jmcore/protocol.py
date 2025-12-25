@@ -42,8 +42,9 @@ Cross-Implementation Compatibility:
 **Peerlist Feature Extension:**
 Our directory server extends the peerlist format to include features:
 - Legacy format: nick;location (or nick;location;D for disconnected)
-- Extended format: nick;location;F:feature1,feature2 (features as comma-separated list)
+- Extended format: nick;location;F:feature1+feature2 (features as plus-separated list)
 The extended format is backward compatible - legacy clients will ignore the F: suffix.
+Note: Plus separator is used because the peerlist itself uses commas to separate entries.
 """
 
 from __future__ import annotations
@@ -111,9 +112,17 @@ class FeatureSet:
 
     @classmethod
     def from_comma_string(cls, s: str) -> FeatureSet:
-        """Parse from comma-separated string (e.g., 'neutrino_compat,push_encrypted')."""
+        """Parse from plus-separated string (e.g., 'neutrino_compat+push_encrypted').
+
+        Note: Despite the method name, uses '+' as separator because the peerlist
+        itself uses ',' to separate entries. The name is kept for backward compatibility.
+        Also accepts ',' for legacy/handshake use cases.
+        """
         if not s or not s.strip():
             return cls(features=set())
+        # Support both + (peerlist) and , (legacy/handshake) separators
+        if "+" in s:
+            return cls(features={f.strip() for f in s.split("+") if f.strip()})
         return cls(features={f.strip() for f in s.split(",") if f.strip()})
 
     def to_dict(self) -> dict[str, bool]:
@@ -121,8 +130,13 @@ class FeatureSet:
         return dict.fromkeys(sorted(self.features), True)
 
     def to_comma_string(self) -> str:
-        """Convert to comma-separated string."""
-        return ",".join(sorted(self.features))
+        """Convert to plus-separated string for peerlist F: suffix.
+
+        Note: Uses '+' as separator instead of ',' because the peerlist
+        itself uses ',' to separate entries. Using ',' for features would
+        cause parsing ambiguity.
+        """
+        return "+".join(sorted(self.features))
 
     def supports(self, feature: str) -> bool:
         """Check if this set includes a specific feature."""

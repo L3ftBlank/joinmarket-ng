@@ -30,6 +30,7 @@ from jmcore.protocol import (
     FEATURE_NEUTRINO_COMPAT,
     FEATURE_PEERLIST_FEATURES,
     JM_VERSION,
+    NICK_PEERLOCATOR_SEPARATOR,
     FeatureSet,
     MessageType,
     create_handshake_request,
@@ -356,6 +357,14 @@ class DirectoryClient:
 
         peers = []
         for entry in peerlist_str.split(","):
+            # Skip empty entries
+            if not entry or not entry.strip():
+                continue
+            # Skip entries without separator - these are metadata (e.g., 'peerlist_features')
+            # from the reference implementation, not actual peer entries
+            if NICK_PEERLOCATOR_SEPARATOR not in entry:
+                logger.debug(f"Skipping metadata entry in peerlist: '{entry}'")
+                continue
             try:
                 nick, location, disconnected, _features = parse_peerlist_entry(entry)
                 logger.debug(f"Parsed peer: {nick} at {location}, disconnected={disconnected}")
@@ -423,6 +432,33 @@ class DirectoryClient:
 
         peers: list[tuple[str, str, FeatureSet]] = []
         for entry in peerlist_str.split(","):
+            # Skip empty entries
+            if not entry or not entry.strip():
+                continue
+            # Skip entries without separator - these are metadata (e.g., 'peerlist_features')
+            # from the reference implementation, not actual peer entries
+            if NICK_PEERLOCATOR_SEPARATOR not in entry:
+                logger.debug(f"Skipping metadata entry in peerlist: '{entry}'")
+                continue
+            try:
+                nick, location, disconnected, features = parse_peerlist_entry(entry)
+                logger.debug(
+                    f"Parsed peer: {nick} at {location}, "
+                    f"disconnected={disconnected}, features={features.to_comma_string()}"
+                )
+                if not disconnected:
+                    peers.append((nick, location, features))
+                    # Also update peer_features cache
+                    if features:
+                        self.peer_features[nick] = features.to_dict()
+            except ValueError as e:
+                logger.warning(f"Failed to parse peerlist entry '{entry}': {e}")
+                continue
+            # Skip entries without separator - these are metadata (e.g., 'peerlist_features')
+            # from the reference implementation, not actual peer entries
+            if NICK_PEERLOCATOR_SEPARATOR not in entry:
+                logger.debug(f"Skipping metadata entry in peerlist: '{entry}'")
+                continue
             try:
                 nick, location, disconnected, features = parse_peerlist_entry(entry)
                 logger.debug(
@@ -792,8 +828,9 @@ class DirectoryClient:
                 msg_type = message.get("type")
                 line = message.get("line", "")
 
-                # Process PUBMSG to update offers/bonds cache
-                if msg_type == MessageType.PUBMSG.value:
+                # Process PUBMSG and PRIVMSG to update offers/bonds cache
+                # Reference implementation sends offer responses to !orderbook via PRIVMSG
+                if msg_type in (MessageType.PUBMSG.value, MessageType.PRIVMSG.value):
                     try:
                         parts = line.split(COMMAND_PREFIX)
                         if len(parts) >= 3:
@@ -801,7 +838,8 @@ class DirectoryClient:
                             to_nick = parts[1]
                             rest = COMMAND_PREFIX.join(parts[2:])
 
-                            if to_nick == "PUBLIC":
+                            # Accept PUBLIC broadcasts or messages addressed to us
+                            if to_nick == "PUBLIC" or to_nick == self.nick:
                                 # If we don't have features for this peer, refresh peerlist
                                 if from_nick not in self.peer_features:
                                     try:

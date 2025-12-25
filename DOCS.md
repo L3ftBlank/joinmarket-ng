@@ -410,6 +410,71 @@ The nick format enables:
 
 ---
 
+## Reference Implementation Compatibility
+
+This section documents protocol compatibility findings between our implementation and the reference JoinMarket implementation ([joinmarket-clientserver](https://github.com/JoinMarket-Org/joinmarket-clientserver/)).
+
+### Orderbook Request Behavior
+
+**Reference implementation behavior**: When a peer sends `!orderbook` via PUBMSG, makers respond with offers via **PRIVMSG** (directly to the requesting peer), not PUBMSG.
+
+**Implications for clients**: The `listen_continuously()` function must process both PUBMSG and PRIVMSG message types to receive offer responses. Processing only PUBMSG will miss offer responses.
+
+### Peerlist Format
+
+The peerlist response may contain metadata entries that don't follow the standard `nick;location` format:
+
+**Standard entries**:
+```
+nick1;host1.onion:5222
+nick2;host2.onion:5222;D
+```
+
+**Metadata entries** (reference implementation):
+```
+peerlist_features  # No semicolon separator
+```
+
+**Handling**: Clients should skip entries without the `;` separator rather than treating them as parse errors.
+
+### GETPEERLIST Support
+
+The reference implementation directory server may not respond to `GETPEERLIST` requests within typical timeouts. Clients should:
+1. Handle timeout gracefully
+2. Fall back to receiving peerlist updates via the initial handshake response
+3. Listen for peerlist updates broadcast during normal operation
+
+### Peerlist Feature Extension Format
+
+Our implementation extends the peerlist format to include feature flags:
+
+```
+nick;location;F:feature1+feature2
+```
+
+**Important**: The feature separator is `+` (plus), not `,` (comma), because the peerlist itself uses commas to separate entries. Using commas for features would cause parsing ambiguity:
+
+```
+# WRONG: Commas cause ambiguity
+nick1;host.onion:5222;F:feat1,feat2,nick2;host2.onion:5222
+# Parser cannot distinguish feature "feat2" from entry "nick2;host2.onion:5222"
+
+# CORRECT: Plus separator avoids ambiguity
+nick1;host.onion:5222;F:feat1+feat2,nick2;host2.onion:5222
+# Clear separation: entry 1 has features "feat1" and "feat2", entry 2 starts at "nick2"
+```
+
+The `F:` prefix identifies the features field and maintains backward compatibility with legacy clients that don't understand the extension.
+
+### Known Directory Servers
+
+| Network | Type | Address |
+|---------|------|---------|
+| Mainnet | Reference | `jmarketxf5wc4aldf3slm5u6726zsky52bqnfv6qyxe5hnafgly6yuyd.onion:5222` |
+| Mainnet | JM-NG | `jmv2dirze66rwxsq7xv7frhmaufyicd3yz5if6obtavsskczjkndn6yd.onion:5222` |
+
+---
+
 ## Feature Flags System
 
 ### Overview

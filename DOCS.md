@@ -1216,15 +1216,86 @@ Fidelity bonds allow makers to prove they have locked bitcoins, improving trust 
 
 ### Bond Proof Structure
 
+The bond proof is 252 bytes, packed in little-endian format:
+
 ```
-nick_sig + cert_sig + cert_pubkey + cert_expiry + utxo_pubkey + txid + vout + timelock
-72       + 72       + 33          + 2           + 33          + 32   + 4    + 4 = 252 bytes
+Field           Size    Description
+─────────────────────────────────────────────────────────────────────────
+nick_sig        72      Nick signature (padded DER)
+cert_sig        72      Certificate signature (padded DER)
+cert_pub        33      Certificate public key (compressed)
+cert_expiry      2      Certificate expiry (blocks / 2016)
+utxo_pub        33      UTXO public key (compressed)
+txid            32      Bond UTXO txid (little-endian)
+vout             4      Bond UTXO output index
+locktime         4      Bond locktime (Unix timestamp)
+─────────────────────────────────────────────────────────────────────────
+Total          252      Base64-encoded for transmission
 ```
+
+### Signature Padding
+
+DER signatures are typically 70-72 bytes. The reference implementation pads to exactly 72 bytes using **leading 0xff bytes**:
+
+```python
+# Padding (generation)
+padded_sig = signature_der.rjust(72, b'\xff')
+
+# Stripping (verification) - find DER header 0x30
+stripped_sig = padded_sig[padded_sig.index(b'\x30'):]
+```
+
+**Important**: This is leading padding (rjust), not trailing padding. The verifier finds the DER sequence header (0x30) to locate the actual signature start.
+
+### Message Formats
+
+Both signatures use **Bitcoin message signing format** (double SHA256 with prefix):
+
+```python
+def bitcoin_message_hash(message: bytes) -> bytes:
+    prefix = b"\x18Bitcoin Signed Message:\n"
+    varint = bytes([len(message)])  # simplified for short messages
+    full_msg = prefix + varint + message
+    return sha256(sha256(full_msg).digest()).digest()
+```
+
+#### Nick Signature
+
+Proves the maker controls the certificate key. Signs `(taker_nick|maker_nick)`:
+
+```
+Message: (taker_nick + '|' + maker_nick).encode('ascii')
+Example: b'J5testtaker|J5testmaker'
+Signer:  Certificate private key (cert_pub)
+```
+
+The nick signature is **taker-specific** - each taker receives a unique proof.
+
+#### Certificate Signature
+
+Self-signed certificate binding the certificate key to the UTXO. Two formats are accepted for backward compatibility:
+
+**Binary format** (preferred):
+```
+Message: b'fidelity-bond-cert|' + cert_pub + b'|' + str(cert_expiry_encoded).encode('ascii')
+Example: b'fidelity-bond-cert|\x02\xae...(33 bytes)...|52'
+Signer:  UTXO private key (utxo_pub)
+```
+
+**ASCII format** (legacy):
+```
+Message: b'fidelity-bond-cert|' + hexlify(cert_pub) + b'|' + str(cert_expiry_encoded).encode('ascii')
+Example: b'fidelity-bond-cert|02ae52...(66 chars)...|52'
+Signer:  UTXO private key (utxo_pub)
+```
+
+Note: `cert_expiry_encoded` is `cert_expiry_blocks // 2016`, not the raw block count.
 
 ### Certificate Chain
 
 ```
-Fidelity bond keypair ----signs----> certificate ----signs----> IRC nicknames
+UTXO keypair ────signs────► certificate ────signs────► nick proofs
+(cold storage)              (hot wallet)              (per-taker)
 ```
 
 The two-signature scheme allows:
@@ -1232,12 +1303,39 @@ The two-signature scheme allows:
 2. Hot wallet holds only the certificate keypair
 3. Certificate expiry limits exposure if hot wallet is compromised
 
+For **self-signed certificates** (common case): `cert_pub == utxo_pub`
+
 ### Bond Value Calculation
 
 Bond value depends on:
 - Amount of locked bitcoin
 - Time until unlock (longer = more valuable)
 - Current confirmation count
+
+### Verification Flow
+
+```python
+def verify_fidelity_bond_proof(proof_base64, maker_nick, taker_nick):
+    # 1. Decode and unpack the 252-byte proof
+    decoded = base64.b64decode(proof_base64)
+    nick_sig, cert_sig, cert_pub, cert_expiry_encoded, utxo_pub, txid, vout, locktime = \
+        struct.unpack("<72s72s33sH33s32sII", decoded)
+
+    # 2. Strip 0xff padding from signatures
+    nick_sig_stripped = nick_sig[nick_sig.index(b'\x30'):]
+    cert_sig_stripped = cert_sig[cert_sig.index(b'\x30'):]
+
+    # 3. Verify nick signature (proves maker identity)
+    nick_msg = (taker_nick + '|' + maker_nick).encode('ascii')
+    verify_bitcoin_message_signature(nick_msg, nick_sig_stripped, cert_pub)
+
+    # 4. Verify certificate signature (proves UTXO ownership)
+    cert_msg = b'fidelity-bond-cert|' + cert_pub + b'|' + str(cert_expiry_encoded).encode('ascii')
+    verify_bitcoin_message_signature(cert_msg, cert_sig_stripped, utxo_pub)
+
+    # 5. Verify UTXO exists on-chain (external lookup)
+    # ...
+```
 
 ### Public Key Disclosure and Quantum Computing Considerations
 

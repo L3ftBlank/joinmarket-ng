@@ -56,3 +56,74 @@ def test_address_generation(test_mnemonic):
 
     assert address.startswith("bcrt1")
     assert len(address) > 20
+
+
+def test_xpub_serialization(test_mnemonic):
+    """Test that xpub serialization produces valid Base58Check output."""
+    seed = mnemonic_to_seed(test_mnemonic)
+    master_key = HDKey.from_seed(seed)
+
+    # Derive to account level (m/84'/0'/0')
+    account_key = master_key.derive("m/84'/0'/0'")
+
+    # Test mainnet xpub
+    xpub = account_key.get_xpub("mainnet")
+    assert xpub.startswith("xpub")
+    # BIP32 serialized keys are 78 bytes, which encodes to 111-112 Base58 chars
+    assert len(xpub) >= 100
+
+    # Test testnet tpub
+    tpub = account_key.get_xpub("testnet")
+    assert tpub.startswith("tpub")
+    assert len(tpub) >= 100
+
+
+def test_xprv_serialization(test_mnemonic):
+    """Test that xprv serialization produces valid Base58Check output."""
+    seed = mnemonic_to_seed(test_mnemonic)
+    master_key = HDKey.from_seed(seed)
+
+    # Derive to account level
+    account_key = master_key.derive("m/84'/0'/0'")
+
+    # Test mainnet xprv
+    xprv = account_key.get_xprv("mainnet")
+    assert xprv.startswith("xprv")
+    assert len(xprv) >= 100
+
+    # Test testnet tprv
+    tprv = account_key.get_xprv("testnet")
+    assert tprv.startswith("tprv")
+    assert len(tprv) >= 100
+
+
+def test_fingerprint(test_mnemonic):
+    """Test that fingerprints are calculated correctly."""
+    seed = mnemonic_to_seed(test_mnemonic)
+    master_key = HDKey.from_seed(seed)
+
+    # Master key fingerprint
+    fp = master_key.fingerprint
+    assert len(fp) == 4
+    assert isinstance(fp, bytes)
+
+    # Child key should have parent's fingerprint
+    child = master_key.derive("m/84'")
+    assert child.parent_fingerprint == master_key.fingerprint
+
+
+def test_child_number_tracking(test_mnemonic):
+    """Test that child number is tracked correctly through derivation."""
+    seed = mnemonic_to_seed(test_mnemonic)
+    master_key = HDKey.from_seed(seed)
+
+    # Master key has child_number 0
+    assert master_key.child_number == 0
+
+    # Hardened derivation at index 84 -> child_number = 84 + 0x80000000
+    child = master_key.derive("m/84'")
+    assert child.child_number == 84 + 0x80000000
+
+    # Non-hardened derivation at index 0
+    grandchild = child._derive_child(0)
+    assert grandchild.child_number == 0

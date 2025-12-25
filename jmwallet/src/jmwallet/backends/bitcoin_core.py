@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+from collections.abc import Sequence
 from typing import Any
 
 import httpx
@@ -14,9 +15,18 @@ from loguru import logger
 
 from jmwallet.backends.base import UTXO, BlockchainBackend, Transaction
 
+# Timeout for regular RPC calls (seconds)
+DEFAULT_RPC_TIMEOUT = 30.0
+
+# Timeout for scantxoutset calls - mainnet scans can take 90+ seconds
+SCAN_RPC_TIMEOUT = 300.0  # 5 minutes
+
 # Maximum retries for scantxoutset when another scan is in progress
 SCAN_MAX_RETRIES = 10
 SCAN_BASE_DELAY = 0.5  # Base delay in seconds for exponential backoff
+
+# Polling interval for scan status checks
+SCAN_STATUS_POLL_INTERVAL = 5.0  # seconds
 
 
 class BitcoinCoreBackend(BlockchainBackend):
@@ -31,14 +41,39 @@ class BitcoinCoreBackend(BlockchainBackend):
         rpc_url: str = "http://127.0.0.1:18443",
         rpc_user: str = "rpcuser",
         rpc_password: str = "rpcpassword",
+        scan_timeout: float = SCAN_RPC_TIMEOUT,
     ):
         self.rpc_url = rpc_url.rstrip("/")
         self.rpc_user = rpc_user
         self.rpc_password = rpc_password
-        self.client = httpx.AsyncClient(timeout=30.0, auth=(rpc_user, rpc_password))
+        self.scan_timeout = scan_timeout
+        # Client for regular RPC calls
+        self.client = httpx.AsyncClient(timeout=DEFAULT_RPC_TIMEOUT, auth=(rpc_user, rpc_password))
+        # Separate client for long-running scans
+        self._scan_client = httpx.AsyncClient(timeout=scan_timeout, auth=(rpc_user, rpc_password))
         self._request_id = 0
 
-    async def _rpc_call(self, method: str, params: list | None = None) -> Any:
+    async def _rpc_call(
+        self,
+        method: str,
+        params: list | None = None,
+        client: httpx.AsyncClient | None = None,
+    ) -> Any:
+        """
+        Make an RPC call to Bitcoin Core.
+
+        Args:
+            method: RPC method name
+            params: Method parameters
+            client: Optional httpx client (uses default client if not provided)
+
+        Returns:
+            RPC result
+
+        Raises:
+            ValueError: On RPC errors
+            httpx.HTTPError: On connection/timeout errors
+        """
         self._request_id += 1
         payload = {
             "jsonrpc": "2.0",
@@ -47,46 +82,77 @@ class BitcoinCoreBackend(BlockchainBackend):
             "params": params or [],
         }
 
+        use_client = client or self.client
+
         try:
-            response = await self.client.post(self.rpc_url, json=payload)
+            response = await use_client.post(self.rpc_url, json=payload)
             response.raise_for_status()
             data = response.json()
 
             if "error" in data and data["error"]:
-                raise ValueError(f"RPC error: {data['error']}")
+                error_info = data["error"]
+                error_code = error_info.get("code", "unknown")
+                error_msg = error_info.get("message", str(error_info))
+                raise ValueError(f"RPC error {error_code}: {error_msg}")
 
             return data.get("result")
 
+        except httpx.TimeoutException as e:
+            logger.error(f"RPC call timed out: {method} - {e}")
+            raise
         except httpx.HTTPError as e:
             logger.error(f"RPC call failed: {method} - {e}")
             raise
 
-    async def _scantxoutset_with_retry(self, descriptors: list[str]) -> dict[str, Any] | None:
+    async def _scantxoutset_with_retry(
+        self, descriptors: Sequence[str | dict[str, Any]]
+    ) -> dict[str, Any] | None:
         """
         Execute scantxoutset with retry logic for handling concurrent scan conflicts.
 
-        Bitcoin Core only allows one scantxoutset at a time. This method retries with
-        exponential backoff when another scan is in progress.
+        Bitcoin Core only allows one scantxoutset at a time. This method:
+        1. Checks if a scan is already in progress
+        2. If so, waits for it to complete (via status polling) before starting ours
+        3. Starts our scan with extended timeout for mainnet
 
         Args:
-            descriptors: List of output descriptors to scan for
+            descriptors: List of output descriptors to scan for. Can be:
+                - Simple strings: "addr(bc1q...)"
+                - Dicts with range: {"desc": "wpkh([fp/84'/0'/0'/0/*)", "range": [0, 999]}
 
         Returns:
             Scan result dict or None if all retries failed
         """
         for attempt in range(SCAN_MAX_RETRIES):
             try:
-                result = await self._rpc_call("scantxoutset", ["start", descriptors])
+                # First check if a scan is already running
+                status = await self._rpc_call("scantxoutset", ["status"])
+                if status is not None:
+                    # A scan is in progress - wait for it
+                    progress = status.get("progress", 0)
+                    logger.debug(
+                        f"Another scan in progress ({progress:.1%}), waiting... "
+                        f"(attempt {attempt + 1}/{SCAN_MAX_RETRIES})"
+                    )
+                    if attempt < SCAN_MAX_RETRIES - 1:
+                        await asyncio.sleep(SCAN_STATUS_POLL_INTERVAL)
+                        continue
+
+                # Start our scan with extended timeout
+                logger.debug(f"Starting UTXO scan for {len(descriptors)} descriptor(s)...")
+                result = await self._rpc_call(
+                    "scantxoutset", ["start", descriptors], client=self._scan_client
+                )
                 return result
+
             except ValueError as e:
                 error_str = str(e)
-                # Check if it's a "scan already in progress" error
-                if "Scan already in progress" in error_str or "code': -8" in error_str:
+                # Check for "scan already in progress" error (code -8)
+                if "code': -8" in error_str or "Scan already in progress" in error_str:
                     if attempt < SCAN_MAX_RETRIES - 1:
-                        # Exponential backoff with jitter
                         delay = SCAN_BASE_DELAY * (2**attempt) + random.uniform(0, 0.5)
                         logger.debug(
-                            f"Scan in progress, retrying in {delay:.2f}s "
+                            f"Scan in progress (RPC error), retrying in {delay:.2f}s "
                             f"(attempt {attempt + 1}/{SCAN_MAX_RETRIES})"
                         )
                         await asyncio.sleep(delay)
@@ -97,11 +163,23 @@ class BitcoinCoreBackend(BlockchainBackend):
                         )
                         return None
                 else:
-                    # Other RPC errors should not be retried
+                    # Other RPC errors - log and re-raise
+                    logger.error(f"scantxoutset RPC error: {error_str}")
                     raise
-            except Exception:
+
+            except httpx.TimeoutException:
+                # Timeout during scan - this is a real failure on mainnet
+                logger.error(
+                    f"scantxoutset timed out after {self.scan_timeout}s. "
+                    "Try increasing scan_timeout for mainnet."
+                )
+                return None
+
+            except Exception as e:
+                logger.error(f"Unexpected error during scantxoutset: {type(e).__name__}: {e}")
                 raise
 
+        logger.warning(f"scantxoutset failed after {SCAN_MAX_RETRIES} attempts")
         return None
 
     async def get_utxos(self, addresses: list[str]) -> list[UTXO]:
@@ -168,6 +246,51 @@ class BitcoinCoreBackend(BlockchainBackend):
                 continue
 
         return utxos
+
+    async def scan_descriptors(
+        self, descriptors: Sequence[str | dict[str, Any]]
+    ) -> dict[str, Any] | None:
+        """
+        Scan the UTXO set using output descriptors.
+
+        This is much more efficient than scanning individual addresses,
+        especially for HD wallets where you can use xpub descriptors with
+        ranges to scan thousands of addresses in a single UTXO set pass.
+
+        Example descriptors:
+            - "addr(bc1q...)" - single address
+            - "wpkh(xpub.../0/*)" - HD wallet external addresses (default range 0-1000)
+            - {"desc": "wpkh(xpub.../0/*)", "range": [0, 999]} - explicit range
+
+        Args:
+            descriptors: List of output descriptors (strings or dicts with range)
+
+        Returns:
+            Raw scan result dict from Bitcoin Core, or None on failure.
+            Result includes:
+                - success: bool
+                - txouts: number of UTXOs scanned
+                - height: current block height
+                - unspents: list of found UTXOs with txid, vout, scriptPubKey,
+                            desc (matched descriptor), amount, height
+                - total_amount: sum of all found UTXOs
+        """
+        if not descriptors:
+            return {"success": True, "unspents": [], "total_amount": 0}
+
+        logger.info(f"Starting descriptor scan with {len(descriptors)} descriptor(s)...")
+        result = await self._scantxoutset_with_retry(descriptors)
+
+        if result:
+            unspent_count = len(result.get("unspents", []))
+            total = result.get("total_amount", 0)
+            logger.info(
+                f"Descriptor scan complete: found {unspent_count} UTXOs, total {total:.8f} BTC"
+            )
+        else:
+            logger.warning("Descriptor scan failed or returned no results")
+
+        return result
 
     async def get_address_balance(self, address: str) -> int:
         utxos = await self.get_utxos([address])
@@ -361,3 +484,4 @@ class BitcoinCoreBackend(BlockchainBackend):
 
     async def close(self) -> None:
         await self.client.aclose()
+        await self._scan_client.aclose()

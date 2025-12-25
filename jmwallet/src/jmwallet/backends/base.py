@@ -5,7 +5,9 @@ Base blockchain backend interface.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -86,6 +88,38 @@ class BlockchainBackend(ABC):
     async def get_utxo(self, txid: str, vout: int) -> UTXO | None:
         """Get a specific UTXO from the blockchain UTXO set (gettxout).
         Returns None if the UTXO does not exist or has been spent."""
+
+    async def scan_descriptors(
+        self, descriptors: Sequence[str | dict[str, Any]]
+    ) -> dict[str, Any] | None:
+        """
+        Scan the UTXO set using output descriptors.
+
+        This is an efficient alternative to scanning individual addresses,
+        especially useful for HD wallets where xpub descriptors with ranges
+        can scan thousands of addresses in a single UTXO set pass.
+
+        Example descriptors:
+            - "addr(bc1q...)" - single address
+            - "wpkh(xpub.../0/*)" - HD wallet addresses (default range 0-1000)
+            - {"desc": "wpkh(xpub.../0/*)", "range": [0, 999]} - explicit range
+
+        Args:
+            descriptors: List of output descriptors (strings or dicts with range)
+
+        Returns:
+            Scan result dict with:
+                - success: bool
+                - unspents: list of found UTXOs
+                - total_amount: sum of all found UTXOs
+            Returns None if not supported or on failure.
+
+        Note:
+            Not all backends support descriptor scanning. The default implementation
+            returns None. Override in backends that support it (e.g., Bitcoin Core).
+        """
+        # Default: not supported
+        return None
 
     async def verify_utxo_with_metadata(
         self,

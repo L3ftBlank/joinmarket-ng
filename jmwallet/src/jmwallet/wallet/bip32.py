@@ -13,6 +13,42 @@ from coincurve import PrivateKey, PublicKey
 # secp256k1 curve order
 SECP256K1_N = int("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141", 16)
 
+# BIP32 version bytes for extended keys
+# Note: For BIP84 (native segwit), we should use zpub/zprv but Bitcoin Core
+# expects standard xpub format in descriptors - it infers the script type from
+# the descriptor wrapper (wpkh, wsh, etc.)
+XPUB_MAINNET = bytes.fromhex("0488B21E")  # xpub
+XPRV_MAINNET = bytes.fromhex("0488ADE4")  # xprv
+XPUB_TESTNET = bytes.fromhex("043587CF")  # tpub
+XPRV_TESTNET = bytes.fromhex("04358394")  # tprv
+
+
+def _base58check_encode(payload: bytes) -> str:
+    """Encode bytes with Base58Check (with checksum)."""
+    checksum = hashlib.sha256(hashlib.sha256(payload).digest()).digest()[:4]
+    data = payload + checksum
+
+    # Base58 alphabet (Bitcoin)
+    alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+    # Convert to integer
+    num = int.from_bytes(data, "big")
+
+    # Encode
+    result = ""
+    while num > 0:
+        num, remainder = divmod(num, 58)
+        result = alphabet[remainder] + result
+
+    # Add leading '1's for leading zero bytes
+    for byte in data:
+        if byte == 0:
+            result = "1" + result
+        else:
+            break
+
+    return result
+
 
 class HDKey:
     """
@@ -20,11 +56,20 @@ class HDKey:
     Implements BIP32 derivation.
     """
 
-    def __init__(self, private_key: PrivateKey, chain_code: bytes, depth: int = 0):
+    def __init__(
+        self,
+        private_key: PrivateKey,
+        chain_code: bytes,
+        depth: int = 0,
+        parent_fingerprint: bytes = b"\x00\x00\x00\x00",
+        child_number: int = 0,
+    ):
         self._private_key = private_key
         self._public_key = private_key.public_key
         self.chain_code = chain_code
         self.depth = depth
+        self.parent_fingerprint = parent_fingerprint
+        self.child_number = child_number
 
     @property
     def private_key(self) -> PrivateKey:
@@ -35,6 +80,14 @@ class HDKey:
     def public_key(self) -> PublicKey:
         """Return the coincurve PublicKey instance."""
         return self._public_key
+
+    @property
+    def fingerprint(self) -> bytes:
+        """Get the fingerprint of this key (first 4 bytes of hash160 of public key)."""
+        pubkey_bytes = self._public_key.format(compressed=True)
+        sha256_hash = hashlib.sha256(pubkey_bytes).digest()
+        ripemd160_hash = hashlib.new("ripemd160", sha256_hash).digest()
+        return ripemd160_hash[:4]
 
     @classmethod
     def from_seed(cls, seed: bytes) -> HDKey:
@@ -99,7 +152,13 @@ class HDKey:
         child_key_bytes = child_key_int.to_bytes(32, "big")
         child_private_key = PrivateKey(child_key_bytes)
 
-        return HDKey(child_private_key, child_chain, depth=self.depth + 1)
+        return HDKey(
+            child_private_key,
+            child_chain,
+            depth=self.depth + 1,
+            parent_fingerprint=self.fingerprint,
+            child_number=index,
+        )
 
     def get_private_key_bytes(self) -> bytes:
         """Get private key as 32 bytes"""
@@ -119,6 +178,78 @@ class HDKey:
     def sign(self, message: bytes) -> bytes:
         """Sign a message with this key (uses SHA256 hashing)."""
         return self._private_key.sign(message)
+
+    def get_xpub(self, network: str = "mainnet") -> str:
+        """
+        Serialize the public key as an extended public key (xpub/tpub).
+
+        This produces a standard BIP32 xpub that can be used in Bitcoin Core
+        descriptors. The descriptor wrapper (wpkh, wsh, etc.) determines the
+        actual address type.
+
+        Args:
+            network: "mainnet" for xpub, "testnet"/"regtest" for tpub
+
+        Returns:
+            Base58Check-encoded extended public key (xpub or tpub)
+        """
+        if network == "mainnet":
+            version = XPUB_MAINNET
+        else:
+            version = XPUB_TESTNET
+
+        # BIP32 serialization format:
+        # 4 bytes: version
+        # 1 byte: depth
+        # 4 bytes: parent fingerprint
+        # 4 bytes: child number
+        # 32 bytes: chain code
+        # 33 bytes: public key (compressed)
+        depth_byte = min(self.depth, 255).to_bytes(1, "big")
+        child_num_bytes = self.child_number.to_bytes(4, "big")
+        pubkey_bytes = self._public_key.format(compressed=True)
+
+        payload = (
+            version
+            + depth_byte
+            + self.parent_fingerprint
+            + child_num_bytes
+            + self.chain_code
+            + pubkey_bytes
+        )
+
+        return _base58check_encode(payload)
+
+    def get_xprv(self, network: str = "mainnet") -> str:
+        """
+        Serialize the private key as an extended private key (xprv/tprv).
+
+        Args:
+            network: "mainnet" for xprv, "testnet"/"regtest" for tprv
+
+        Returns:
+            Base58Check-encoded extended private key
+        """
+        if network == "mainnet":
+            version = XPRV_MAINNET
+        else:
+            version = XPRV_TESTNET
+
+        depth_byte = min(self.depth, 255).to_bytes(1, "big")
+        child_num_bytes = self.child_number.to_bytes(4, "big")
+        # Private key is prefixed with 0x00 to make it 33 bytes
+        privkey_bytes = b"\x00" + self._private_key.secret
+
+        payload = (
+            version
+            + depth_byte
+            + self.parent_fingerprint
+            + child_num_bytes
+            + self.chain_code
+            + privkey_bytes
+        )
+
+        return _base58check_encode(payload)
 
 
 def mnemonic_to_seed(mnemonic: str, passphrase: str = "") -> bytes:

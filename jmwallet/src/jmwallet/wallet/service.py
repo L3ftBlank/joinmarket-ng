@@ -4,6 +4,8 @@ JoinMarket wallet service with mixdepth support.
 
 from __future__ import annotations
 
+from typing import Any
+
 from jmcore.btc_script import mk_freeze_script
 from loguru import logger
 
@@ -14,6 +16,9 @@ from jmwallet.wallet.models import UTXOInfo
 
 # Fidelity bond constants
 FIDELITY_BOND_BRANCH = 2  # Internal branch for fidelity bonds
+
+# Default range for descriptor scans (Bitcoin Core default is 1000)
+DEFAULT_SCAN_RANGE = 1000
 
 
 class WalletService:
@@ -72,6 +77,58 @@ class WalletService:
     def get_change_address(self, mixdepth: int, index: int) -> str:
         """Get internal (change) address"""
         return self.get_address(mixdepth, 1, index)
+
+    def get_account_xpub(self, mixdepth: int) -> str:
+        """
+        Get the extended public key (xpub) for a mixdepth account.
+
+        Derives the key at path m/84'/coin'/mixdepth' and returns its xpub.
+        This xpub can be used in Bitcoin Core descriptors for efficient scanning.
+
+        Args:
+            mixdepth: The mixdepth (account) number (0-4)
+
+        Returns:
+            xpub/tpub string for the account
+        """
+        account_path = f"{self.root_path}/{mixdepth}'"
+        account_key = self.master_key.derive(account_path)
+        return account_key.get_xpub(self.network)
+
+    def get_scan_descriptors(self, scan_range: int = DEFAULT_SCAN_RANGE) -> list[dict[str, Any]]:
+        """
+        Generate descriptors for efficient UTXO scanning with Bitcoin Core.
+
+        Creates wpkh() descriptors with xpub and range for all mixdepths,
+        both external (receive) and internal (change) addresses.
+
+        Using descriptors with ranges is much more efficient than scanning
+        individual addresses, as Bitcoin Core can scan the entire range in
+        a single pass through the UTXO set.
+
+        Args:
+            scan_range: Maximum index to scan (default 1000, Bitcoin Core's default)
+
+        Returns:
+            List of descriptor dicts for use with scantxoutset:
+            [{"desc": "wpkh(xpub.../0/*)", "range": [0, 999]}, ...]
+        """
+        descriptors = []
+
+        for mixdepth in range(self.mixdepth_count):
+            xpub = self.get_account_xpub(mixdepth)
+
+            # External (receive) addresses: .../0/*
+            descriptors.append({"desc": f"wpkh({xpub}/0/*)", "range": [0, scan_range - 1]})
+
+            # Internal (change) addresses: .../1/*
+            descriptors.append({"desc": f"wpkh({xpub}/1/*)", "range": [0, scan_range - 1]})
+
+        logger.debug(
+            f"Generated {len(descriptors)} descriptors for {self.mixdepth_count} mixdepths "
+            f"with range [0, {scan_range - 1}]"
+        )
+        return descriptors
 
     def get_fidelity_bond_key(self, index: int, locktime: int) -> HDKey:
         """
@@ -307,12 +364,172 @@ class WalletService:
     async def sync_all(self) -> dict[int, list[UTXOInfo]]:
         """Sync all mixdepths"""
         logger.info("Syncing all mixdepths...")
+
+        # Try efficient descriptor-based sync if backend supports it
+        if hasattr(self.backend, "scan_descriptors"):
+            result = await self._sync_all_with_descriptors()
+            if result is not None:
+                return result
+            # Fall back to address-by-address sync on failure
+            logger.warning("Descriptor scan failed, falling back to address scan")
+
+        # Legacy address-by-address scanning
         result = {}
         for mixdepth in range(self.mixdepth_count):
             utxos = await self.sync_mixdepth(mixdepth)
             result[mixdepth] = utxos
         logger.info(f"Sync complete: {sum(len(u) for u in result.values())} total UTXOs")
         return result
+
+    async def _sync_all_with_descriptors(self) -> dict[int, list[UTXOInfo]] | None:
+        """
+        Sync all mixdepths using efficient descriptor scanning.
+
+        This scans the entire wallet in a single UTXO set pass using xpub descriptors,
+        which is much faster than scanning addresses individually (especially on mainnet
+        where a full UTXO set scan takes ~90 seconds).
+
+        Returns:
+            Dictionary mapping mixdepth to list of UTXOInfo, or None on failure
+        """
+        # Generate descriptors for all mixdepths and build a lookup table
+        scan_range = max(DEFAULT_SCAN_RANGE, self.gap_limit * 10)
+        descriptors = []
+        # Map descriptor string (without checksum) -> (mixdepth, change)
+        desc_to_path: dict[str, tuple[int, int]] = {}
+
+        for mixdepth in range(self.mixdepth_count):
+            xpub = self.get_account_xpub(mixdepth)
+
+            # External (receive) addresses: .../0/*
+            desc_ext = f"wpkh({xpub}/0/*)"
+            descriptors.append({"desc": desc_ext, "range": [0, scan_range - 1]})
+            desc_to_path[desc_ext] = (mixdepth, 0)
+
+            # Internal (change) addresses: .../1/*
+            desc_int = f"wpkh({xpub}/1/*)"
+            descriptors.append({"desc": desc_int, "range": [0, scan_range - 1]})
+            desc_to_path[desc_int] = (mixdepth, 1)
+
+        # Get current block height for confirmation calculation
+        try:
+            tip_height = await self.backend.get_block_height()
+        except Exception as e:
+            logger.error(f"Failed to get block height for descriptor scan: {e}")
+            return None
+
+        # Perform the scan
+        scan_result = await self.backend.scan_descriptors(descriptors)
+        if not scan_result or not scan_result.get("success", False):
+            return None
+
+        # Parse results and organize by mixdepth
+        result: dict[int, list[UTXOInfo]] = {md: [] for md in range(self.mixdepth_count)}
+
+        for utxo_data in scan_result.get("unspents", []):
+            # Parse the descriptor to extract change and index
+            # Descriptor format from Bitcoin Core when using xpub:
+            # wpkh([fingerprint/change/index]pubkey)#checksum
+            # The fingerprint is the parent xpub's fingerprint
+            desc = utxo_data.get("desc", "")
+            path_info = self._parse_descriptor_path(desc, desc_to_path)
+
+            if path_info is None:
+                logger.warning(f"Could not parse path from descriptor: {desc}")
+                continue
+
+            mixdepth, change, index = path_info
+
+            # Calculate confirmations
+            confirmations = 0
+            utxo_height = utxo_data.get("height", 0)
+            if utxo_height > 0:
+                confirmations = tip_height - utxo_height + 1
+
+            # Generate the address and cache it
+            address = self.get_address(mixdepth, change, index)
+
+            # Build path string
+            path = f"{self.root_path}/{mixdepth}'/{change}/{index}"
+
+            utxo_info = UTXOInfo(
+                txid=utxo_data["txid"],
+                vout=utxo_data["vout"],
+                value=int(utxo_data["amount"] * 100_000_000),
+                address=address,
+                confirmations=confirmations,
+                scriptpubkey=utxo_data.get("scriptPubKey", ""),
+                path=path,
+                mixdepth=mixdepth,
+                height=utxo_height if utxo_height > 0 else None,
+            )
+            result[mixdepth].append(utxo_info)
+
+        # Update cache
+        self.utxo_cache = result
+
+        total_utxos = sum(len(u) for u in result.values())
+        total_value = sum(sum(u.value for u in utxos) for utxos in result.values())
+        logger.info(
+            f"Descriptor sync complete: {total_utxos} UTXOs, "
+            f"{total_value / 100_000_000:.8f} BTC total"
+        )
+
+        return result
+
+    def _parse_descriptor_path(
+        self, desc: str, desc_to_path: dict[str, tuple[int, int]]
+    ) -> tuple[int, int, int] | None:
+        """
+        Parse a descriptor to extract mixdepth, change, and index.
+
+        When using xpub descriptors, Bitcoin Core returns a descriptor showing
+        the path RELATIVE to the xpub we provided:
+        wpkh([fingerprint/change/index]pubkey)#checksum
+
+        We need to match this back to the original descriptor to determine mixdepth.
+
+        Args:
+            desc: Descriptor string from scantxoutset result
+            desc_to_path: Mapping of descriptor (without checksum) to (mixdepth, change)
+
+        Returns:
+            Tuple of (mixdepth, change, index) or None if parsing fails
+        """
+        import re
+
+        # Remove checksum
+        if "#" in desc:
+            desc_base = desc.split("#")[0]
+        else:
+            desc_base = desc
+
+        # Extract the relative path [fingerprint/change/index] and pubkey
+        # Pattern: wpkh([fingerprint/change/index]pubkey)
+        match = re.search(r"wpkh\(\[[\da-f]+/(\d+)/(\d+)\]([\da-f]+)\)", desc_base, re.I)
+        if not match:
+            return None
+
+        change_from_desc = int(match.group(1))
+        index = int(match.group(2))
+        pubkey = match.group(3)
+
+        # Find which descriptor this matches by checking all our descriptors
+        # We need to derive the key and check if it matches the pubkey
+        for base_desc, (mixdepth, change) in desc_to_path.items():
+            if change == change_from_desc:
+                # Verify by deriving the key and comparing pubkeys
+                try:
+                    derived_key = self.master_key.derive(
+                        f"{self.root_path}/{mixdepth}'/{change}/{index}"
+                    )
+                    derived_pubkey = derived_key.get_public_key_bytes(compressed=True).hex()
+                    if derived_pubkey == pubkey:
+                        return (mixdepth, change, index)
+                except Exception:
+                    continue
+
+        return None
 
     async def get_balance(self, mixdepth: int) -> int:
         """Get balance for a mixdepth"""

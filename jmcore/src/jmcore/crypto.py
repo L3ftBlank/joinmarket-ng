@@ -244,27 +244,126 @@ def verify_signature(public_key_hex: str, message: bytes, signature: bytes) -> b
         return False
 
 
+def strip_signature_padding(signature: bytes) -> bytes:
+    """
+    Strip padding bytes from a DER signature.
+
+    The reference JoinMarket implementation pads signatures to 72 bytes using
+    rjust(72, b'\\xff'). This function finds the DER header (0x30) and strips
+    any leading padding bytes.
+
+    Args:
+        signature: Possibly padded DER signature
+
+    Returns:
+        DER signature with padding removed
+    """
+    try:
+        # Find the DER sequence header (0x30)
+        idx = signature.index(b"\x30")
+        return signature[idx:]
+    except ValueError:
+        # No 0x30 found, try stripping trailing zeros (our legacy format)
+        return signature.rstrip(b"\x00")
+
+
 def verify_raw_ecdsa(message_hash: bytes, signature_der: bytes, pubkey_bytes: bytes) -> bool:
     """
     Verify an ECDSA signature on a pre-hashed message.
 
     Args:
         message_hash: The message hash (already SHA256'd)
-        signature_der: DER-encoded signature (may have trailing padding zeros)
+        signature_der: DER-encoded signature (may have leading 0xff padding or trailing zeros)
         pubkey_bytes: Compressed public key (33 bytes)
 
     Returns:
         True if signature is valid
     """
     try:
-        # Strip trailing zero padding from signature
-        sig = signature_der.rstrip(b"\x00")
+        # Strip padding from signature (handles both leading 0xff and trailing 0x00)
+        sig = strip_signature_padding(signature_der)
         if len(sig) == 0:
             return False
 
         # Use PublicKey.verify with hasher=None for raw verification
         pubkey = PublicKey(pubkey_bytes)
         return pubkey.verify(sig, message_hash, hasher=None)
+    except Exception:
+        return False
+
+
+def get_cert_msg(cert_pub: bytes, cert_expiry: int) -> bytes:
+    """
+    Get the binary certificate message for signing/verification.
+
+    This is the format used by the reference implementation:
+    b'fidelity-bond-cert|' + cert_pub + b'|' + str(cert_expiry).encode('ascii')
+
+    Args:
+        cert_pub: Certificate public key (33 bytes)
+        cert_expiry: Certificate expiry (encoded as cert_expiry_encoded, NOT multiplied by 2016)
+
+    Returns:
+        Message bytes for signing
+    """
+    return b"fidelity-bond-cert|" + cert_pub + b"|" + str(cert_expiry).encode("ascii")
+
+
+def get_ascii_cert_msg(cert_pub: bytes, cert_expiry: int) -> bytes:
+    """
+    Get the ASCII certificate message for signing/verification.
+
+    This is an alternative format where the pubkey is hex-encoded:
+    b'fidelity-bond-cert|' + hexlify(cert_pub) + b'|' + str(cert_expiry).encode('ascii')
+
+    Args:
+        cert_pub: Certificate public key (33 bytes)
+        cert_expiry: Certificate expiry (encoded as cert_expiry_encoded, NOT multiplied by 2016)
+
+    Returns:
+        Message bytes for signing
+    """
+    return (
+        b"fidelity-bond-cert|"
+        + binascii.hexlify(cert_pub)
+        + b"|"
+        + str(cert_expiry).encode("ascii")
+    )
+
+
+def verify_bitcoin_message_signature(message: bytes, signature: bytes, pubkey_bytes: bytes) -> bool:
+    """
+    Verify an ECDSA signature using Bitcoin message signing format.
+
+    The message is hashed using Bitcoin's message signing format:
+    SHA256(SHA256("\\x18Bitcoin Signed Message:\\n" + varint(len) + message))
+
+    Args:
+        message: Raw message bytes (NOT pre-hashed)
+        signature: DER-encoded signature (may have padding)
+        pubkey_bytes: Compressed public key (33 bytes)
+
+    Returns:
+        True if signature is valid
+    """
+    try:
+        # Hash the message using Bitcoin message format
+        prefix = b"\x18Bitcoin Signed Message:\n"
+        msg_len = len(message)
+        if msg_len < 253:
+            varint = bytes([msg_len])
+        elif msg_len < 0x10000:
+            varint = b"\xfd" + msg_len.to_bytes(2, "little")
+        elif msg_len < 0x100000000:
+            varint = b"\xfe" + msg_len.to_bytes(4, "little")
+        else:
+            varint = b"\xff" + msg_len.to_bytes(8, "little")
+
+        full_msg = prefix + varint + message
+        msg_hash = hashlib.sha256(hashlib.sha256(full_msg).digest()).digest()
+
+        # Verify using raw ECDSA
+        return verify_raw_ecdsa(msg_hash, signature, pubkey_bytes)
     except Exception:
         return False
 
@@ -278,14 +377,23 @@ def verify_fidelity_bond_proof(
     Verify a fidelity bond proof by checking both signatures.
 
     The proof structure (252 bytes total):
-    - 72 bytes: UTXO ownership signature (signs SHA256(taker_nick))
-    - 72 bytes: Certificate signature (signs SHA256(cert_pub || expiry || maker_nick))
+    - 72 bytes: Nick signature (signs "taker_nick|maker_nick" with Bitcoin message format)
+    - 72 bytes: Certificate signature (signs cert message with Bitcoin message format)
     - 33 bytes: Certificate public key
     - 2 bytes: Certificate expiry (blocks / 2016)
     - 33 bytes: UTXO public key
     - 32 bytes: TXID (little-endian)
     - 4 bytes: Vout (little-endian)
     - 4 bytes: Locktime (little-endian)
+
+    The nick signature message format is:
+        (taker_nick + '|' + maker_nick).encode('ascii')
+
+    The certificate signature message has two valid formats:
+    1. Binary: b'fidelity-bond-cert|' + cert_pub + b'|' + str(cert_expiry).encode('ascii')
+    2. ASCII: b'fidelity-bond-cert|' + hexlify(cert_pub) + b'|' + str(cert_expiry).encode('ascii')
+
+    Both signatures use Bitcoin message signing format (double SHA256 with prefix).
 
     Args:
         proof_base64: Base64-encoded bond proof
@@ -310,7 +418,7 @@ def verify_fidelity_bond_proof(
         # Unpack the proof structure
         unpacked = struct.unpack("<72s72s33sH33s32sII", decoded_data)
 
-        ownership_sig = unpacked[0]  # 72 bytes (padded DER signature)
+        nick_sig = unpacked[0]  # 72 bytes (padded DER signature)
         cert_sig = unpacked[1]  # 72 bytes (padded DER signature)
         cert_pub = unpacked[2]  # 33 bytes
         cert_expiry_encoded = unpacked[3]  # 2 bytes (blocks / 2016)
@@ -321,23 +429,34 @@ def verify_fidelity_bond_proof(
 
         cert_expiry = cert_expiry_encoded * 2016
 
-        # 1. Verify UTXO ownership signature
-        # The ownership signature proves the maker controls the UTXO
-        # It signs SHA256(taker_nick) with the UTXO private key
-        ownership_message = hashlib.sha256(taker_nick.encode("utf-8")).digest()
+        # Strip leading 0xff padding from signatures (reference impl uses rjust with 0xff)
+        try:
+            nick_sig_stripped = nick_sig[nick_sig.index(b"\x30") :]
+        except ValueError:
+            return False, None, "Nick signature DER header not found"
 
-        if not verify_raw_ecdsa(ownership_message, ownership_sig, utxo_pub):
-            return False, None, "UTXO ownership signature verification failed"
+        try:
+            cert_sig_stripped = cert_sig[cert_sig.index(b"\x30") :]
+        except ValueError:
+            return False, None, "Certificate signature DER header not found"
+
+        # 1. Verify nick signature
+        # The nick signature proves the maker controls the certificate key
+        # It signs "(taker_nick|maker_nick)" with the certificate private key
+        nick_msg = (taker_nick + "|" + maker_nick).encode("ascii")
+
+        if not verify_bitcoin_message_signature(nick_msg, nick_sig_stripped, cert_pub):
+            return False, None, "Nick signature verification failed"
 
         # 2. Verify certificate signature
-        # The certificate is self-signed by the UTXO key (cert_pub should match utxo_pub)
-        # It signs SHA256(cert_pub || expiry || maker_nick)
-        cert_message_preimage = (
-            cert_pub + cert_expiry_encoded.to_bytes(2, "little") + maker_nick.encode("utf-8")
-        )
-        cert_message = hashlib.sha256(cert_message_preimage).digest()
+        # The certificate is signed by the UTXO key
+        # It signs the cert message (two formats supported for compatibility)
+        cert_msg = get_cert_msg(cert_pub, cert_expiry_encoded)
+        ascii_cert_msg = get_ascii_cert_msg(cert_pub, cert_expiry_encoded)
 
-        if not verify_raw_ecdsa(cert_message, cert_sig, cert_pub):
+        if not verify_bitcoin_message_signature(
+            cert_msg, cert_sig_stripped, utxo_pub
+        ) and not verify_bitcoin_message_signature(ascii_cert_msg, cert_sig_stripped, utxo_pub):
             return False, None, "Certificate signature verification failed"
 
         # Both signatures are valid

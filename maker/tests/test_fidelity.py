@@ -14,9 +14,10 @@ from maker.fidelity import (
     FIDELITY_BOND_INTERNAL_BRANCH,
     FIDELITY_BOND_MIXDEPTH,
     FidelityBondInfo,
+    _bitcoin_message_hash,
     _pad_signature,
     _parse_locktime_from_path,
-    _sign_message,
+    _sign_message_bitcoin,
     create_fidelity_bond_proof,
     find_fidelity_bonds,
     get_best_fidelity_bond,
@@ -80,11 +81,13 @@ class TestPadSignature:
     """Tests for signature padding utility."""
 
     def test_pad_short_signature(self):
+        """Padding should use leading 0xff bytes (reference implementation format)."""
         sig = b"\x30\x44" + b"\x00" * 68  # 70 bytes
         padded = _pad_signature(sig, 72)
         assert len(padded) == 72
-        assert padded[:70] == sig
-        assert padded[70:] == b"\x00\x00"
+        # Leading 0xff padding
+        assert padded[:2] == b"\xff\xff"
+        assert padded[2:] == sig
 
     def test_exact_length_no_padding(self):
         sig = b"\x00" * 72
@@ -97,12 +100,13 @@ class TestPadSignature:
             _pad_signature(sig, 72)
 
 
-class TestSignMessage:
-    """Tests for ECDSA message signing."""
+class TestSignMessageBitcoin:
+    """Tests for Bitcoin message signing."""
 
     def test_sign_produces_der(self, test_private_key):
-        message = hashlib.sha256(b"test message").digest()
-        sig = _sign_message(test_private_key, message)
+        """Signing should produce a valid DER signature."""
+        message = b"test message"
+        sig = _sign_message_bitcoin(test_private_key, message)
 
         # DER signatures start with 0x30
         assert sig[0] == 0x30
@@ -110,11 +114,11 @@ class TestSignMessage:
         assert len(sig) == sig[1] + 2
 
     def test_sign_different_messages_different_sigs(self, test_private_key):
-        msg1 = hashlib.sha256(b"message 1").digest()
-        msg2 = hashlib.sha256(b"message 2").digest()
+        msg1 = b"message 1"
+        msg2 = b"message 2"
 
-        sig1 = _sign_message(test_private_key, msg1)
-        sig2 = _sign_message(test_private_key, msg2)
+        sig1 = _sign_message_bitcoin(test_private_key, msg1)
+        sig2 = _sign_message_bitcoin(test_private_key, msg2)
 
         assert sig1 != sig2
 
@@ -123,8 +127,8 @@ class TestSignMessage:
 
         coincurve always produces low-S signatures by default.
         """
-        message = hashlib.sha256(b"test low-s").digest()
-        sig = _sign_message(test_private_key, message)
+        message = b"test low-s"
+        sig = _sign_message_bitcoin(test_private_key, message)
 
         # DER decode the signature to verify low-S
         # DER format: 0x30 [total-length] 0x02 [r-length] [r] 0x02 [s-length] [s]
@@ -138,6 +142,21 @@ class TestSignMessage:
 
         n = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
         assert s <= n // 2
+
+    def test_bitcoin_message_hash_format(self):
+        """Verify Bitcoin message hash format."""
+        message = b"test"
+        msg_hash = _bitcoin_message_hash(message)
+
+        # Result should be a 32-byte hash
+        assert len(msg_hash) == 32
+
+        # Manually verify the format
+        prefix = b"\x18Bitcoin Signed Message:\n"
+        varint = bytes([len(message)])
+        full_msg = prefix + varint + message
+        expected = hashlib.sha256(hashlib.sha256(full_msg).digest()).digest()
+        assert msg_hash == expected
 
 
 class TestCreateFidelityBondProof:
@@ -306,6 +325,51 @@ class TestCreateFidelityBondProof:
 
         # UTXO details at the end should match
         assert decoded1[180:] == decoded2[180:]
+
+    def test_proof_verifiable_by_jmcore(self, test_private_key, test_pubkey):
+        """
+        Generated proofs should be verifiable by jmcore.crypto.verify_fidelity_bond_proof.
+
+        This ensures maker proofs are compatible with the reference implementation format.
+        """
+        from jmcore.crypto import verify_fidelity_bond_proof
+
+        bond = FidelityBondInfo(
+            txid="ab" * 32,
+            vout=0,
+            value=100_000_000,
+            locktime=800000,
+            confirmation_time=100,
+            bond_value=50_000,
+            pubkey=test_pubkey,
+            private_key=test_private_key,
+        )
+
+        maker_nick = "J5testmaker"
+        taker_nick = "J5testtaker"
+
+        proof = create_fidelity_bond_proof(
+            bond=bond,
+            maker_nick=maker_nick,
+            taker_nick=taker_nick,
+        )
+
+        assert proof is not None
+
+        # Verify the proof using jmcore
+        is_valid, bond_data, error = verify_fidelity_bond_proof(
+            proof_base64=proof,
+            maker_nick=maker_nick,
+            taker_nick=taker_nick,
+        )
+
+        assert is_valid, f"Proof verification failed: {error}"
+        assert bond_data is not None
+        assert bond_data["utxo_txid"] == "ab" * 32
+        assert bond_data["utxo_vout"] == 0
+        assert bond_data["locktime"] == 800000
+        assert bond_data["maker_nick"] == maker_nick
+        assert bond_data["taker_nick"] == taker_nick
 
 
 class TestFindFidelityBonds:

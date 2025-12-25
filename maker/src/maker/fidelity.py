@@ -127,24 +127,53 @@ def find_fidelity_bonds(
 
 
 def _pad_signature(sig_der: bytes, target_len: int = 72) -> bytes:
-    """Pad DER signature to fixed length for wire format."""
+    """
+    Pad DER signature to fixed length for wire format.
+
+    Uses leading 0xff padding (rjust) to match the reference implementation.
+    The verifier strips padding by finding the DER header (0x30).
+    """
     if len(sig_der) > target_len:
         raise ValueError(f"Signature too long: {len(sig_der)} > {target_len}")
-    return sig_der + b"\x00" * (target_len - len(sig_der))
+    return sig_der.rjust(target_len, b"\xff")
 
 
-def _sign_message(private_key: PrivateKey, message_hash: bytes) -> bytes:
-    """Sign a pre-hashed message with ECDSA and return DER-encoded signature.
+def _bitcoin_message_hash(message: bytes) -> bytes:
+    """
+    Hash a message using Bitcoin's message signing format.
+
+    Format: SHA256(SHA256("\\x18Bitcoin Signed Message:\\n" + varint(len) + message))
+
+    This matches the reference implementation's signing format.
+    """
+    prefix = b"\x18Bitcoin Signed Message:\n"
+    msg_len = len(message)
+    if msg_len < 253:
+        varint = bytes([msg_len])
+    elif msg_len < 0x10000:
+        varint = b"\xfd" + msg_len.to_bytes(2, "little")
+    elif msg_len < 0x100000000:
+        varint = b"\xfe" + msg_len.to_bytes(4, "little")
+    else:
+        varint = b"\xff" + msg_len.to_bytes(8, "little")
+
+    full_msg = prefix + varint + message
+    return hashlib.sha256(hashlib.sha256(full_msg).digest()).digest()
+
+
+def _sign_message_bitcoin(private_key: PrivateKey, message: bytes) -> bytes:
+    """
+    Sign a message using Bitcoin message signing format.
 
     Args:
         private_key: coincurve PrivateKey
-        message_hash: Already SHA256-hashed message (32 bytes)
+        message: Raw message bytes (NOT pre-hashed)
 
     Returns:
         DER-encoded signature
     """
-    # Use hasher=None since message is already hashed
-    return private_key.sign(message_hash, hasher=None)
+    msg_hash = _bitcoin_message_hash(message)
+    return private_key.sign(msg_hash, hasher=None)
 
 
 def create_fidelity_bond_proof(
@@ -157,14 +186,22 @@ def create_fidelity_bond_proof(
     Create a fidelity bond proof for broadcasting.
 
     The proof structure (252 bytes total):
-    - 72 bytes: UTXO ownership signature (signs H(taker_nick))
-    - 72 bytes: Certificate signature (signs H(cert_pub || expiry || maker_nick))
+    - 72 bytes: Nick signature (signs "taker_nick|maker_nick" with Bitcoin message format)
+    - 72 bytes: Certificate signature (signs cert message with Bitcoin message format)
     - 33 bytes: Certificate public key (same as utxo_pub for self-signed)
     - 2 bytes: Certificate expiry (blocks / 2016)
     - 33 bytes: UTXO public key
     - 32 bytes: TXID (little-endian)
     - 4 bytes: Vout (little-endian)
     - 4 bytes: Locktime (little-endian)
+
+    Nick signature message format:
+        (taker_nick + '|' + maker_nick).encode('ascii')
+
+    Certificate signature message format (binary):
+        b'fidelity-bond-cert|' + cert_pub + b'|' + str(cert_expiry_encoded).encode('ascii')
+
+    Both signatures use Bitcoin message signing format (double SHA256 with prefix).
 
     Args:
         bond: FidelityBondInfo with UTXO details and private key
@@ -187,19 +224,18 @@ def create_fidelity_bond_proof(
         # Expiry encoded as blocks / 2016 (difficulty period)
         cert_expiry_encoded = cert_expiry_blocks // 2016
 
-        # 1. UTXO ownership signature: proves ownership to taker
-        # Signs SHA256(taker_nick)
-        ownership_message = hashlib.sha256(taker_nick.encode("utf-8")).digest()
-        ownership_sig = _sign_message(bond.private_key, ownership_message)
-        ownership_sig_padded = _pad_signature(ownership_sig, 72)
+        # 1. Nick signature: proves the maker controls the certificate key
+        # Signs "(taker_nick|maker_nick)" using Bitcoin message format
+        nick_msg = (taker_nick + "|" + maker_nick).encode("ascii")
+        nick_sig = _sign_message_bitcoin(bond.private_key, nick_msg)
+        nick_sig_padded = _pad_signature(nick_sig, 72)
 
         # 2. Certificate signature: self-signed certificate
-        # Signs SHA256(cert_pub || expiry || maker_nick)
-        cert_message_preimage = (
-            cert_pub + cert_expiry_encoded.to_bytes(2, "little") + maker_nick.encode("utf-8")
+        # Signs "fidelity-bond-cert|<cert_pub>|<cert_expiry_encoded>" using Bitcoin message format
+        cert_msg = (
+            b"fidelity-bond-cert|" + cert_pub + b"|" + str(cert_expiry_encoded).encode("ascii")
         )
-        cert_message = hashlib.sha256(cert_message_preimage).digest()
-        cert_sig = _sign_message(bond.private_key, cert_message)
+        cert_sig = _sign_message_bitcoin(bond.private_key, cert_msg)
         cert_sig_padded = _pad_signature(cert_sig, 72)
 
         # 3. Pack the proof
@@ -210,7 +246,7 @@ def create_fidelity_bond_proof(
 
         proof_data = struct.pack(
             "<72s72s33sH33s32sII",
-            ownership_sig_padded,
+            nick_sig_padded,
             cert_sig_padded,
             cert_pub,
             cert_expiry_encoded,

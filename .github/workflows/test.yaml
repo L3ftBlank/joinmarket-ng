@@ -719,6 +719,9 @@ jobs:
       - test-reference
       - test-neutrino
       - test-reference-maker
+    permissions:
+      contents: read
+      packages: write
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     uses: ./.github/workflows/docker.yaml
     secrets: inherit

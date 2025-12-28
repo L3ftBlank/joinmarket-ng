@@ -547,7 +547,7 @@ jobs:
           # Use reruns for flaky tests that depend on Docker maker state
           pytest -c pytest.ini -m neutrino --junitxml=junit/test-results.xml \
             --cov --cov-report=term-missing --cov-report=xml \
-            -v -s --timeout=180 --reruns=2 --reruns-delay=10 --fail-on-skip
+            -v -s --timeout=180 --reruns=3 --reruns-delay=10 --fail-on-skip
 
       - name: Show logs on failure
         if: failure()

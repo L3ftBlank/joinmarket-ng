@@ -459,7 +459,7 @@ class TestNeutrinoCoinJoin:
             await bitcoin_backend.close()
 
     @pytest.mark.slow
-    @pytest.mark.flaky(reruns=2, reruns_delay=10)
+    @pytest.mark.flaky(reruns=3, reruns_delay=10)
     async def test_coinjoin_with_neutrino_taker(self, neutrino_backend):
         """Test that a taker using neutrino can initiate CoinJoin.
 

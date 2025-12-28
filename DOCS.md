@@ -595,6 +595,23 @@ This section documents protocol compatibility findings between our implementatio
 
 **Implications for clients**: The `listen_continuously()` function must process both PUBMSG and PRIVMSG message types to receive offer responses. Processing only PUBMSG will miss offer responses.
 
+### Stale Offer Filtering
+
+**Problem**: Makers may disconnect between orderbook fetch and CoinJoin execution, leaving stale offers that will timeout when contacted.
+
+**Solution**: The `fetch_orderbooks()` method filters offers against the current peerlist to ensure only offers from currently connected makers are returned:
+
+1. Fetch peerlist with features (`get_peerlist_with_features()`)
+2. If empty, fall back to basic peerlist (`get_peerlist()`) for reference implementation compatibility
+3. Collect offers from `!orderbook` broadcast responses
+4. Filter offers to only include those from makers in the current peerlist
+5. Log warnings when stale offers are filtered out
+
+**Benefits**:
+- Prevents timeouts from selecting disconnected makers
+- Works with both feature-aware and legacy directory servers
+- Gracefully handles regtest/NOT-SERVING-ONION environments where peerlist may be empty
+
 ### Peerlist Format
 
 The peerlist response may contain metadata entries that don't follow the standard `nick;location` format:

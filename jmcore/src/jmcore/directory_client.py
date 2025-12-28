@@ -530,14 +530,28 @@ class DirectoryClient:
         bonds: list[FidelityBond] = []
         bond_utxo_set: set[str] = set()
 
-        # NOTE: Peerlist may be empty if all makers use NOT-SERVING-ONION (regtest/local).
-        # We still broadcast !orderbook because makers will respond via the directory.
-        if not peers_with_features:
-            logger.info(
-                f"Peerlist empty on {self.host}:{self.port} (makers may be NOT-SERVING-ONION)"
-            )
-        else:
+        # Build set of active nicks for filtering stale offers
+        # Use peerlist_with_features if available, otherwise fall back to basic peerlist
+        active_nicks: set[str] = set()
+        if peers_with_features:
+            active_nicks = {nick for nick, _loc, _features in peers_with_features}
             logger.info(f"Found {len(peers_with_features)} peers on {self.host}:{self.port}")
+        else:
+            # Fallback for directories without peerlist_features support (reference impl)
+            # or when all peers are NOT-SERVING-ONION (regtest/local)
+            try:
+                basic_peerlist = await self.get_peerlist()
+                if basic_peerlist:
+                    active_nicks = set(basic_peerlist)
+                    logger.info(
+                        f"Found {len(basic_peerlist)} peers on {self.host}:{self.port} (basic peerlist)"
+                    )
+                else:
+                    logger.info(
+                        f"Peerlist empty on {self.host}:{self.port} (makers may be NOT-SERVING-ONION)"
+                    )
+            except DirectoryClientError as e:
+                logger.warning(f"Failed to get basic peerlist: {e}")
 
         if not self.connection:
             raise DirectoryClientError("Not connected")
@@ -680,6 +694,23 @@ class DirectoryClient:
             except Exception as e:
                 logger.warning(f"Failed to process message: {e}")
                 continue
+
+        # Filter offers to only include makers that are still in the current peerlist.
+        # This prevents selecting stale offers from makers that have disconnected.
+        # This is especially important for flaky tests where makers may restart or
+        # disconnect between orderbook fetch and CoinJoin execution.
+        #
+        # Note: If peerlist is empty (e.g., all peers use NOT-SERVING-ONION in regtest),
+        # we skip filtering and trust the offers. The directory server will still reject
+        # messages to disconnected peers, but this allows testing in local environments.
+        if active_nicks:
+            original_count = len(offers)
+            offers = [o for o in offers if o.counterparty in active_nicks]
+            filtered_count = original_count - len(offers)
+            if filtered_count > 0:
+                logger.warning(
+                    f"Filtered out {filtered_count} stale offers from disconnected makers"
+                )
 
         logger.info(
             f"Fetched {len(offers)} offers and {len(bonds)} fidelity bonds from "

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from maker.commitment_blacklist import CommitmentBlacklist
+from jmcore.commitment_blacklist import CommitmentBlacklist
 
 
 class TestCommitmentBlacklist:
@@ -167,7 +167,7 @@ class TestGlobalBlacklist:
 
     def test_global_functions(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test the convenience global functions."""
-        from maker import commitment_blacklist
+        from jmcore import commitment_blacklist
 
         # Reset global state
         monkeypatch.setattr(commitment_blacklist, "_global_blacklist", None)

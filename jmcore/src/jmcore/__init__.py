@@ -6,6 +6,14 @@ Provides shared functionality for protocol, crypto, and networking.
 
 __version__ = "2.2.0"
 
+from jmcore.commitment_blacklist import (
+    CommitmentBlacklist,
+    add_commitment,
+    check_and_add_commitment,
+    check_commitment,
+    get_blacklist,
+    set_blacklist_path,
+)
 from jmcore.constants import (
     BITCOIN_DUST_THRESHOLD,
     DEFAULT_DUST_THRESHOLD,
@@ -57,6 +65,7 @@ from jmcore.tor_control import (
 
 __all__ = [
     "BITCOIN_DUST_THRESHOLD",
+    "CommitmentBlacklist",
     "CryptoSession",
     "DEFAULT_DUST_THRESHOLD",
     "DIRECTORY_NODES_MAINNET",
@@ -85,9 +94,13 @@ __all__ = [
     "TorControlError",
     "TorHiddenServiceError",
     "UTXOMetadata",
+    "add_commitment",
+    "check_and_add_commitment",
+    "check_commitment",
     "deserialize_revelation",
     "format_utxo_list",
     "generate_podle",
+    "get_blacklist",
     "get_commitment_blacklist_path",
     "get_default_data_dir",
     "get_default_directory_nodes",
@@ -96,5 +109,6 @@ __all__ = [
     "parse_utxo_list",
     "peer_supports_neutrino_compat",
     "serialize_revelation",
+    "set_blacklist_path",
     "verify_podle",
 ]

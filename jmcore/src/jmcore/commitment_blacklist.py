@@ -13,8 +13,9 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from jmcore.paths import get_commitment_blacklist_path
 from loguru import logger
+
+from jmcore.paths import get_commitment_blacklist_path
 
 
 class CommitmentBlacklist:

@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from jmcore.commitment_blacklist import set_blacklist_path
 from jmcore.crypto import NickIdentity
 from jmcore.directory_client import DirectoryClient
 from jmcore.encryption import CryptoSession
@@ -36,7 +37,6 @@ from jmwallet.wallet.signing import (
     sign_p2wpkh_input,
 )
 from loguru import logger
-from maker.commitment_blacklist import set_blacklist_path
 
 from taker.config import BroadcastPolicy, Schedule, TakerConfig
 from taker.orderbook import OrderbookManager, calculate_cj_fee

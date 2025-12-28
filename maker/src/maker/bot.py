@@ -14,6 +14,7 @@ import asyncio
 import json
 from typing import Any
 
+from jmcore.commitment_blacklist import add_commitment, check_commitment, set_blacklist_path
 from jmcore.crypto import NickIdentity
 from jmcore.directory_client import DirectoryClient, DirectoryClientError
 from jmcore.models import Offer
@@ -35,7 +36,6 @@ from jmwallet.wallet.service import WalletService
 from loguru import logger
 
 from maker.coinjoin import CoinJoinSession
-from maker.commitment_blacklist import add_commitment, check_commitment, set_blacklist_path
 from maker.config import MakerConfig
 from maker.fidelity import (
     FidelityBondInfo,

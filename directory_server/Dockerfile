@@ -27,8 +27,7 @@ RUN pip install --no-cache-dir -e /app/jmcore
 
 # Install directory_server dependencies from locked requirements
 COPY directory_server/requirements.txt /app/directory_server/requirements.txt
-RUN sed -i '/^-e ..\/jmcore/d' /app/directory_server/requirements.txt && \
-    pip install --no-cache-dir -r /app/directory_server/requirements.txt
+RUN pip install --no-cache-dir -r /app/directory_server/requirements.txt
 
 # Copy directory_server source and install as editable
 COPY directory_server /app/directory_server
@@ -81,17 +80,11 @@ RUN pip install --no-cache-dir -e /app/jmcore
 
 # Install directory_server dependencies from locked requirements
 COPY directory_server/requirements.txt /app/directory_server/requirements.txt
-RUN sed -i '/^-e ..\/jmcore/d' /app/directory_server/requirements.txt && \
-    pip install --no-cache-dir -r /app/directory_server/requirements.txt
+RUN pip install --no-cache-dir -r /app/directory_server/requirements.txt
 
 # Copy directory_server source and install as editable
 COPY directory_server /app/directory_server
 RUN pip install --no-cache-dir -e /app/directory_server
-
-# Install debugging tools:
-# - pdbpp: enhanced Python debugger with syntax highlighting and tab completion
-# - memray: memory profiler for tracking allocations and finding memory leaks
-RUN pip install --no-cache-dir pdbpp memray
 
 RUN useradd -m -u 1000 jm && \
     chown -R jm:jm /app

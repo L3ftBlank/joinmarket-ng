@@ -21,9 +21,7 @@ COPY jmcore /app/jmcore
 RUN pip install --no-cache-dir -e /app/jmcore
 
 COPY orderbook_watcher/requirements.txt /app/orderbook_watcher/
-# Remove the host-relative path from requirements.txt but keep all other pinned versions
-RUN sed -i '/^-e ..\/jmcore/d' /app/orderbook_watcher/requirements.txt && \
-    pip install --no-cache-dir -r /app/orderbook_watcher/requirements.txt
+RUN pip install --no-cache-dir -r /app/orderbook_watcher/requirements.txt
 
 COPY orderbook_watcher/src /app/orderbook_watcher/src
 COPY orderbook_watcher/static /app/orderbook_watcher/static

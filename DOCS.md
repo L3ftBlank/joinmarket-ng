@@ -61,6 +61,129 @@ The implementation separates concerns into distinct packages:
 
 ---
 
+## Dependency Management
+
+### Overview
+
+JoinMarket NG uses a modern, maintainable dependency management system:
+
+- **Single source of truth**: `pyproject.toml` defines all dependencies
+- **Version pinning**: `requirements.txt` files lock exact versions for reproducibility
+- **Development dependencies**: `requirements-dev.txt` files for testing and tooling
+- **Local packages**: Internal libraries (`jmcore`, `jmwallet`) installed via `pip install -e`
+
+### Structure
+
+Each package has:
+
+```
+package/
+├── pyproject.toml         # Source of truth: dependencies, metadata, tooling config
+├── requirements.txt       # Locked production dependencies (pip-compiled)
+└── requirements-dev.txt   # Locked dev dependencies (pip-compiled)
+```
+
+### Dependency Installation Order
+
+For packages with local dependencies, install in this order:
+
+```bash
+# 1. Install jmcore (foundation library)
+cd jmcore
+pip install -r requirements.txt
+pip install -e .
+
+# 2. Install jmwallet (depends on jmcore)
+cd ../jmwallet
+pip install -r requirements.txt
+pip install -e .
+
+# 3. Install dependent packages (maker, taker, etc.)
+cd ../maker
+pip install -r requirements.txt
+pip install -e .
+```
+
+For development:
+
+```bash
+# After installing production dependencies
+pip install -r requirements-dev.txt
+```
+
+### Updating Dependencies
+
+#### Update a Single Package Dependency
+
+1. Edit `pyproject.toml` with new version
+2. Recompile locked dependencies using the update script or manual compilation:
+
+#### Update All Dependencies
+
+Use the helper script:
+
+```bash
+./scripts/update-deps.sh
+```
+
+This script:
+1. Compiles `requirements.txt` from `pyproject.toml` for all packages
+2. Safely handles local package references (`jmcore`, `jmwallet`) by stripping them during compilation (since they are not on PyPI)
+3. Compiles `requirements-dev.txt` for development dependencies
+
+#### Manual Update (Advanced)
+
+If you need to update manually, you must strip local package references from `requirements.txt` after compilation, as `pip-compile` cannot resolve local editable installs from PyPI.
+
+```bash
+# Example for maker
+cd maker
+pip-compile --strip-extras pyproject.toml -o requirements.txt
+sed -i '/jmcore/d' requirements.txt
+sed -i '/jmwallet/d' requirements.txt
+```
+
+### Docker Builds
+
+Dockerfiles install dependencies in layers:
+
+```dockerfile
+# 1. Install jmcore deps and source
+COPY jmcore/requirements.txt /app/jmcore/requirements.txt
+RUN pip install -r /app/jmcore/requirements.txt
+COPY jmcore/src /app/jmcore/src
+COPY jmcore/pyproject.toml /app/jmcore/
+RUN pip install -e /app/jmcore
+
+# 2. Install package deps (already constrained by jmcore)
+COPY package/requirements.txt /app/package/requirements.txt
+RUN pip install -r /app/package/requirements.txt
+
+# 3. Install package source
+COPY package/src /app/package/src
+COPY package/pyproject.toml /app/package/
+RUN pip install -e /app/package
+```
+
+### Why This Approach?
+
+**Problem**: Can't use `pip-compile` with local package references like `jmcore` easily because they're not on PyPI.
+
+**Solution**:
+1. Define all dependencies in `pyproject.toml` (single source of truth)
+2. Use a script to compile `requirements.txt` while temporarily stripping local package refs
+3. Install local packages explicitly in CI/Docker
+
+**Benefits**:
+- ✅ Single source of truth in `pyproject.toml`
+- ✅ Full version pinning for security and reproducibility
+- ✅ Clean separation of local vs. PyPI dependencies
+- ✅ Works seamlessly with Docker multi-stage builds
+- ✅ pip-compile compatibility
+- ✅ Easy to maintain and understand
+
+---
+
 ## Design Principles
 
 This refactor follows SOLID principles and modern Python best practices:

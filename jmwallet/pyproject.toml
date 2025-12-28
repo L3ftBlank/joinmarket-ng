@@ -4,8 +4,13 @@ version = "0.1.0"
 description = "JoinMarket wallet library with pluggable blockchain backends"
 requires-python = ">=3.11"
 dependencies = [
-    "coincurve==20.0.0",
-    "cryptography>=42.0.0",
+    "jmcore",
+    # coincurve <21.0.0 does not support Python 3.14
+    # coincurve 21.0.0 has a bug that prevents installation on 3.14
+    # See: https://github.com/ofek/coincurve/issues/219
+    # Install from git until a fixed version is released
+    "coincurve @ git+https://github.com/ofek/coincurve.git@master",
+    "cryptography>=46.0.0",
     "httpx>=0.25.0",
     "loguru>=0.7.0",
     "mnemonic>=0.21",
@@ -23,6 +28,8 @@ dev = [
     "pytest-cov>=4.1.0",
     "mypy>=1.5.0",
     "ruff>=0.1.0",
+    "pdbpp",
+    "memray",
 ]
 
 [build-system]
@@ -50,7 +57,7 @@ markers = [
 ]
 
 [tool.mypy]
-python_version = "3.14"
+python_version = "3.11"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
@@ -58,7 +65,7 @@ disallow_untyped_defs = true
 
 [tool.ruff]
 line-length = 100
-target-version = "py314"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]

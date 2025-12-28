@@ -20,17 +20,20 @@ COPY jmcore/src /app/jmcore/src
 COPY jmcore/pyproject.toml /app/jmcore/
 RUN pip install --no-cache-dir -e /app/jmcore
 
-# Install jmwallet dependencies
+# Install jmwallet dependencies and source
+COPY jmwallet/requirements.txt /app/jmwallet/requirements.txt
+RUN pip install --no-cache-dir -r /app/jmwallet/requirements.txt
 COPY jmwallet/pyproject.toml /app/jmwallet/pyproject.toml
 COPY jmwallet/src /app/jmwallet/src
 RUN pip install --no-cache-dir -e /app/jmwallet
 
 # Install maker dependencies
-COPY maker/pyproject.toml /app/maker/pyproject.toml
-RUN pip install --no-cache-dir typer httpx loguru pydantic cryptography
+COPY maker/requirements.txt /app/maker/requirements.txt
+RUN pip install --no-cache-dir -r /app/maker/requirements.txt
 
 # Copy maker source and install
 COPY maker/src /app/maker/src
+COPY maker/pyproject.toml /app/maker/
 RUN pip install --no-cache-dir -e /app/maker
 
 # Create non-root user

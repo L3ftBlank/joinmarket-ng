@@ -172,6 +172,38 @@ See more at [DOCS.md](./DOCS.md).
 
 ## Getting Started
 
+### Installation
+
+For local development, install dependencies in order:
+
+```bash
+# 1. Install jmcore (foundation)
+cd jmcore
+pip install -r requirements.txt
+pip install -e .
+
+# 2. Install jmwallet
+cd ../jmwallet
+pip install -r requirements.txt
+pip install -e .
+
+# 3. Install maker/taker/etc.
+cd ../maker
+pip install -r requirements.txt
+pip install -e .
+```
+
+For development with testing tools:
+
+```bash
+# After production install
+pip install -r requirements-dev.txt
+```
+
+See [DOCS.md § Dependency Management](./DOCS.md#dependency-management) for complete dependency management documentation.
+
+### Component Documentation
+
 See individual component READMEs for detailed instructions:
 
 - [jmcore](./jmcore/README.md) - Core library

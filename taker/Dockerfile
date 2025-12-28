@@ -20,17 +20,20 @@ COPY jmcore/src /app/jmcore/src
 COPY jmcore/pyproject.toml /app/jmcore/
 RUN pip install --no-cache-dir -e /app/jmcore
 
-# Install jmwallet dependencies
+# Install jmwallet dependencies and source
+COPY jmwallet/requirements.txt /app/jmwallet/requirements.txt
+RUN pip install --no-cache-dir -r /app/jmwallet/requirements.txt
 COPY jmwallet/pyproject.toml /app/jmwallet/pyproject.toml
 COPY jmwallet/src /app/jmwallet/src
 RUN pip install --no-cache-dir -e /app/jmwallet
 
 # Install taker dependencies
-COPY taker/pyproject.toml /app/taker/pyproject.toml
-RUN pip install --no-cache-dir typer httpx loguru pydantic cryptography bech32 base58
+COPY taker/requirements.txt /app/taker/requirements.txt
+RUN pip install --no-cache-dir -r /app/taker/requirements.txt
 
 # Copy taker source and install
 COPY taker/src /app/taker/src
+COPY taker/pyproject.toml /app/taker/
 RUN pip install --no-cache-dir -e /app/taker
 
 # Create non-root user

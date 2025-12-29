@@ -63,3 +63,6 @@ tor/
 # Allow test tor configuration (but not runtime files)
 !tests/e2e/reference/tor/
 tests/e2e/reference/tor/run/
+
+# Documentation build output (published to GitHub Pages)
+docs_build/

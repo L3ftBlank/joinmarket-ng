@@ -1,0 +1,99 @@
+/* Dark theme for pdoc3 generated documentation with auto browser preference detection */
+
+:root {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f5f5f5;
+    --bg-nav: #ffffff;
+    --bg-code: #f4f4f4;
+    --text-primary: #333;
+    --text-secondary: #222;
+    --border-color: #ddd;
+    --link-color: #0066cc;
+    --link-hover: #004499;
+    --shadow: rgba(0,0,0,0.1);
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg-primary: #1e1e1e;
+        --bg-secondary: #121212;
+        --bg-nav: #252525;
+        --bg-code: #2d2d2d;
+        --text-primary: #e0e0e0;
+        --text-secondary: #f0f0f0;
+        --border-color: #404040;
+        --link-color: #58a6ff;
+        --link-hover: #79c0ff;
+        --shadow: rgba(0,0,0,0.3);
+    }
+}
+
+body {
+    background: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+}
+
+#content, .pdoc-module-list, article {
+    background: var(--bg-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+nav {
+    background: var(--bg-nav) !important;
+    border-bottom: 1px solid var(--border-color) !important;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    color: var(--text-secondary) !important;
+}
+
+a {
+    color: var(--link-color) !important;
+}
+
+a:hover {
+    color: var(--link-hover) !important;
+}
+
+code {
+    background: var(--bg-code) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--border-color);
+}
+
+pre {
+    background: var(--bg-code) !important;
+    border: 1px solid var(--border-color) !important;
+}
+
+.pdoc-member {
+    border-left-color: var(--link-color) !important;
+}
+
+dt {
+    color: var(--text-secondary) !important;
+}
+
+dd {
+    color: var(--text-primary) !important;
+}
+
+/* Scrollbar styling for dark mode */
+@media (prefers-color-scheme: dark) {
+    ::-webkit-scrollbar {
+        width: 12px;
+    }
+
+    ::-webkit-scrollbar-track {
+        background: var(--bg-secondary);
+    }
+
+    ::-webkit-scrollbar-thumb {
+        background: #555;
+        border-radius: 6px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+        background: #777;
+    }
+}

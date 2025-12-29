@@ -5,11 +5,9 @@ Configuration for JoinMarket Taker.
 from __future__ import annotations
 
 from enum import Enum
-from pathlib import Path
-from typing import Any
 
-from jmcore.constants import DUST_THRESHOLD
-from jmcore.models import NetworkType, OfferType
+from jmcore.config import WalletConfig
+from jmcore.models import OfferType
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -36,41 +34,29 @@ class MaxCjFee(BaseModel):
     rel_fee: str = Field(default="0.001", description="Maximum relative fee (0.001 = 0.1%)")
 
 
-class TakerConfig(BaseModel):
-    """Configuration for taker bot."""
+class TakerConfig(WalletConfig):
+    """
+    Configuration for taker bot.
 
-    # Wallet settings
-    mnemonic: str
-    # Protocol network - used for directory server handshakes
-    # Reference JoinMarket uses "testnet" for both testnet and regtest
-    network: NetworkType = NetworkType.MAINNET
-    # Bitcoin network - used for address generation (bcrt1 vs tb1 vs bc1)
-    # If not specified, defaults to the same as network
-    bitcoin_network: NetworkType | None = None
-
-    # Data directory for JoinMarket files (commitment blacklist, history, etc.)
-    # Defaults to ~/.joinmarket-ng or $JOINMARKET_DATA_DIR if set
-    # For Docker compatibility with reference JM, set to /home/jm/.joinmarket
-    data_dir: Path | None = None
-
-    backend_type: str = "full_node"  # full_node or neutrino
-    backend_config: dict[str, Any] = Field(default_factory=dict)
-
-    # Directory server settings
-    directory_servers: list[str] = Field(default_factory=list)
-
-    # Tor/SOCKS configuration for outgoing connections
-    socks_host: str = "127.0.0.1"
-    socks_port: int = 9050
+    Inherits base wallet configuration from jmcore.config.WalletConfig
+    and adds taker-specific settings for CoinJoin execution, PoDLE,
+    and broadcasting.
+    """
 
     # CoinJoin settings
-    destination_address: str = ""  # Target address for CJ output, empty = INTERNAL
-    amount: int = 0  # Amount in sats (0 = sweep)
-    mixdepth: int = 0  # Source mixdepth
-    counterparty_count: int = Field(default=3, ge=1, le=20)
+    destination_address: str = Field(
+        default="", description="Target address for CJ output, empty = INTERNAL"
+    )
+    amount: int = Field(default=0, ge=0, description="Amount in sats (0 = sweep)")
+    mixdepth: int = Field(default=0, ge=0, description="Source mixdepth")
+    counterparty_count: int = Field(
+        default=3, ge=1, le=20, description="Number of makers to select"
+    )
 
     # Fee settings
-    max_cj_fee: MaxCjFee = Field(default_factory=MaxCjFee)
+    max_cj_fee: MaxCjFee = Field(
+        default_factory=MaxCjFee, description="Maximum CoinJoin fee limits"
+    )
     tx_fee_factor: float = Field(
         default=3.0, ge=1.0, description="Multiply estimated fee by this factor"
     )
@@ -93,12 +79,8 @@ class TakerConfig(BaseModel):
         default=20, ge=1, le=100, description="Min UTXO value as % of CJ amount"
     )
 
-    # Wallet structure
-    mixdepth_count: int = Field(default=5, ge=1, le=10)
-    gap_limit: int = Field(default=20, ge=6)
-
     # Timeouts
-    maker_timeout_sec: int = Field(default=60, ge=10)
+    maker_timeout_sec: int = Field(default=60, ge=10, description="Timeout for maker responses")
     order_wait_time: float = Field(
         default=10.0, ge=1.0, description="Seconds to wait for orderbook"
     )
@@ -115,13 +97,10 @@ class TakerConfig(BaseModel):
     )
 
     # Advanced options
-    preferred_offer_type: OfferType = OfferType.SW0_RELATIVE
-    minimum_makers: int = Field(default=2, ge=1)
-    dust_threshold: int = Field(
-        default=DUST_THRESHOLD,
-        ge=0,
-        description="Dust threshold in satoshis for change outputs (default: 27300)",
+    preferred_offer_type: OfferType = Field(
+        default=OfferType.SW0_RELATIVE, description="Preferred offer type"
     )
+    minimum_makers: int = Field(default=2, ge=1, description="Minimum number of makers required")
 
     @model_validator(mode="after")
     def set_bitcoin_network_default(self) -> TakerConfig:

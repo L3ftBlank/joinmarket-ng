@@ -582,19 +582,24 @@ def test_read_varint_edge_cases():
 
 def test_script_to_address_unsupported_script():
     """
-    Test that unsupported script types return hex fallback.
+    Test handling of various script types.
+    P2PKH is now supported (returns base58 address).
+    P2WSH is supported (returns bech32 address).
     """
     from maker.tx_verification import script_to_address
 
-    # P2PKH script (not supported, should return hex)
+    # P2PKH script (now supported - returns base58 address)
     p2pkh_script = bytes.fromhex("76a914751e76e8199196d454941c45d1b3a323f1433bd688ac")
     result = script_to_address(p2pkh_script)
-    assert result == "76a914751e76e8199196d454941c45d1b3a323f1433bd688ac"
+    # Should be a valid base58 P2PKH mainnet address starting with '1'
+    assert result.startswith("1")
+    assert result == "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH"
 
-    # P2WSH script (not supported yet)
+    # P2WSH script (now supported - returns bech32 address)
     p2wsh_script = bytes([0x00, 0x20]) + bytes(32)  # OP_0 <32-byte hash>
     result = script_to_address(p2wsh_script)
-    assert result == p2wsh_script.hex()
+    # Should be a valid bech32 P2WSH mainnet address starting with 'bc1q'
+    assert result.startswith("bc1q")
 
 
 def test_verify_transaction_exception_handling():

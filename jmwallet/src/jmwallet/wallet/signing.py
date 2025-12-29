@@ -4,10 +4,13 @@ Bitcoin transaction signing utilities for P2WPKH inputs.
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
 
 from coincurve import PrivateKey
+from jmcore.bitcoin import create_p2wpkh_script_code, decode_varint, encode_varint, hash256
+
+# Alias for backward compatibility
+read_varint = decode_varint
 
 
 class TransactionSigningError(Exception):
@@ -38,36 +41,6 @@ class Transaction:
     raw: bytes
 
 
-def hash256(data: bytes) -> bytes:
-    return hashlib.sha256(hashlib.sha256(data).digest()).digest()
-
-
-def read_varint(data: bytes, offset: int) -> tuple[int, int]:
-    first = data[offset]
-    offset += 1
-
-    if first < 0xFD:
-        return first, offset
-    if first == 0xFD:
-        value = int.from_bytes(data[offset : offset + 2], "little")
-        return value, offset + 2
-    if first == 0xFE:
-        value = int.from_bytes(data[offset : offset + 4], "little")
-        return value, offset + 4
-    value = int.from_bytes(data[offset : offset + 8], "little")
-    return value, offset + 8
-
-
-def encode_varint(value: int) -> bytes:
-    if value < 0xFD:
-        return bytes([value])
-    if value <= 0xFFFF:
-        return b"\xfd" + value.to_bytes(2, "little")
-    if value <= 0xFFFFFFFF:
-        return b"\xfe" + value.to_bytes(4, "little")
-    return b"\xff" + value.to_bytes(8, "little")
-
-
 def deserialize_transaction(tx_bytes: bytes) -> Transaction:
     try:
         offset = 0
@@ -79,7 +52,7 @@ def deserialize_transaction(tx_bytes: bytes) -> Transaction:
             marker_flag = True
             offset += 2
 
-        input_count, offset = read_varint(tx_bytes, offset)
+        input_count, offset = decode_varint(tx_bytes, offset)
         inputs: list[TxInput] = []
 
         for _ in range(input_count):
@@ -89,7 +62,7 @@ def deserialize_transaction(tx_bytes: bytes) -> Transaction:
             vout = int.from_bytes(tx_bytes[offset : offset + 4], "little")
             offset += 4
 
-            script_len, offset = read_varint(tx_bytes, offset)
+            script_len, offset = decode_varint(tx_bytes, offset)
             script = tx_bytes[offset : offset + script_len]
             offset += script_len
 
@@ -98,14 +71,14 @@ def deserialize_transaction(tx_bytes: bytes) -> Transaction:
 
             inputs.append(TxInput(txid_le, vout, script, sequence))
 
-        output_count, offset = read_varint(tx_bytes, offset)
+        output_count, offset = decode_varint(tx_bytes, offset)
         outputs: list[TxOutput] = []
 
         for _ in range(output_count):
             value = int.from_bytes(tx_bytes[offset : offset + 8], "little")
             offset += 8
 
-            script_len, offset = read_varint(tx_bytes, offset)
+            script_len, offset = decode_varint(tx_bytes, offset)
             script = tx_bytes[offset : offset + script_len]
             offset += script_len
 
@@ -113,9 +86,9 @@ def deserialize_transaction(tx_bytes: bytes) -> Transaction:
 
         if marker_flag:
             for _ in range(input_count):
-                stack_count, offset = read_varint(tx_bytes, offset)
+                stack_count, offset = decode_varint(tx_bytes, offset)
                 for _ in range(stack_count):
-                    item_len, offset = read_varint(tx_bytes, offset)
+                    item_len, offset = decode_varint(tx_bytes, offset)
                     offset += item_len
 
         locktime = tx_bytes[offset : offset + 4]
@@ -200,18 +173,22 @@ def sign_p2wpkh_input(
     return signature + bytes([sighash_type])
 
 
-def create_p2wpkh_script_code(pubkey_bytes: bytes) -> bytes:
-    """Create the scriptCode for P2WPKH signing (BIP 143).
-
-    For P2WPKH, the scriptCode is the P2PKH script:
-    OP_DUP OP_HASH160 <20-byte-pubkeyhash> OP_EQUALVERIFY OP_CHECKSIG
-
-    Returns 25 bytes (without length prefix - the preimage serialization adds that).
-    """
-    pubkey_hash = hashlib.new("ripemd160", hashlib.sha256(pubkey_bytes).digest()).digest()
-    # OP_DUP OP_HASH160 PUSH20 <pkh> OP_EQUALVERIFY OP_CHECKSIG
-    return b"\x76\xa9\x14" + pubkey_hash + b"\x88\xac"
-
-
 def create_witness_stack(signature: bytes, pubkey_bytes: bytes) -> list[bytes]:
     return [signature, pubkey_bytes]
+
+
+# Re-export from jmcore for backward compatibility
+__all__ = [
+    "Transaction",
+    "TransactionSigningError",
+    "TxInput",
+    "TxOutput",
+    "compute_sighash_segwit",
+    "create_p2wpkh_script_code",
+    "create_witness_stack",
+    "deserialize_transaction",
+    "encode_varint",
+    "hash256",
+    "read_varint",
+    "sign_p2wpkh_input",
+]

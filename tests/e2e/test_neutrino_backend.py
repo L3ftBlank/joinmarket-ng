@@ -17,7 +17,6 @@ backend works correctly with the JoinMarket wallet implementation.
 
 from __future__ import annotations
 
-
 import pytest
 import pytest_asyncio
 from jmcore.models import NetworkType
@@ -294,6 +293,7 @@ class TestNeutrinoCoinJoin:
         import subprocess
 
         from jmwallet.backends.bitcoin_core import BitcoinCoreBackend
+
         from tests.e2e.rpc_utils import ensure_wallet_funded, mine_blocks
 
         # Verify neutrino is synced
@@ -483,6 +483,7 @@ class TestNeutrinoCoinJoin:
         import subprocess
 
         from jmwallet.backends.bitcoin_core import BitcoinCoreBackend
+
         from tests.e2e.rpc_utils import ensure_wallet_funded, mine_blocks
 
         # Verify neutrino is synced

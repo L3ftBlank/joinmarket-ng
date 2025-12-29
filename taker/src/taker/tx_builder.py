@@ -9,11 +9,18 @@ Builds the unsigned CoinJoin transaction from:
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import struct
 from dataclasses import dataclass
 from typing import Any
+
+from jmcore.bitcoin import (
+    address_to_scriptpubkey,
+    decode_varint,
+    encode_varint,
+    hash256,
+    serialize_outpoint,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -58,101 +65,8 @@ class CoinJoinTxData:
     tx_fee: int
 
 
-def address_to_scriptpubkey(address: str) -> bytes:
-    """
-    Convert a Bitcoin address to scriptPubKey.
-
-    Supports:
-    - P2WPKH (bc1q..., tb1q..., bcrt1q...)
-    - P2WSH (bc1q... 62 chars, tb1q... 62 chars)
-    - P2PKH (1..., m..., n...)
-    - P2SH (3..., 2...)
-    """
-    import bech32
-
-    # Bech32 (SegWit) addresses
-    if address.startswith(("bc1", "tb1", "bcrt1")):
-        hrp = address[:4] if address.startswith("bcrt") else address[:2]
-        hrp_end = 4 if address.startswith("bcrt") else 2
-        hrp = address[:hrp_end]
-
-        bech32_decoded = bech32.decode(hrp, address)
-        if bech32_decoded[0] is None or bech32_decoded[1] is None:
-            raise ValueError(f"Invalid bech32 address: {address}")
-
-        witver = bech32_decoded[0]
-        witprog = bytes(bech32_decoded[1])
-
-        if witver == 0:
-            if len(witprog) == 20:
-                # P2WPKH: OP_0 <20-byte-pubkeyhash>
-                return bytes([0x00, 0x14]) + witprog
-            elif len(witprog) == 32:
-                # P2WSH: OP_0 <32-byte-scripthash>
-                return bytes([0x00, 0x20]) + witprog
-        elif witver == 1 and len(witprog) == 32:
-            # P2TR: OP_1 <32-byte-pubkey>
-            return bytes([0x51, 0x20]) + witprog
-
-        raise ValueError(f"Unsupported witness version: {witver}")
-
-    # Base58 addresses (legacy)
-    import base58
-
-    decoded = base58.b58decode_check(address)
-    version = decoded[0]
-    payload = decoded[1:]
-
-    if version in (0x00, 0x6F):  # Mainnet/Testnet P2PKH
-        # P2PKH: OP_DUP OP_HASH160 <20-byte-pubkeyhash> OP_EQUALVERIFY OP_CHECKSIG
-        return bytes([0x76, 0xA9, 0x14]) + payload + bytes([0x88, 0xAC])
-    elif version in (0x05, 0xC4):  # Mainnet/Testnet P2SH
-        # P2SH: OP_HASH160 <20-byte-scripthash> OP_EQUAL
-        return bytes([0xA9, 0x14]) + payload + bytes([0x87])
-
-    raise ValueError(f"Unknown address version: {version}")
-
-
-def scriptpubkey_to_address(scriptpubkey: bytes, network: str = "mainnet") -> str:
-    """Convert scriptPubKey to address."""
-    import bech32
-
-    # P2WPKH
-    if len(scriptpubkey) == 22 and scriptpubkey[0] == 0x00 and scriptpubkey[1] == 0x14:
-        hrp = {"mainnet": "bc", "testnet": "tb", "signet": "tb", "regtest": "bcrt"}[network]
-        result = bech32.encode(hrp, 0, scriptpubkey[2:])
-        if result is None:
-            raise ValueError(f"Failed to encode P2WPKH address: {scriptpubkey.hex()}")
-        return result
-
-    # P2WSH
-    if len(scriptpubkey) == 34 and scriptpubkey[0] == 0x00 and scriptpubkey[1] == 0x20:
-        hrp = {"mainnet": "bc", "testnet": "tb", "signet": "tb", "regtest": "bcrt"}[network]
-        result = bech32.encode(hrp, 0, scriptpubkey[2:])
-        if result is None:
-            raise ValueError(f"Failed to encode P2WSH address: {scriptpubkey.hex()}")
-        return result
-
-    raise ValueError(f"Unsupported scriptPubKey: {scriptpubkey.hex()}")
-
-
-def varint(n: int) -> bytes:
-    """Encode integer as Bitcoin varint."""
-    if n < 0xFD:
-        return bytes([n])
-    elif n <= 0xFFFF:
-        return bytes([0xFD]) + struct.pack("<H", n)
-    elif n <= 0xFFFFFFFF:
-        return bytes([0xFE]) + struct.pack("<I", n)
-    else:
-        return bytes([0xFF]) + struct.pack("<Q", n)
-
-
-def serialize_outpoint(txid: str, vout: int) -> bytes:
-    """Serialize outpoint (txid:vout)."""
-    # txid is in RPC format (big-endian), need to reverse for raw tx
-    txid_bytes = bytes.fromhex(txid)[::-1]
-    return txid_bytes + struct.pack("<I", vout)
+# Alias for backward compatibility
+varint = encode_varint
 
 
 def serialize_input(inp: TxInput) -> bytes:
@@ -172,7 +86,7 @@ def serialize_output(out: TxOutput) -> bytes:
         if out.scriptpubkey
         else address_to_scriptpubkey(out.address)
     )
-    result += varint(len(scriptpubkey))
+    result += encode_varint(len(scriptpubkey))
     result += scriptpubkey
     return result
 
@@ -257,14 +171,14 @@ class CoinJoinTxBuilder:
         # The marker is only added when there's actual witness data.
 
         # Input count
-        result += varint(len(inputs))
+        result += encode_varint(len(inputs))
 
         # Inputs
         for inp in inputs:
             result += serialize_input(inp)
 
         # Output count
-        result += varint(len(outputs))
+        result += encode_varint(len(outputs))
 
         # Outputs
         for out in outputs:
@@ -294,14 +208,14 @@ class CoinJoinTxBuilder:
         Returns:
             Signed transaction bytes
         """
-        from loguru import logger
+        from loguru import logger as log
 
         # Parse unsigned tx
         version, marker, flag, inputs, outputs, witnesses, locktime = self._parse_tx(tx_bytes)
 
-        logger.debug(f"add_signatures: {len(inputs)} inputs, {len(outputs)} outputs")
-        logger.debug(f"input_owners: {metadata.get('input_owners', [])}")
-        logger.debug(f"signatures keys: {list(signatures.keys())}")
+        log.debug(f"add_signatures: {len(inputs)} inputs, {len(outputs)} outputs")
+        log.debug(f"input_owners: {metadata.get('input_owners', [])}")
+        log.debug(f"signatures keys: {list(signatures.keys())}")
 
         # Build witness data
         new_witnesses: list[list[bytes]] = []
@@ -309,9 +223,7 @@ class CoinJoinTxBuilder:
 
         for i, owner in enumerate(input_owners):
             inp = inputs[i]
-            logger.debug(
-                f"Input {i}: owner={owner}, txid={inp['txid'][:16]}..., vout={inp['vout']}"
-            )
+            log.debug(f"Input {i}: owner={owner}, txid={inp['txid'][:16]}..., vout={inp['vout']}")
 
             if owner in signatures:
                 # Find matching signature
@@ -319,14 +231,14 @@ class CoinJoinTxBuilder:
                     if sig_info.get("txid") == inp["txid"] and sig_info.get("vout") == inp["vout"]:
                         witness = sig_info.get("witness", [])
                         new_witnesses.append([bytes.fromhex(w) for w in witness])
-                        logger.debug(f"  -> Found matching signature, witness len={len(witness)}")
+                        log.debug(f"  -> Found matching signature, witness len={len(witness)}")
                         break
                 else:
                     new_witnesses.append([])
-                    logger.warning(f"  -> No matching signature found for {owner}")
+                    log.warning(f"  -> No matching signature found for {owner}")
             else:
                 new_witnesses.append([])
-                logger.warning(f"  -> Owner {owner} not in signatures dict")
+                log.warning(f"  -> Owner {owner} not in signatures dict")
 
         # Reserialize with witnesses
         return self._serialize_with_witnesses(version, inputs, outputs, new_witnesses, locktime)
@@ -360,8 +272,7 @@ class CoinJoinTxBuilder:
             has_witness = False
 
         # Input count
-        input_count, size = self._read_varint(tx_bytes, offset)
-        offset += size
+        input_count, offset = decode_varint(tx_bytes, offset)
 
         # Inputs
         inputs = []
@@ -370,8 +281,7 @@ class CoinJoinTxBuilder:
             offset += 32
             vout = struct.unpack("<I", tx_bytes[offset : offset + 4])[0]
             offset += 4
-            script_len, size = self._read_varint(tx_bytes, offset)
-            offset += size
+            script_len, offset = decode_varint(tx_bytes, offset)
             scriptsig = tx_bytes[offset : offset + script_len].hex()
             offset += script_len
             sequence = struct.unpack("<I", tx_bytes[offset : offset + 4])[0]
@@ -381,16 +291,14 @@ class CoinJoinTxBuilder:
             )
 
         # Output count
-        output_count, size = self._read_varint(tx_bytes, offset)
-        offset += size
+        output_count, offset = decode_varint(tx_bytes, offset)
 
         # Outputs
         outputs = []
         for _ in range(output_count):
             value = struct.unpack("<Q", tx_bytes[offset : offset + 8])[0]
             offset += 8
-            script_len, size = self._read_varint(tx_bytes, offset)
-            offset += size
+            script_len, offset = decode_varint(tx_bytes, offset)
             scriptpubkey = tx_bytes[offset : offset + script_len].hex()
             offset += script_len
             outputs.append({"value": value, "scriptpubkey": scriptpubkey})
@@ -399,12 +307,10 @@ class CoinJoinTxBuilder:
         witnesses: list[list[bytes]] = []
         if has_witness:
             for _ in range(input_count):
-                wit_count, size = self._read_varint(tx_bytes, offset)
-                offset += size
+                wit_count, offset = decode_varint(tx_bytes, offset)
                 wit_items = []
                 for _ in range(wit_count):
-                    item_len, size = self._read_varint(tx_bytes, offset)
-                    offset += size
+                    item_len, offset = decode_varint(tx_bytes, offset)
                     wit_items.append(tx_bytes[offset : offset + item_len])
                     offset += item_len
                 witnesses.append(wit_items)
@@ -413,18 +319,6 @@ class CoinJoinTxBuilder:
         locktime = struct.unpack("<I", tx_bytes[offset : offset + 4])[0]
 
         return version, marker, flag, inputs, outputs, witnesses, locktime
-
-    def _read_varint(self, data: bytes, offset: int) -> tuple[int, int]:
-        """Read varint and return (value, bytes_consumed)."""
-        first = data[offset]
-        if first < 0xFD:
-            return first, 1
-        elif first == 0xFD:
-            return struct.unpack("<H", data[offset + 1 : offset + 3])[0], 3
-        elif first == 0xFE:
-            return struct.unpack("<I", data[offset + 1 : offset + 5])[0], 5
-        else:
-            return struct.unpack("<Q", data[offset + 1 : offset + 9])[0], 9
 
     def _serialize_with_witnesses(
         self,
@@ -439,28 +333,28 @@ class CoinJoinTxBuilder:
         result += bytes([0x00, 0x01])  # SegWit marker and flag
 
         # Inputs
-        result += varint(len(inputs))
+        result += encode_varint(len(inputs))
         for inp in inputs:
             result += bytes.fromhex(inp["txid"])[::-1]
             result += struct.pack("<I", inp["vout"])
             scriptsig = bytes.fromhex(inp["scriptsig"])
-            result += varint(len(scriptsig))
+            result += encode_varint(len(scriptsig))
             result += scriptsig
             result += struct.pack("<I", inp["sequence"])
 
         # Outputs
-        result += varint(len(outputs))
+        result += encode_varint(len(outputs))
         for out in outputs:
             result += struct.pack("<Q", out["value"])
             scriptpubkey = bytes.fromhex(out["scriptpubkey"])
-            result += varint(len(scriptpubkey))
+            result += encode_varint(len(scriptpubkey))
             result += scriptpubkey
 
         # Witnesses
         for witness in witnesses:
-            result += varint(len(witness))
+            result += encode_varint(len(witness))
             for item in witness:
-                result += varint(len(item))
+                result += encode_varint(len(item))
                 result += item
 
         result += struct.pack("<I", locktime)
@@ -473,26 +367,26 @@ class CoinJoinTxBuilder:
 
         # Serialize without witness
         data = struct.pack("<I", version)
-        data += varint(len(inputs))
+        data += encode_varint(len(inputs))
         for inp in inputs:
             data += bytes.fromhex(inp["txid"])[::-1]
             data += struct.pack("<I", inp["vout"])
             scriptsig = bytes.fromhex(inp["scriptsig"])
-            data += varint(len(scriptsig))
+            data += encode_varint(len(scriptsig))
             data += scriptsig
             data += struct.pack("<I", inp["sequence"])
 
-        data += varint(len(outputs))
+        data += encode_varint(len(outputs))
         for out in outputs:
             data += struct.pack("<Q", out["value"])
             scriptpubkey = bytes.fromhex(out["scriptpubkey"])
-            data += varint(len(scriptpubkey))
+            data += encode_varint(len(scriptpubkey))
             data += scriptpubkey
 
         data += struct.pack("<I", locktime)
 
         # Double SHA256
-        return hashlib.sha256(hashlib.sha256(data).digest()).digest()[::-1].hex()
+        return hash256(data)[::-1].hex()
 
 
 def calculate_tx_fee(

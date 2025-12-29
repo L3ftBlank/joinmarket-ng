@@ -33,7 +33,6 @@ from tests.e2e.test_reference_coinjoin import (
     run_compose_cmd,
 )
 
-
 # Timeouts for reference maker tests
 YIELDGEN_STARTUP_TIMEOUT = 120  # Time for yieldgenerator to start and announce offers
 COINJOIN_TIMEOUT = 300  # Time for CoinJoin to complete

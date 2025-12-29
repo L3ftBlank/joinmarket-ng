@@ -17,7 +17,6 @@ import asyncio
 
 import pytest
 import pytest_asyncio
-
 from jmcore.models import NetworkType
 from jmwallet.backends.bitcoin_core import BitcoinCoreBackend
 from jmwallet.wallet.service import WalletService

@@ -19,19 +19,14 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
+from jmcore.bitcoin import decode_varint, get_hrp, scriptpubkey_to_address
 from jmcore.models import NetworkType, OfferType
 from jmwallet.wallet.models import UTXOInfo
 from loguru import logger
 
-
-def get_bech32_hrp(network: NetworkType) -> str:
-    """Get bech32 human-readable part for network."""
-    return {
-        NetworkType.MAINNET: "bc",
-        NetworkType.TESTNET: "tb",
-        NetworkType.SIGNET: "tb",
-        NetworkType.REGTEST: "bcrt",
-    }[network]
+# Aliases for backward compatibility
+read_varint = decode_varint
+get_bech32_hrp = get_hrp
 
 
 class TransactionVerificationError(Exception):
@@ -199,7 +194,7 @@ def parse_transaction(
             if marker == 0x00 and flag == 0x01:
                 offset += 2
 
-        input_count, offset = read_varint(tx_bytes, offset)
+        input_count, offset = decode_varint(tx_bytes, offset)
 
         inputs = []
         for _ in range(input_count):
@@ -209,7 +204,7 @@ def parse_transaction(
             vout = int.from_bytes(tx_bytes[offset : offset + 4], "little")
             offset += 4
 
-            script_len, offset = read_varint(tx_bytes, offset)
+            script_len, offset = decode_varint(tx_bytes, offset)
             offset += script_len
 
             int.from_bytes(tx_bytes[offset : offset + 4], "little")
@@ -217,18 +212,20 @@ def parse_transaction(
 
             inputs.append({"txid": txid, "vout": vout})
 
-        output_count, offset = read_varint(tx_bytes, offset)
+        output_count, offset = decode_varint(tx_bytes, offset)
 
         outputs = []
         for _ in range(output_count):
             value = int.from_bytes(tx_bytes[offset : offset + 8], "little")
             offset += 8
 
-            script_len, offset = read_varint(tx_bytes, offset)
+            script_len, offset = decode_varint(tx_bytes, offset)
             script_pubkey = tx_bytes[offset : offset + script_len]
             offset += script_len
 
-            address = script_to_address(script_pubkey, network)
+            # Convert to network string for scriptpubkey_to_address
+            network_str = network.value if isinstance(network, NetworkType) else network
+            address = script_to_address(script_pubkey, network_str)
 
             outputs.append({"value": value, "address": address})
 
@@ -239,46 +236,22 @@ def parse_transaction(
         return None
 
 
-def read_varint(data: bytes, offset: int) -> tuple[int, int]:
-    """Read variable-length integer from bytes"""
-    first_byte = data[offset]
-    offset += 1
-
-    if first_byte < 0xFD:
-        return first_byte, offset
-    elif first_byte == 0xFD:
-        value = int.from_bytes(data[offset : offset + 2], "little")
-        return value, offset + 2
-    elif first_byte == 0xFE:
-        value = int.from_bytes(data[offset : offset + 4], "little")
-        return value, offset + 4
-    else:
-        value = int.from_bytes(data[offset : offset + 8], "little")
-        return value, offset + 8
-
-
-def script_to_address(script: bytes, network: NetworkType = NetworkType.MAINNET) -> str:
+def script_to_address(script: bytes, network: str = "mainnet") -> str:
     """
     Convert scriptPubKey to address.
 
-    Simplified implementation - only handles P2WPKH for now.
-    For production, use proper Bitcoin library.
+    Uses jmcore.bitcoin.scriptpubkey_to_address for supported script types.
+    Falls back to hex for unsupported types.
 
     Args:
         script: scriptPubKey bytes
-        network: Network type for HRP selection
+        network: Network type string
 
     Returns:
-        Bech32 address string, or hex if unsupported script type
+        Address string, or hex if unsupported script type
     """
-    if len(script) == 22 and script[0] == 0x00 and script[1] == 0x14:
-        from jmwallet.wallet.address import bech32_encode, convertbits
-
-        witness_program = script[2:]
-        data = convertbits(witness_program, 8, 5)
-
-        hrp = get_bech32_hrp(network)
-        address = bech32_encode(hrp, [0] + data)
-        return address
-
-    return script.hex()
+    try:
+        return scriptpubkey_to_address(script, network)
+    except ValueError:
+        # Unsupported script type, return hex
+        return script.hex()

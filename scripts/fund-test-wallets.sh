@@ -48,7 +48,7 @@ TAKER_ADDR="bcrt1q84l5vscg3pvjn6se8jp4ruymtyh393ed5v2d9e"
 
 # Fidelity bond P2WSH address for Maker1
 # Path: m/84'/1'/0'/2/0 with locktime 4102444800 (Jan 1, 2100)
-# Generated with: python generate_fidelity_bond_address.py "avoid whisper..." 4102444800 --network regtest
+# Generated with: python -m jmwallet generate-bond-address --mnemonic "avoid whisper..." --locktime 4102444800 --network regtest
 MAKER1_FIDELITY_BOND_ADDR="bcrt1qydklh78dpt3hhvxrmu6y56n26dkmx0nalt2arj86ygqywnmyl9tst8f989"
 
 echo "Funding maker and taker wallets..."

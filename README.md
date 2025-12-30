@@ -175,7 +175,7 @@ CoinJoin orchestrator / taker bot:
 Lightweight SPV server using BIP157/158 compact block filters.
 **Maintained separately at [github.com/m0wer/neutrino-api](https://github.com/m0wer/neutrino-api)**.
 
-- **No full node required**: ~500MB storage vs ~500GB for Bitcoin Core
+- **No full node required**: ~100MB storage vs ~1TB for Bitcoin Core
 - **Privacy-preserving**: Downloads filters, not addresses (unlike Bloom filters)
 - **Fast sync**: Minutes instead of days
 - **Written in Go**: Wraps lightninglabs/neutrino library
@@ -225,6 +225,18 @@ See individual component READMEs for detailed instructions:
 - [Taker Bot](./taker/README.md) - CoinJoin participant
 - [E2E Tests](./tests/e2e/README.md) - Complete system tests
 - [Protocol & Architecture Documentation](./DOCS.md) - Full technical documentation
+
+## Utility Scripts
+
+The `scripts/` directory contains helpful utilities:
+
+- **build_docs.py** - Generates API documentation from source code
+- **coinjoin_notifier.py** - Daemon that monitors CoinJoin history and sends Gotify notifications for new transactions
+- **fund-test-wallets.sh** - Funds test wallets in regtest environment
+- **generate_tor_keys.py** - Generates Tor hidden service keys
+- **regtest-miner.sh** - Automated block mining for regtest
+- **run_all_tests.sh** - Runs complete test suite with Docker orchestration
+- **update-deps.sh** - Updates Python dependencies across all components
 
 ## Docker
 

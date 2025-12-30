@@ -1490,6 +1490,13 @@ class Taker:
 
                 input_index = input_index_map[utxo_key]
 
+                # Safety check: Fidelity bond (P2WSH) UTXOs should never be in CoinJoins
+                if utxo.is_p2wsh:
+                    raise TransactionSigningError(
+                        f"Cannot sign P2WSH UTXO {utxo.txid}:{utxo.vout} in CoinJoin - "
+                        f"fidelity bond UTXOs cannot be used in CoinJoins"
+                    )
+
                 # Get the key for this address
                 key = self.wallet.get_key_for_address(utxo.address)
                 if not key:

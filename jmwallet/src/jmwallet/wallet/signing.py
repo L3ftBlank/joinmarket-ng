@@ -1,5 +1,5 @@
 """
-Bitcoin transaction signing utilities for P2WPKH inputs.
+Bitcoin transaction signing utilities for P2WPKH and P2WSH inputs.
 """
 
 from __future__ import annotations
@@ -177,6 +177,53 @@ def create_witness_stack(signature: bytes, pubkey_bytes: bytes) -> list[bytes]:
     return [signature, pubkey_bytes]
 
 
+def sign_p2wsh_input(
+    tx: Transaction,
+    input_index: int,
+    witness_script: bytes,
+    value: int,
+    private_key: PrivateKey,
+    sighash_type: int = 1,
+) -> bytes:
+    """Sign a P2WSH input using coincurve.
+
+    For P2WSH, the scriptCode in BIP143 signing is the witness script itself.
+
+    Args:
+        tx: The transaction to sign
+        input_index: Index of the input to sign
+        witness_script: The witness script (e.g., timelocked freeze script)
+        value: The value of the input being spent (in satoshis)
+        private_key: coincurve PrivateKey instance
+        sighash_type: Sighash type (default SIGHASH_ALL = 1)
+
+    Returns:
+        DER-encoded signature with sighash type byte appended
+    """
+    # For P2WSH, the scriptCode is the witness script itself
+    sighash = compute_sighash_segwit(tx, input_index, witness_script, value, sighash_type)
+
+    # Sign the pre-hashed sighash (it's already SHA256d)
+    signature = private_key.sign(sighash, hasher=None)
+
+    return signature + bytes([sighash_type])
+
+
+def create_p2wsh_witness_stack(signature: bytes, witness_script: bytes) -> list[bytes]:
+    """Create witness stack for P2WSH input.
+
+    For timelocked scripts (CLTV), the witness is: [signature, witness_script]
+
+    Args:
+        signature: DER signature with sighash byte
+        witness_script: The witness script (e.g., freeze script)
+
+    Returns:
+        Witness stack: [signature, witness_script]
+    """
+    return [signature, witness_script]
+
+
 # Re-export from jmcore for backward compatibility
 __all__ = [
     "Transaction",
@@ -185,10 +232,12 @@ __all__ = [
     "TxOutput",
     "compute_sighash_segwit",
     "create_p2wpkh_script_code",
+    "create_p2wsh_witness_stack",
     "create_witness_stack",
     "deserialize_transaction",
     "encode_varint",
     "hash256",
     "read_varint",
     "sign_p2wpkh_input",
+    "sign_p2wsh_input",
 ]

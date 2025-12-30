@@ -682,9 +682,11 @@ async def _send_transaction(
     from jmwallet.wallet.service import WalletService
     from jmwallet.wallet.signing import (
         create_p2wpkh_script_code,
+        create_p2wsh_witness_stack,
         deserialize_transaction,
         encode_varint,
         sign_p2wpkh_input,
+        sign_p2wsh_input,
     )
 
     backend = BitcoinCoreBackend(rpc_url=rpc_url, rpc_user=rpc_user, rpc_password=rpc_password)
@@ -782,7 +784,27 @@ async def _send_transaction(
 
         # Build raw transaction
         version = (2).to_bytes(4, "little")
-        locktime = (0).to_bytes(4, "little")
+
+        # Determine transaction locktime - must be >= max CLTV locktime if spending timelocked UTXOs
+        import time
+
+        max_locktime = 0
+        has_timelocked = False
+        current_time = int(time.time())
+        for utxo in utxos:
+            if utxo.is_timelocked and utxo.locktime is not None:
+                has_timelocked = True
+                if utxo.locktime > max_locktime:
+                    max_locktime = utxo.locktime
+                if utxo.locktime > current_time:
+                    logger.error(
+                        f"Cannot spend timelocked UTXO {utxo.txid}:{utxo.vout} - "
+                        f"locktime {utxo.locktime} is in the future "
+                        f"(current time: {current_time})"
+                    )
+                    raise typer.Exit(1)
+
+        locktime = max_locktime.to_bytes(4, "little")
 
         # Inputs
         inputs_data = bytearray()
@@ -791,7 +813,11 @@ async def _send_transaction(
             inputs_data.extend(txid_bytes)
             inputs_data.extend(utxo.vout.to_bytes(4, "little"))
             inputs_data.append(0)  # Empty scriptSig for SegWit
-            inputs_data.extend((0xFFFFFFFF).to_bytes(4, "little"))  # Sequence
+            # For timelocked UTXOs, sequence must be < 0xFFFFFFFF to enable locktime
+            if has_timelocked:
+                inputs_data.extend((0xFFFFFFFE).to_bytes(4, "little"))  # Enable locktime
+            else:
+                inputs_data.extend((0xFFFFFFFF).to_bytes(4, "little"))  # Sequence
 
         # Outputs
         outputs_data = bytearray()
@@ -834,17 +860,41 @@ async def _send_transaction(
                 raise typer.Exit(1)
 
             pubkey_bytes = key.get_public_key_bytes(compressed=True)
-            script_code = create_p2wpkh_script_code(pubkey_bytes)
 
-            signature = sign_p2wpkh_input(
-                tx=tx,
-                input_index=i,
-                script_code=script_code,
-                value=utxo.value,
-                private_key=key.private_key,
-            )
+            # Check if this is a timelocked (fidelity bond) UTXO
+            if utxo.is_timelocked and utxo.locktime is not None:
+                # P2WSH signing for fidelity bonds
+                from jmcore.btc_script import mk_freeze_script
 
-            witnesses.append([signature, pubkey_bytes])
+                witness_script = mk_freeze_script(pubkey_bytes.hex(), utxo.locktime)
+                signature = sign_p2wsh_input(
+                    tx=tx,
+                    input_index=i,
+                    witness_script=witness_script,
+                    value=utxo.value,
+                    private_key=key.private_key,
+                )
+                witnesses.append(create_p2wsh_witness_stack(signature, witness_script))
+            elif utxo.is_p2wsh:
+                # P2WSH UTXO detected but locktime not known - this shouldn't happen
+                # if the wallet was synced correctly with fidelity bond locktimes
+                logger.error(
+                    f"Cannot sign P2WSH UTXO {utxo.txid}:{utxo.vout} - "
+                    f"locktime not available. This UTXO appears to be a fidelity bond "
+                    f"but was not synced with its locktime information."
+                )
+                raise typer.Exit(1)
+            else:
+                # P2WPKH signing for regular UTXOs
+                script_code = create_p2wpkh_script_code(pubkey_bytes)
+                signature = sign_p2wpkh_input(
+                    tx=tx,
+                    input_index=i,
+                    script_code=script_code,
+                    value=utxo.value,
+                    private_key=key.private_key,
+                )
+                witnesses.append([signature, pubkey_bytes])
 
         # Build signed transaction with witness
         signed_tx = bytearray()

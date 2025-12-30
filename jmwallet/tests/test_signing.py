@@ -12,12 +12,14 @@ from jmwallet.wallet.signing import (
     TxOutput,
     compute_sighash_segwit,
     create_p2wpkh_script_code,
+    create_p2wsh_witness_stack,
     create_witness_stack,
     deserialize_transaction,
     encode_varint,
     hash256,
     read_varint,
     sign_p2wpkh_input,
+    sign_p2wsh_input,
 )
 
 
@@ -287,3 +289,117 @@ class TestSignatureVerification:
         # coincurve uses RFC 6979 deterministic k, so signatures should be identical
         assert sig1 == sig2
         assert len(sig1) > 64
+
+
+class TestP2WSHSigning:
+    """Tests for P2WSH (fidelity bond) signing."""
+
+    @pytest.fixture
+    def test_key(self, test_mnemonic):
+        """Get a test private key from BIP32 derivation."""
+        seed = mnemonic_to_seed(test_mnemonic)
+        master = HDKey.from_seed(seed)
+        # Use fidelity bond path: m/84'/0'/0'/2/0
+        return master.derive("m/84'/0'/0'/2/0")
+
+    @pytest.fixture
+    def freeze_script(self, test_key):
+        """Create a freeze (timelocked) script."""
+        from jmcore.btc_script import mk_freeze_script
+
+        pubkey_hex = test_key.get_public_key_bytes(compressed=True).hex()
+        locktime = 1700000000  # Example locktime in the past
+        return mk_freeze_script(pubkey_hex, locktime)
+
+    def test_sign_p2wsh_input(self, test_key, freeze_script):
+        """Test signing a P2WSH input with a timelocked script."""
+        tx = Transaction(
+            version=bytes.fromhex("02000000"),
+            marker_flag=True,
+            inputs=[
+                TxInput(
+                    txid_le=bytes(32),
+                    vout=0,
+                    script=b"",
+                    sequence=b"\xfe\xff\xff\xff",  # Enable locktime
+                )
+            ],
+            outputs=[TxOutput(value=50000, script=bytes.fromhex("0014" + "00" * 20))],
+            locktime=(1700000000).to_bytes(4, "little"),  # Must be >= CLTV locktime
+            raw=b"",
+        )
+
+        signature = sign_p2wsh_input(
+            tx=tx,
+            input_index=0,
+            witness_script=freeze_script,
+            value=100000,
+            private_key=test_key.private_key,
+            sighash_type=1,
+        )
+
+        # Signature should be DER-encoded + sighash byte
+        assert len(signature) > 64  # DER is variable length
+        assert signature[-1] == 1  # SIGHASH_ALL
+
+    def test_create_p2wsh_witness_stack(self, freeze_script):
+        """Test creating P2WSH witness stack."""
+        sig = bytes.fromhex("3044" + "00" * 68)  # Mock DER signature
+
+        stack = create_p2wsh_witness_stack(sig, freeze_script)
+
+        assert len(stack) == 2
+        assert stack[0] == sig
+        assert stack[1] == freeze_script
+
+    def test_p2wsh_signature_deterministic(self, test_key, freeze_script):
+        """Signing same P2WSH transaction twice should produce same signature."""
+        tx = Transaction(
+            version=bytes.fromhex("02000000"),
+            marker_flag=True,
+            inputs=[
+                TxInput(
+                    txid_le=bytes(32),
+                    vout=0,
+                    script=b"",
+                    sequence=b"\xfe\xff\xff\xff",
+                )
+            ],
+            outputs=[TxOutput(value=50000, script=bytes.fromhex("0014" + "00" * 20))],
+            locktime=(1700000000).to_bytes(4, "little"),
+            raw=b"",
+        )
+
+        sig1 = sign_p2wsh_input(tx, 0, freeze_script, 100000, test_key.private_key)
+        sig2 = sign_p2wsh_input(tx, 0, freeze_script, 100000, test_key.private_key)
+
+        # coincurve uses RFC 6979 deterministic k, so signatures should be identical
+        assert sig1 == sig2
+        assert len(sig1) > 64
+
+    def test_p2wsh_vs_p2wpkh_different_sighash(self, test_key, freeze_script):
+        """P2WSH and P2WPKH signatures for same tx should differ (different script_code)."""
+        tx = Transaction(
+            version=bytes.fromhex("02000000"),
+            marker_flag=True,
+            inputs=[
+                TxInput(
+                    txid_le=bytes(32),
+                    vout=0,
+                    script=b"",
+                    sequence=b"\xfe\xff\xff\xff",
+                )
+            ],
+            outputs=[TxOutput(value=50000, script=bytes.fromhex("0014" + "00" * 20))],
+            locktime=(1700000000).to_bytes(4, "little"),
+            raw=b"",
+        )
+
+        pubkey = test_key.get_public_key_bytes(compressed=True)
+        p2wpkh_script_code = create_p2wpkh_script_code(pubkey)
+
+        sig_p2wsh = sign_p2wsh_input(tx, 0, freeze_script, 100000, test_key.private_key)
+        sig_p2wpkh = sign_p2wpkh_input(tx, 0, p2wpkh_script_code, 100000, test_key.private_key)
+
+        # Signatures should be different because script_code differs
+        assert sig_p2wsh != sig_p2wpkh

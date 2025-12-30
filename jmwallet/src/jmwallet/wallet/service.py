@@ -200,6 +200,20 @@ class WalletService:
         pubkey_hex = key.get_public_key_bytes(compressed=True).hex()
         return mk_freeze_script(pubkey_hex, locktime)
 
+    def get_locktime_for_address(self, address: str) -> int | None:
+        """
+        Get the locktime for a fidelity bond address.
+
+        Args:
+            address: The fidelity bond address
+
+        Returns:
+            Locktime as Unix timestamp, or None if not a fidelity bond address
+        """
+        if not hasattr(self, "fidelity_bond_locktime_cache"):
+            return None
+        return self.fidelity_bond_locktime_cache.get(address)
+
     def get_private_key(self, mixdepth: int, change: int, index: int) -> bytes:
         """Get private key for given path"""
         path = f"{self.root_path}/{mixdepth}'/{change}/{index}"
@@ -341,6 +355,7 @@ class WalletService:
                                 path=path,
                                 mixdepth=0,  # Fidelity bonds always in mixdepth 0
                                 height=utxo.height,
+                                locktime=locktime,  # Store locktime for P2WSH signing
                             )
                             utxos.append(utxo_info)
                             logger.info(

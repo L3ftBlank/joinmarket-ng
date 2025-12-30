@@ -74,7 +74,8 @@ JoinMarket NG uses a dedicated data directory for persistent files that need to 
 ├── cmtdata/
 │   ├── commitmentlist     PoDLE commitment blacklist (makers, network-wide)
 │   └── commitments.json   PoDLE used commitments (takers, local tracking)
-└── coinjoin_history.csv   CoinJoin transaction history log
+├── coinjoin_history.csv   CoinJoin transaction history log
+└── fidelity_bonds.json    Fidelity bond registry (addresses, scripts, UTXO info)
 ```
 
 ### Configuration
@@ -749,6 +750,93 @@ Fidelity bonds allow makers to prove locked bitcoins, improving trust and select
 
 Makers lock bitcoin in timelocked UTXOs to gain priority in taker selection. Bond value increases with amount and time until unlock.
 
+### Bond Address Generation
+
+Fidelity bonds use P2WSH (Pay-to-Witness-Script-Hash) addresses with a timelock script:
+
+```
+<locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP <pubkey> OP_CHECKSIG
+```
+
+**Generate a bond address:**
+
+```bash
+jm-wallet generate-bond-address \
+  --mnemonic-file wallet.enc \
+  --password "your-password" \
+  --locktime-date "2026-01-01" \
+  --index 0 \
+  --network mainnet
+```
+
+Output includes:
+- **Address**: The P2WSH address to fund
+- **Witness Script**: Hex and disassembled form (for recovery/verification)
+- **Registry**: Bond is automatically saved to `~/.joinmarket-ng/fidelity_bonds.json`
+
+### Bond Registry
+
+The bond registry (`fidelity_bonds.json`) persistently stores bond metadata:
+
+```
+~/.joinmarket-ng/
+└── fidelity_bonds.json    # Bond addresses, locktimes, witness scripts, UTXO info
+```
+
+**Registry Commands:**
+
+| Command | Description |
+|---------|-------------|
+| `jm-wallet registry-list` | List all bonds with status (funded/unfunded/expired) |
+| `jm-wallet registry-show <address>` | Show detailed bond information |
+| `jm-wallet registry-sync` | Scan blockchain to update funding status |
+
+**Example workflow:**
+
+```bash
+# Generate a bond address (automatically saved to registry)
+jm-wallet generate-bond-address -f wallet.enc -p "pass" -d "2026-01-01"
+
+# Fund the address using your preferred method (Sparrow, Bitcoin Core, etc.)
+
+# Sync registry with blockchain to detect funding
+jm-wallet registry-sync -f wallet.enc -p "pass" --rpc-url http://localhost:8332
+
+# List all bonds and their status
+jm-wallet registry-list
+
+# Show details for a specific bond
+jm-wallet registry-show bc1q...
+```
+
+**Registry fields:**
+- `address`: P2WSH bond address
+- `locktime`: Unix timestamp when funds can be spent
+- `witness_script_hex`: The redeem script (needed for spending)
+- `txid`, `vout`, `value`: UTXO info (populated after `registry-sync`)
+- `is_funded`: Whether the bond has a confirmed UTXO
+- `is_expired`: Whether the locktime has passed
+
+### Spending Fidelity Bonds
+
+After the locktime expires, bonds can be spent using the `send` command:
+
+```bash
+jm-wallet send <destination> \
+  --mnemonic-file wallet.enc \
+  --password "your-password" \
+  --mixdepth 0 \
+  --amount 0  # Sweep all
+```
+
+The wallet automatically:
+1. Detects P2WSH (timelocked) UTXOs
+2. Sets `nLockTime` to the bond's locktime
+3. Creates the proper witness stack with the witness script
+4. Blocks spending attempts before locktime expires
+
+**Important**: P2WSH fidelity bond UTXOs cannot be used in CoinJoins. The maker and taker will reject them with an error to protect your funds.
+
 ### Bond Proof Structure
 
 252-byte proof containing two signatures + metadata:
@@ -784,7 +872,7 @@ Allows cold storage of bond privkey while hot wallet handles per-session proofs.
 
 This matches reference implementation behavior for orderbook responses.
 
-Implementation: `jmcore/src/jmcore/bond_calc.py`
+Implementation: `jmcore/src/jmcore/bond_calc.py`, `jmwallet/src/jmwallet/wallet/bond_registry.py`
 
 ---
 

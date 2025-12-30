@@ -1,0 +1,214 @@
+"""
+Fidelity bond registry for persistent storage of bond metadata.
+
+This module provides storage and retrieval of fidelity bond information,
+including addresses, locktimes, witness scripts, and UTXO tracking.
+"""
+
+from __future__ import annotations
+
+import json
+from datetime import datetime
+from pathlib import Path
+
+from loguru import logger
+from pydantic import BaseModel
+
+
+class FidelityBondInfo(BaseModel):
+    """Information about a single fidelity bond."""
+
+    address: str
+    locktime: int
+    locktime_human: str
+    index: int
+    path: str
+    pubkey: str
+    witness_script_hex: str
+    network: str
+    created_at: str
+    # UTXO info (populated when bond is funded)
+    txid: str | None = None
+    vout: int | None = None
+    value: int | None = None  # in satoshis
+    confirmations: int | None = None
+
+    @property
+    def is_funded(self) -> bool:
+        """Check if this bond has been funded."""
+        return self.txid is not None and self.value is not None and self.value > 0
+
+    @property
+    def is_expired(self) -> bool:
+        """Check if the locktime has passed."""
+        import time
+
+        return time.time() >= self.locktime
+
+    @property
+    def time_until_unlock(self) -> int:
+        """Seconds until the bond can be unlocked. Returns 0 if already expired."""
+        import time
+
+        remaining = self.locktime - int(time.time())
+        return max(0, remaining)
+
+
+class BondRegistry(BaseModel):
+    """Registry of all fidelity bonds for a wallet."""
+
+    version: int = 1
+    bonds: list[FidelityBondInfo] = []
+
+    def add_bond(self, bond: FidelityBondInfo) -> None:
+        """Add a new bond to the registry."""
+        # Check for duplicate address
+        for existing in self.bonds:
+            if existing.address == bond.address:
+                logger.warning(f"Bond with address {bond.address} already exists, updating")
+                self.bonds.remove(existing)
+                break
+        self.bonds.append(bond)
+
+    def get_bond_by_address(self, address: str) -> FidelityBondInfo | None:
+        """Get a bond by its address."""
+        for bond in self.bonds:
+            if bond.address == address:
+                return bond
+        return None
+
+    def get_bond_by_index(self, index: int, locktime: int) -> FidelityBondInfo | None:
+        """Get a bond by its index and locktime."""
+        for bond in self.bonds:
+            if bond.index == index and bond.locktime == locktime:
+                return bond
+        return None
+
+    def get_funded_bonds(self) -> list[FidelityBondInfo]:
+        """Get all funded bonds."""
+        return [b for b in self.bonds if b.is_funded]
+
+    def get_active_bonds(self) -> list[FidelityBondInfo]:
+        """Get all funded bonds that are not yet expired."""
+        return [b for b in self.bonds if b.is_funded and not b.is_expired]
+
+    def get_best_bond(self) -> FidelityBondInfo | None:
+        """
+        Get the best bond for advertising.
+
+        Selection criteria (in order):
+        1. Must be funded
+        2. Must not be expired
+        3. Highest value wins
+        4. If tied, longest locktime remaining wins
+        """
+        active = self.get_active_bonds()
+        if not active:
+            return None
+
+        # Sort by value (descending), then by time_until_unlock (descending)
+        active.sort(key=lambda b: (b.value or 0, b.time_until_unlock), reverse=True)
+        return active[0]
+
+    def update_utxo_info(
+        self,
+        address: str,
+        txid: str,
+        vout: int,
+        value: int,
+        confirmations: int,
+    ) -> bool:
+        """Update UTXO information for a bond."""
+        bond = self.get_bond_by_address(address)
+        if bond:
+            bond.txid = txid
+            bond.vout = vout
+            bond.value = value
+            bond.confirmations = confirmations
+            return True
+        return False
+
+
+def get_registry_path(data_dir: Path) -> Path:
+    """Get the path to the bond registry file."""
+    return data_dir / "fidelity_bonds.json"
+
+
+def load_registry(data_dir: Path) -> BondRegistry:
+    """
+    Load the bond registry from disk.
+
+    Args:
+        data_dir: Data directory path
+
+    Returns:
+        BondRegistry instance (empty if file doesn't exist)
+    """
+    registry_path = get_registry_path(data_dir)
+    if not registry_path.exists():
+        return BondRegistry()
+
+    try:
+        data = json.loads(registry_path.read_text())
+        return BondRegistry.model_validate(data)
+    except Exception as e:
+        logger.error(f"Failed to load bond registry: {e}")
+        # Return empty registry on error, but don't overwrite the file
+        return BondRegistry()
+
+
+def save_registry(registry: BondRegistry, data_dir: Path) -> None:
+    """
+    Save the bond registry to disk.
+
+    Args:
+        registry: BondRegistry instance
+        data_dir: Data directory path
+    """
+    registry_path = get_registry_path(data_dir)
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        registry_path.write_text(registry.model_dump_json(indent=2))
+        logger.debug(f"Saved bond registry to {registry_path}")
+    except Exception as e:
+        logger.error(f"Failed to save bond registry: {e}")
+        raise
+
+
+def create_bond_info(
+    address: str,
+    locktime: int,
+    index: int,
+    path: str,
+    pubkey_hex: str,
+    witness_script: bytes,
+    network: str,
+) -> FidelityBondInfo:
+    """
+    Create a FidelityBondInfo instance.
+
+    Args:
+        address: The P2WSH address
+        locktime: Unix timestamp locktime
+        index: Derivation index
+        path: Full derivation path
+        pubkey_hex: Public key as hex
+        witness_script: The witness script bytes
+        network: Network name
+
+    Returns:
+        FidelityBondInfo instance
+    """
+    locktime_dt = datetime.fromtimestamp(locktime)
+    return FidelityBondInfo(
+        address=address,
+        locktime=locktime,
+        locktime_human=locktime_dt.strftime("%Y-%m-%d %H:%M:%S"),
+        index=index,
+        path=path,
+        pubkey=pubkey_hex,
+        witness_script_hex=witness_script.hex(),
+        network=network,
+        created_at=datetime.now().isoformat(),
+    )

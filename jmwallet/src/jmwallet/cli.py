@@ -10,10 +10,13 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 from loguru import logger
+
+if TYPE_CHECKING:
+    from jmwallet.wallet.bond_registry import BondRegistry
 
 app = typer.Typer(
     name="jm-wallet",
@@ -549,6 +552,17 @@ def generate_bond_address(
     ] = None,
     index: Annotated[int, typer.Option("--index", "-i", help="Address index")] = 0,
     network: Annotated[str, typer.Option("--network", "-n")] = "mainnet",
+    data_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--data-dir",
+            help="Data directory (default: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR)",
+        ),
+    ] = None,
+    no_save: Annotated[
+        bool,
+        typer.Option("--no-save", help="Do not save the bond to the registry"),
+    ] = False,
     log_level: Annotated[str, typer.Option("--log-level", "-l")] = "INFO",
 ) -> None:
     """Generate a fidelity bond (timelocked P2WSH) address."""
@@ -583,7 +597,16 @@ def generate_bond_address(
     if locktime <= datetime.now().timestamp():
         logger.warning("Locktime is in the past - the bond will be immediately spendable")
 
+    from jmcore.btc_script import disassemble_script, mk_freeze_script
+    from jmcore.paths import get_default_data_dir
+
+    from jmwallet.wallet.address import script_to_p2wsh_address
     from jmwallet.wallet.bip32 import HDKey, mnemonic_to_seed
+    from jmwallet.wallet.bond_registry import (
+        create_bond_info,
+        load_registry,
+        save_registry,
+    )
     from jmwallet.wallet.service import FIDELITY_BOND_BRANCH
 
     seed = mnemonic_to_seed(resolved_mnemonic)
@@ -595,23 +618,59 @@ def generate_bond_address(
     key = master_key.derive(path)
     pubkey_hex = key.get_public_key_bytes(compressed=True).hex()
 
-    from jmcore.btc_script import mk_freeze_script
-
-    from jmwallet.wallet.address import script_to_p2wsh_address
-
-    script = mk_freeze_script(pubkey_hex, locktime)
-    address = script_to_p2wsh_address(script, network)
+    witness_script = mk_freeze_script(pubkey_hex, locktime)
+    address = script_to_p2wsh_address(witness_script, network)
 
     locktime_dt = datetime.fromtimestamp(locktime)
+    disassembled = disassemble_script(witness_script)
+
+    # Resolve data directory
+    resolved_data_dir = data_dir if data_dir else get_default_data_dir()
+
+    # Save to registry unless --no-save
+    saved = False
+    existing = False
+    if not no_save:
+        registry = load_registry(resolved_data_dir)
+        existing_bond = registry.get_bond_by_address(address)
+        if existing_bond:
+            existing = True
+            logger.info(f"Bond already exists in registry (created: {existing_bond.created_at})")
+        else:
+            bond_info = create_bond_info(
+                address=address,
+                locktime=locktime,
+                index=index,
+                path=path,
+                pubkey_hex=pubkey_hex,
+                witness_script=witness_script,
+                network=network,
+            )
+            registry.add_bond(bond_info)
+            save_registry(registry, resolved_data_dir)
+            saved = True
 
     print("\n" + "=" * 80)
     print("FIDELITY BOND ADDRESS")
     print("=" * 80)
-    print(f"\nAddress:   {address}")
-    print(f"Locktime:  {locktime} ({locktime_dt.strftime('%Y-%m-%d %H:%M:%S')})")
-    print(f"Index:     {index}")
-    print(f"Network:   {network}")
-    print(f"Path:      {path}")
+    print(f"\nAddress:      {address}")
+    print(f"Locktime:     {locktime} ({locktime_dt.strftime('%Y-%m-%d %H:%M:%S')})")
+    print(f"Index:        {index}")
+    print(f"Network:      {network}")
+    print(f"Path:         {path}")
+    print()
+    print("-" * 80)
+    print("WITNESS SCRIPT (redeemScript)")
+    print("-" * 80)
+    print(f"Hex:          {witness_script.hex()}")
+    print(f"Disassembled: {disassembled}")
+    print("-" * 80)
+    if saved:
+        print(f"\nSaved to registry: {resolved_data_dir / 'fidelity_bonds.json'}")
+    elif existing:
+        print("\nBond already in registry (not updated)")
+    elif no_save:
+        print("\nNot saved to registry (--no-save)")
     print("\n" + "=" * 80)
     print("IMPORTANT: Funds sent to this address are LOCKED until the locktime!")
     print("           Make sure you have backed up your mnemonic.")
@@ -1056,6 +1115,315 @@ def validate(
     else:
         print("Mnemonic is INVALID")
         raise typer.Exit(1)
+
+
+# ============================================================================
+# Fidelity Bond Registry Commands
+# ============================================================================
+
+
+@app.command("registry-list")
+def registry_list(
+    data_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--data-dir",
+            help="Data directory (default: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR)",
+        ),
+    ] = None,
+    funded_only: Annotated[
+        bool,
+        typer.Option("--funded-only", "-f", help="Show only funded bonds"),
+    ] = False,
+    active_only: Annotated[
+        bool,
+        typer.Option("--active-only", "-a", help="Show only active (funded & not expired) bonds"),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", "-j", help="Output as JSON"),
+    ] = False,
+    log_level: Annotated[str, typer.Option("--log-level", "-l")] = "WARNING",
+) -> None:
+    """List all fidelity bonds in the registry."""
+    setup_logging(log_level)
+
+    from jmcore.paths import get_default_data_dir
+
+    from jmwallet.wallet.bond_registry import load_registry
+
+    resolved_data_dir = data_dir if data_dir else get_default_data_dir()
+    registry = load_registry(resolved_data_dir)
+
+    if active_only:
+        bonds = registry.get_active_bonds()
+    elif funded_only:
+        bonds = registry.get_funded_bonds()
+    else:
+        bonds = registry.bonds
+
+    if json_output:
+        import json
+
+        output = [bond.model_dump() for bond in bonds]
+        print(json.dumps(output, indent=2))
+        return
+
+    if not bonds:
+        print("\nNo fidelity bonds found in registry.")
+        print(f"Registry: {resolved_data_dir / 'fidelity_bonds.json'}")
+        return
+
+    print(f"\nFidelity Bonds ({len(bonds)} total)")
+    print("=" * 120)
+    header = f"{'Address':<45} {'Locktime':<20} {'Status':<15} {'Value':>15} {'Index':>6}"
+    print(header)
+    print("-" * 120)
+
+    for bond in bonds:
+        # Status
+        if bond.is_funded and not bond.is_expired:
+            status = "ACTIVE"
+        elif bond.is_funded and bond.is_expired:
+            status = "EXPIRED (funded)"
+        elif bond.is_expired:
+            status = "EXPIRED"
+        else:
+            status = "UNFUNDED"
+
+        # Value
+        value_str = f"{bond.value:,} sats" if bond.value else "-"
+
+        # Truncate address for display
+        addr_display = bond.address[:20] + "..." + bond.address[-8:]
+
+        print(
+            f"{addr_display:<45} {bond.locktime_human:<20} {status:<15} "
+            f"{value_str:>15} {bond.index:>6}"
+        )
+
+    print("=" * 120)
+
+    # Show best bond if any active
+    best = registry.get_best_bond()
+    if best:
+        print(f"\nBest bond for advertising: {best.address[:20]}...{best.address[-8:]}")
+        print(f"  Value: {best.value:,} sats, Unlock in: {best.time_until_unlock:,}s")
+
+
+@app.command("registry-show")
+def registry_show(
+    address: Annotated[str, typer.Argument(help="Bond address to show")],
+    data_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--data-dir",
+            help="Data directory (default: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR)",
+        ),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", "-j", help="Output as JSON"),
+    ] = False,
+    log_level: Annotated[str, typer.Option("--log-level", "-l")] = "WARNING",
+) -> None:
+    """Show detailed information about a specific fidelity bond."""
+    setup_logging(log_level)
+
+    from jmcore.btc_script import disassemble_script
+    from jmcore.paths import get_default_data_dir
+
+    from jmwallet.wallet.bond_registry import load_registry
+
+    resolved_data_dir = data_dir if data_dir else get_default_data_dir()
+    registry = load_registry(resolved_data_dir)
+
+    bond = registry.get_bond_by_address(address)
+    if not bond:
+        print(f"\nBond not found: {address}")
+        print(f"Registry: {resolved_data_dir / 'fidelity_bonds.json'}")
+        raise typer.Exit(1)
+
+    if json_output:
+        import json
+
+        print(json.dumps(bond.model_dump(), indent=2))
+        return
+
+    print("\n" + "=" * 80)
+    print("FIDELITY BOND DETAILS")
+    print("=" * 80)
+    print(f"\nAddress:          {bond.address}")
+    print(f"Network:          {bond.network}")
+    print(f"Index:            {bond.index}")
+    print(f"Path:             {bond.path}")
+    print(f"Public Key:       {bond.pubkey}")
+    print()
+    print(f"Locktime:         {bond.locktime} ({bond.locktime_human})")
+    if bond.is_expired:
+        print("Status:           EXPIRED (can be spent)")
+    else:
+        remaining = bond.time_until_unlock
+        days = remaining // 86400
+        hours = (remaining % 86400) // 3600
+        print(f"Status:           LOCKED ({days}d {hours}h remaining)")
+    print()
+    print("-" * 80)
+    print("WITNESS SCRIPT")
+    print("-" * 80)
+    witness_script = bytes.fromhex(bond.witness_script_hex)
+    print(f"Hex:          {bond.witness_script_hex}")
+    print(f"Disassembled: {disassemble_script(witness_script)}")
+    print()
+    print("-" * 80)
+    print("FUNDING STATUS")
+    print("-" * 80)
+    if bond.is_funded:
+        print(f"TXID:         {bond.txid}")
+        print(f"Vout:         {bond.vout}")
+        print(f"Value:        {bond.value:,} sats")
+        print(f"Confirmations: {bond.confirmations}")
+    else:
+        print("Not funded (or not yet synced)")
+    print()
+    print(f"Created:      {bond.created_at}")
+    print("=" * 80 + "\n")
+
+
+@app.command("registry-sync")
+def registry_sync(
+    mnemonic: Annotated[str | None, typer.Option("--mnemonic")] = None,
+    mnemonic_file: Annotated[Path | None, typer.Option("--mnemonic-file", "-f")] = None,
+    password: Annotated[str | None, typer.Option("--password", "-p")] = None,
+    network: Annotated[str, typer.Option("--network", "-n")] = "mainnet",
+    rpc_url: Annotated[
+        str, typer.Option("--rpc-url", envvar="BITCOIN_RPC_URL")
+    ] = "http://127.0.0.1:8332",
+    rpc_user: Annotated[str, typer.Option("--rpc-user", envvar="BITCOIN_RPC_USER")] = "",
+    rpc_password: Annotated[
+        str, typer.Option("--rpc-password", envvar="BITCOIN_RPC_PASSWORD")
+    ] = "",
+    data_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--data-dir",
+            help="Data directory (default: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR)",
+        ),
+    ] = None,
+    log_level: Annotated[str, typer.Option("--log-level", "-l")] = "INFO",
+) -> None:
+    """Sync fidelity bond funding status from the blockchain."""
+    setup_logging(log_level)
+
+    try:
+        resolved_mnemonic = _resolve_mnemonic(mnemonic, mnemonic_file, password, True)
+    except (FileNotFoundError, ValueError) as e:
+        logger.error(str(e))
+        raise typer.Exit(1)
+
+    from jmcore.paths import get_default_data_dir
+
+    from jmwallet.wallet.bond_registry import load_registry
+
+    resolved_data_dir = data_dir if data_dir else get_default_data_dir()
+    registry = load_registry(resolved_data_dir)
+
+    if not registry.bonds:
+        print("\nNo bonds in registry to sync.")
+        print("Use 'generate-bond-address' to create bonds first.")
+        raise typer.Exit(0)
+
+    asyncio.run(
+        _sync_bonds_async(
+            registry,
+            resolved_mnemonic,
+            network,
+            rpc_url,
+            rpc_user,
+            rpc_password,
+            resolved_data_dir,
+        )
+    )
+
+
+async def _sync_bonds_async(
+    registry: BondRegistry,
+    mnemonic: str,
+    network: str,
+    rpc_url: str,
+    rpc_user: str,
+    rpc_password: str,
+    data_dir: Path,
+) -> None:
+    """Async implementation of bond syncing."""
+    from jmwallet.backends import BitcoinCoreBackend
+    from jmwallet.wallet.bond_registry import save_registry
+
+    backend = BitcoinCoreBackend(
+        rpc_url=rpc_url,
+        rpc_user=rpc_user,
+        rpc_password=rpc_password,
+    )
+
+    print(f"\nSyncing {len(registry.bonds)} bonds...")
+    print("-" * 60)
+
+    # Get all bond addresses
+    addresses = [bond.address for bond in registry.bonds]
+
+    # Scan all addresses at once
+    try:
+        utxos = await backend.get_utxos(addresses)
+    except Exception as e:
+        logger.error(f"Failed to scan UTXOs: {e}")
+        print(f"\nError scanning blockchain: {e}")
+        return
+
+    # Build a map of address -> UTXOs
+    utxo_map: dict[str, list] = {}
+    for utxo in utxos:
+        if utxo.address not in utxo_map:
+            utxo_map[utxo.address] = []
+        utxo_map[utxo.address].append(utxo)
+
+    updated = 0
+    for bond in registry.bonds:
+        bond_utxos = utxo_map.get(bond.address, [])
+        if bond_utxos:
+            # Use the first UTXO (there should typically only be one)
+            utxo = bond_utxos[0]
+            registry.update_utxo_info(
+                address=bond.address,
+                txid=utxo.txid,
+                vout=utxo.vout,
+                value=utxo.value,
+                confirmations=utxo.confirmations,
+            )
+            updated += 1
+            btc_value = utxo.value / 100_000_000
+            print(f"  {bond.address[:20]}... FUNDED ({btc_value:.8f} BTC)")
+        else:
+            if bond.is_funded:
+                # Was funded but now isn't - might have been spent
+                logger.warning(f"Bond {bond.address[:20]}... previously funded, now empty")
+                print(f"  {bond.address[:20]}... SPENT or UNFUNDED")
+            else:
+                print(f"  {bond.address[:20]}... not funded")
+
+    print("-" * 60)
+
+    if updated > 0:
+        save_registry(registry, data_dir)
+        print(f"\nUpdated {updated} bond(s). Registry saved.")
+    else:
+        print("\nNo updates needed.")
+
+    # Show summary
+    funded = registry.get_funded_bonds()
+    active = registry.get_active_bonds()
+    print(f"\nTotal bonds: {len(registry.bonds)}")
+    print(f"Funded: {len(funded)}")
+    print(f"Active (funded & not expired): {len(active)}")
 
 
 def main() -> None:

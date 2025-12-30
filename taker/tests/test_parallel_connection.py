@@ -11,6 +11,11 @@ from jmcore.crypto import NickIdentity
 from jmcore.protocol import JM_VERSION
 from taker.taker import MultiDirectoryClient
 
+# Test timing constants
+MAX_PARALLEL_CONNECTION_TIME = 0.25  # Max time for parallel connections (3 × 0.1s latency)
+MAX_CONNECTION_TIME_SPREAD = 0.05  # Max spread between connection start times
+SIMULATED_NETWORK_LATENCY = 0.1  # Simulated network connection latency in seconds
+
 
 @pytest.mark.asyncio
 async def test_connect_all_parallel():
@@ -35,13 +40,13 @@ async def test_connect_all_parallel():
     connection_times = []
 
     async def mock_connect_side_effect(*args, **kwargs):
-        """Simulate connection with delay."""
+        """Simulate connection with network latency."""
         server = args[0] if args else None
         start_time = asyncio.get_event_loop().time()
         connection_times.append(start_time)
         connection_order.append(server)
-        # Simulate varying connection times
-        await asyncio.sleep(0.1)  # Small delay to verify parallel execution
+        # Simulate network connection latency
+        await asyncio.sleep(SIMULATED_NETWORK_LATENCY)
         return AsyncMock()
 
     # Patch DirectoryClient to track parallel execution
@@ -59,7 +64,9 @@ async def test_connect_all_parallel():
         # If connections were sequential, total time would be >= 0.3 seconds (3 * 0.1)
         # If parallel, total time should be ~0.1 seconds
         total_time = end - start
-        assert total_time < 0.25, f"Connections appear sequential (took {total_time:.2f}s)"
+        assert total_time < MAX_PARALLEL_CONNECTION_TIME, (
+            f"Connections appear sequential (took {total_time:.2f}s)"
+        )
         assert connected_count == 3, f"Expected 3 connections, got {connected_count}"
 
         # Verify all servers were connected to
@@ -68,10 +75,10 @@ async def test_connect_all_parallel():
         assert "server2.onion:5222" in client.clients
         assert "server3.onion:5222" in client.clients
 
-        # Verify connections started nearly simultaneously (within 0.05s of each other)
+        # Verify connections started nearly simultaneously (within threshold of each other)
         if len(connection_times) > 1:
             time_spread = max(connection_times) - min(connection_times)
-            assert time_spread < 0.05, (
+            assert time_spread < MAX_CONNECTION_TIME_SPREAD, (
                 f"Connection times too spread out ({time_spread:.3f}s), "
                 "indicating sequential execution"
             )

@@ -308,7 +308,7 @@ class MakerBot:
 
                 except Exception as e:
                     logger.error(f"Failed to connect to {dir_server}: {e}")
-                    # Return the original server string for consistency with taker
+                    # Return dir_server (not parsed node_id) to match taker's error handling pattern
                     return dir_server, None
 
             # Connect to all directory servers simultaneously

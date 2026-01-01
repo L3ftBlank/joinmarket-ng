@@ -26,6 +26,14 @@ runs:
           **/requirements*.txt
           **/pyproject.toml
 
+    - name: Generate cache key
+      id: cache-key
+      shell: bash
+      run: |
+        # Replace commas with hyphens for cache key
+        COMPONENTS_KEY=$(echo "${{ inputs.components }}" | tr ',' '-')
+        echo "components-key=${COMPONENTS_KEY}" >> $GITHUB_OUTPUT
+
     - name: Cache installed packages
       uses: actions/cache@v4
       id: deps-cache
@@ -33,7 +41,7 @@ runs:
         path: |
           ~/.local
           /opt/hostedtoolcache/Python
-        key: python-deps-${{ runner.os }}-${{ inputs.python-version }}-${{ inputs.components }}-${{ inputs.install-dev }}-${{ hashFiles('**/requirements*.txt', '**/pyproject.toml') }}
+        key: python-deps-${{ runner.os }}-${{ inputs.python-version }}-${{ steps.cache-key.outputs.components-key }}-${{ inputs.install-dev }}-${{ hashFiles('**/requirements*.txt', '**/pyproject.toml') }}
 
     - name: Install dependencies
       if: steps.deps-cache.outputs.cache-hit != 'true'

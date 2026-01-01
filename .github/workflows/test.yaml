@@ -43,14 +43,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/setup-python-deps
         with:
-          python-version: '3.14'
-          cache: pip
+          components: jmcore
+          install-dev: 'true'
 
-      - name: Install and test jmcore
+      - name: Test jmcore
         run: |
-          pip install -e jmcore[dev]
           pytest -c pytest.ini jmcore --junitxml=junit/test-results.xml \
             --cov=jmcore --cov-report=term-missing --cov-report=xml -v \
             --fail-on-skip
@@ -67,15 +66,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/setup-python-deps
         with:
-          python-version: '3.14'
-          cache: pip
+          components: jmcore,directory_server
+          install-dev: 'true'
 
-      - name: Install and test directory_server
+      - name: Test directory_server
         run: |
-          pip install -e jmcore
-          pip install -e directory_server[dev]
           pytest -c pytest.ini directory_server --junitxml=junit/test-results.xml \
             --cov=directory_server --cov-report=term-missing --cov-report=xml -v \
             --fail-on-skip
@@ -92,15 +89,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/setup-python-deps
         with:
-          python-version: '3.14'
-          cache: pip
+          components: jmcore,orderbook_watcher
+          install-dev: 'true'
 
-      - name: Install and test orderbook_watcher
+      - name: Test orderbook_watcher
         run: |
-          pip install -e jmcore
-          pip install -e orderbook_watcher[dev]
           pytest -c pytest.ini orderbook_watcher --junitxml=junit/test-results.xml \
             --cov=orderbook_watcher --cov-report=term-missing --cov-report=xml -v \
             --fail-on-skip
@@ -117,16 +112,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/setup-python-deps
         with:
-          python-version: '3.14'
-          cache: pip
+          components: jmcore,jmwallet,taker
+          install-dev: 'true'
 
-      - name: Install and test taker
+      - name: Test taker
         run: |
-          pip install -e jmcore
-          pip install -e jmwallet
-          pip install -e taker[dev]
           pytest -c pytest.ini taker --junitxml=junit/test-results.xml \
             --cov=taker --cov-report=term-missing --cov-report=xml -v \
             --fail-on-skip
@@ -147,15 +139,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/setup-python-deps
         with:
-          python-version: '3.14'
-          cache: pip
+          components: jmcore,jmwallet
+          install-dev: 'true'
 
-      - name: Install dependencies
-        run: |
-          pip install -e jmcore
-          pip install -e jmwallet[dev]
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Start Bitcoin and Neutrino
         run: |
@@ -202,16 +192,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/setup-python-deps
         with:
-          python-version: '3.14'
-          cache: pip
+          components: jmcore,jmwallet,maker
+          install-dev: 'true'
 
-      - name: Install dependencies
-        run: |
-          pip install -e jmcore
-          pip install -e jmwallet
-          pip install -e maker[dev]
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Start Bitcoin
         run: |
@@ -255,46 +242,38 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/setup-python-deps
         with:
-          python-version: '3.14'
-          cache: pip
+          components: jmcore,jmwallet,directory_server,orderbook_watcher,maker,taker
+          install-dev: 'true'
 
-      - name: Install all dependencies
-        run: |
-          pip install -e jmcore[dev]
-          pip install -e jmwallet
-          pip install -e directory_server[dev]
-          pip install -e orderbook_watcher[dev]
-          pip install -e maker[dev]
-          pip install -e taker[dev]
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-e2e-${{ hashFiles('**/Dockerfile', 'docker-compose.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-e2e-
 
       - name: "Start e2e services"
+        env:
+          DOCKER_BUILDKIT: 1
+          COMPOSE_DOCKER_CLI_BUILD: 1
         run: |
           # Start our implementation only: bitcoin, directory, maker1, maker2
           docker compose --profile e2e up -d --build
 
-          # Wait for Bitcoin
-          echo "Waiting for Bitcoin..."
-          for i in {1..60}; do
-            if docker compose exec -T bitcoin bitcoin-cli -chain=regtest \
-                -rpcport=18443 -rpcuser=test -rpcpassword=test getblockchaininfo 2>/dev/null; then
-              echo "Bitcoin ready"
-              break
-            fi
-            echo "Attempt $i/60..."
-            sleep 2
-          done
+          # Wait for services with better health checks
+          .github/scripts/wait-for-service.sh "Bitcoin" \
+            "docker compose exec -T bitcoin bitcoin-cli -chain=regtest -rpcport=18443 -rpcuser=test -rpcpassword=test getblockchaininfo" \
+            60 1
 
-          # Wait for directory server
-          echo "Waiting for directory server..."
-          for i in {1..30}; do
-            if nc -z localhost 5222 2>/dev/null; then
-              echo "Directory server ready"
-              break
-            fi
-            sleep 2
-          done
+          .github/scripts/wait-for-service.sh "Directory Server" \
+            "nc -z localhost 5222" \
+            30 1
 
           # Give makers time to connect and announce offers
           echo "Waiting for makers to connect..."
@@ -354,19 +333,21 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/setup-python-deps
         with:
-          python-version: '3.14'
-          cache: pip
+          components: jmcore,jmwallet,directory_server,orderbook_watcher,maker,taker
+          install-dev: 'true'
 
-      - name: Install all dependencies
-        run: |
-          pip install -e jmcore[dev]
-          pip install -e jmwallet
-          pip install -e directory_server[dev]
-          pip install -e orderbook_watcher[dev]
-          pip install -e maker[dev]
-          pip install -e taker[dev]
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-reference-${{ hashFiles('**/Dockerfile', 'docker-compose.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-reference-
 
       - name: Clone and install reference implementation
         run: |
@@ -389,6 +370,8 @@ jobs:
           # This ensures CI runs don't conflict with each other or developer machines
           # If the secret is not set, Tor will generate a random key
           TOR_HS_ED25519_SECRET_KEY_BASE64: ${{ secrets.TOR_HS_ED25519_SECRET_KEY_BASE64 }}
+          DOCKER_BUILDKIT: 1
+          COMPOSE_DOCKER_CLI_BUILD: 1
         run: |
           # Start reference profile: bitcoin, directory, maker1, maker2, tor, jam
           # Does NOT include neutrino to avoid UTXO verification issues
@@ -501,21 +484,26 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/setup-python-deps
         with:
-          python-version: '3.14'
-          cache: pip
+          components: jmcore,jmwallet,directory_server,orderbook_watcher,maker,taker
+          install-dev: 'true'
 
-      - name: Install all dependencies
-        run: |
-          pip install -e jmcore[dev]
-          pip install -e jmwallet
-          pip install -e directory_server[dev]
-          pip install -e orderbook_watcher[dev]
-          pip install -e maker[dev]
-          pip install -e taker[dev]
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-neutrino-${{ hashFiles('**/Dockerfile', 'docker-compose.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-neutrino-
 
       - name: "Start neutrino services"
+        env:
+          DOCKER_BUILDKIT: 1
+          COMPOSE_DOCKER_CLI_BUILD: 1
         run: |
           # Start neutrino profile: bitcoin, directory, neutrino, maker-neutrino
           docker compose --profile neutrino up -d --build
@@ -605,24 +593,28 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/setup-python-deps
         with:
-          python-version: '3.14'
-          cache: pip
+          components: jmcore,jmwallet,directory_server,orderbook_watcher,maker,taker
+          install-dev: 'true'
 
-      - name: Install all dependencies
-        run: |
-          pip install -e jmcore[dev]
-          pip install -e jmwallet
-          pip install -e directory_server[dev]
-          pip install -e orderbook_watcher[dev]
-          pip install -e maker[dev]
-          pip install -e taker[dev]
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-reference-maker-${{ hashFiles('**/Dockerfile', 'docker-compose.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-reference-maker-
 
       - name: "Start reference-maker services"
         env:
           # Use CI-specific Tor hidden service key from GitHub secrets
           TOR_HS_ED25519_SECRET_KEY_BASE64: ${{ secrets.TOR_HS_ED25519_SECRET_KEY_BASE64 }}
+          DOCKER_BUILDKIT: 1
+          COMPOSE_DOCKER_CLI_BUILD: 1
         run: |
           # Start reference-maker profile: bitcoin-jam, directory, tor, jam-maker1, jam-maker2
           docker compose --profile reference-maker up -d --build

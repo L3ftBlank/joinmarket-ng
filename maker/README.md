@@ -393,6 +393,17 @@ Use env vars for RPC credentials (see jmwallet README).
 - Never expose your mnemonic or share wallet files
 - File permissions automatically set to 600
 
+### Spam Protection
+
+The maker includes automatic rate limiting with exponential backoff to prevent orderbook spam attacks:
+
+- **Normal**: 1 response per 10 seconds
+- **After 10 violations**: Backoff to 60 seconds (moderate)
+- **After 50 violations**: Backoff to 300 seconds (severe)
+- **After 100 violations**: Peer banned for 1 hour
+
+Thresholds are configurable via environment variables if needed (see config.py).
+
 ## Troubleshooting
 
 **"No offers created"**

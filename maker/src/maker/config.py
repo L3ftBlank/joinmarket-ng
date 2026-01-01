@@ -138,6 +138,26 @@ class MakerConfig(WalletConfig):
         ge=1.0,
         description="Interval in seconds for orderbook rate limiting (default: 10s)",
     )
+    orderbook_violation_ban_threshold: int = Field(
+        default=100,
+        ge=1,
+        description="Ban peer after this many rate limit violations",
+    )
+    orderbook_violation_warning_threshold: int = Field(
+        default=10,
+        ge=1,
+        description="Start exponential backoff after this many violations",
+    )
+    orderbook_violation_severe_threshold: int = Field(
+        default=50,
+        ge=1,
+        description="Severe backoff threshold (higher penalty)",
+    )
+    orderbook_ban_duration: float = Field(
+        default=3600.0,
+        ge=60.0,
+        description="Ban duration in seconds (default: 1 hour)",
+    )
 
     model_config = {"frozen": False}
 

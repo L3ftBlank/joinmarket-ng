@@ -2,6 +2,7 @@
 Tests for the OrderbookRateLimiter class.
 
 The rate limiter protects makers from spam attacks that flood orderbook requests.
+Now includes exponential backoff and ban functionality.
 """
 
 from __future__ import annotations
@@ -122,6 +123,172 @@ class TestOrderbookRateLimiter:
         # Should use defaults from bot.py (1 req per 10s)
         assert limiter.interval == 10.0
 
+    def test_exponential_backoff_warning_threshold(self):
+        """Test that exponential backoff activates at warning threshold."""
+        limiter = OrderbookRateLimiter(
+            rate_limit=1,
+            interval=10.0,
+            violation_warning_threshold=5,
+            violation_severe_threshold=15,
+        )
+
+        # First request - allowed
+        assert limiter.check("J5spammer") is True
+
+        # Generate 6 violations (passes warning threshold of 5)
+        for _ in range(6):
+            assert limiter.check("J5spammer") is False
+
+        violations = limiter.get_violation_count("J5spammer")
+        assert violations == 6
+
+        # Check that effective interval is now 6x base (moderate backoff)
+        effective = limiter._get_effective_interval(violations)
+        assert effective == 60.0  # 10s * 6
+
+    def test_exponential_backoff_severe_threshold(self):
+        """Test that severe backoff activates at severe threshold."""
+        limiter = OrderbookRateLimiter(
+            rate_limit=1,
+            interval=10.0,
+            violation_warning_threshold=5,
+            violation_severe_threshold=15,
+        )
+
+        # First request - allowed
+        assert limiter.check("J5spammer") is True
+
+        # Generate 16 violations (passes severe threshold of 15)
+        for _ in range(16):
+            assert limiter.check("J5spammer") is False
+
+        violations = limiter.get_violation_count("J5spammer")
+        assert violations == 16
+
+        # Check that effective interval is now 30x base (severe backoff)
+        effective = limiter._get_effective_interval(violations)
+        assert effective == 300.0  # 10s * 30
+
+    def test_ban_after_threshold(self):
+        """Test that peers are banned after exceeding violation threshold."""
+        limiter = OrderbookRateLimiter(
+            rate_limit=1, interval=10.0, violation_ban_threshold=10, ban_duration=3600.0
+        )
+
+        # First request - allowed
+        assert limiter.check("J5spammer") is True
+        assert not limiter.is_banned("J5spammer")
+
+        # Generate violations up to ban threshold
+        for i in range(10):
+            assert limiter.check("J5spammer") is False
+            assert not limiter.is_banned("J5spammer")  # Not yet banned
+
+        # Next check should ban the peer
+        assert limiter.check("J5spammer") is False
+        assert limiter.is_banned("J5spammer")
+
+        # Subsequent requests should still be blocked
+        assert limiter.check("J5spammer") is False
+        assert limiter.is_banned("J5spammer")
+
+    def test_ban_expiration(self):
+        """Test that bans expire after the configured duration."""
+        limiter = OrderbookRateLimiter(
+            rate_limit=1,
+            interval=0.1,
+            violation_ban_threshold=5,
+            ban_duration=0.2,  # 200ms ban
+        )
+
+        # First request - allowed
+        assert limiter.check("J5spammer") is True
+
+        # Generate violations to trigger ban
+        for _ in range(6):
+            limiter.check("J5spammer")
+
+        # Should be banned
+        assert limiter.is_banned("J5spammer")
+
+        # Wait for ban to expire
+        time.sleep(0.25)
+
+        # Ban should be expired
+        assert not limiter.is_banned("J5spammer")
+
+        # Should be able to make requests again (violations reset)
+        assert limiter.check("J5spammer") is True
+        assert limiter.get_violation_count("J5spammer") == 0
+
+    def test_banned_peer_cannot_respond_until_expiry(self):
+        """Test that banned peers cannot get responses until ban expires."""
+        limiter = OrderbookRateLimiter(
+            rate_limit=1,
+            interval=0.05,
+            violation_ban_threshold=3,
+            ban_duration=0.5,  # Longer ban
+        )
+
+        # Get banned
+        limiter.check("J5spammer")
+        for _ in range(4):
+            limiter.check("J5spammer")
+
+        assert limiter.is_banned("J5spammer")
+
+        # Try multiple times during ban - all should fail
+        for i in range(5):
+            time.sleep(0.06)  # Wait longer than normal interval
+            result = limiter.check("J5spammer")
+            assert result is False, f"Iteration {i}: Expected False but got {result}"
+            assert limiter.is_banned("J5spammer")
+
+        # Wait for ban expiry
+        time.sleep(0.5)
+
+        # Should work again after ban expires
+        assert limiter.check("J5spammer") is True
+        assert not limiter.is_banned("J5spammer")
+
+    def test_cleanup_expired_bans(self):
+        """Test that cleanup removes expired bans and resets violations."""
+        limiter = OrderbookRateLimiter(
+            rate_limit=1, interval=0.1, violation_ban_threshold=5, ban_duration=0.1
+        )
+
+        # Get peer banned
+        limiter.check("J5spammer")
+        for _ in range(6):
+            limiter.check("J5spammer")
+
+        assert limiter.is_banned("J5spammer")
+        assert "J5spammer" in limiter._banned_peers
+
+        # Wait for ban to expire
+        time.sleep(0.15)
+
+        # Cleanup should remove expired ban
+        limiter.cleanup_old_entries(max_age=1.0)
+
+        assert not limiter.is_banned("J5spammer")
+        assert "J5spammer" not in limiter._banned_peers
+        assert limiter.get_violation_count("J5spammer") == 0
+
+    def test_different_peers_banned_independently(self):
+        """Test that bans are per-peer, not global."""
+        limiter = OrderbookRateLimiter(rate_limit=1, interval=10.0, violation_ban_threshold=5)
+
+        # Ban peer1
+        limiter.check("J5peer1")
+        for _ in range(6):
+            limiter.check("J5peer1")
+        assert limiter.is_banned("J5peer1")
+
+        # peer2 should still work
+        assert limiter.check("J5peer2") is True
+        assert not limiter.is_banned("J5peer2")
+
 
 class TestMakerBotRateLimiting:
     """Tests for rate limiting integration in MakerBot."""
@@ -178,6 +345,10 @@ class TestMakerBotRateLimiting:
 
         assert default_config.orderbook_rate_limit == 1
         assert default_config.orderbook_rate_interval == 10.0
+        assert default_config.orderbook_violation_ban_threshold == 100
+        assert default_config.orderbook_violation_warning_threshold == 10
+        assert default_config.orderbook_violation_severe_threshold == 50
+        assert default_config.orderbook_ban_duration == 3600.0
 
     def test_config_custom_rate_limit_values(self):
         """Test custom rate limit values in MakerConfig."""
@@ -187,10 +358,18 @@ class TestMakerBotRateLimiting:
             network=NetworkType.REGTEST,
             orderbook_rate_limit=5,
             orderbook_rate_interval=30.0,
+            orderbook_violation_ban_threshold=50,
+            orderbook_violation_warning_threshold=5,
+            orderbook_violation_severe_threshold=25,
+            orderbook_ban_duration=7200.0,
         )
 
         assert config.orderbook_rate_limit == 5
         assert config.orderbook_rate_interval == 30.0
+        assert config.orderbook_violation_ban_threshold == 50
+        assert config.orderbook_violation_warning_threshold == 5
+        assert config.orderbook_violation_severe_threshold == 25
+        assert config.orderbook_ban_duration == 7200.0
 
     def test_config_rate_limit_validation(self):
         """Test that invalid rate limit values are rejected."""
@@ -210,6 +389,24 @@ class TestMakerBotRateLimiting:
                 directory_servers=["localhost:5222"],
                 network=NetworkType.REGTEST,
                 orderbook_rate_interval=0.5,
+            )
+
+        # ban_threshold must be >= 1
+        with pytest.raises(ValueError):
+            MakerConfig(
+                mnemonic="test " * 12,
+                directory_servers=["localhost:5222"],
+                network=NetworkType.REGTEST,
+                orderbook_violation_ban_threshold=0,
+            )
+
+        # ban_duration must be >= 60.0
+        with pytest.raises(ValueError):
+            MakerConfig(
+                mnemonic="test " * 12,
+                directory_servers=["localhost:5222"],
+                network=NetworkType.REGTEST,
+                orderbook_ban_duration=30.0,
             )
 
 

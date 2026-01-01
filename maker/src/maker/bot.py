@@ -56,14 +56,24 @@ DEFAULT_HOSTID = "onion-network"
 DEFAULT_ORDERBOOK_RATE_LIMIT = 1  # Max orderbook responses per peer per interval
 DEFAULT_ORDERBOOK_RATE_INTERVAL = 10.0  # Interval in seconds (10s = 6 req/min)
 
+# Violation thresholds for exponential backoff and banning
+DEFAULT_VIOLATION_BAN_THRESHOLD = 100  # Ban peer after this many violations
+DEFAULT_VIOLATION_WARNING_THRESHOLD = 10  # Start exponential backoff after this
+DEFAULT_VIOLATION_SEVERE_THRESHOLD = 50  # Severe backoff threshold
+DEFAULT_BAN_DURATION = 3600.0  # Ban duration in seconds (1 hour)
+
 
 class OrderbookRateLimiter:
     """
-    Per-peer rate limiter for orderbook requests.
+    Per-peer rate limiter for orderbook requests with exponential backoff and banning.
 
     Prevents DoS attacks by limiting how often each peer can request the orderbook.
-    Uses a simple timestamp-based approach: each peer can only receive one response
-    per interval, regardless of how many requests they send.
+    Uses a timestamp-based approach with escalating penalties:
+
+    1. Normal operation: 1 response per interval (default 10s)
+    2. After 10 violations: Exponential backoff starts (60s interval)
+    3. After 50 violations: Severe backoff (300s = 5min interval)
+    4. After 100 violations: Permanent ban until cleanup/restart
 
     This is crucial because:
     1. !orderbook responses include fidelity bond proofs which are expensive to compute
@@ -75,6 +85,10 @@ class OrderbookRateLimiter:
         self,
         rate_limit: int = DEFAULT_ORDERBOOK_RATE_LIMIT,
         interval: float = DEFAULT_ORDERBOOK_RATE_INTERVAL,
+        violation_ban_threshold: int = DEFAULT_VIOLATION_BAN_THRESHOLD,
+        violation_warning_threshold: int = DEFAULT_VIOLATION_WARNING_THRESHOLD,
+        violation_severe_threshold: int = DEFAULT_VIOLATION_SEVERE_THRESHOLD,
+        ban_duration: float = DEFAULT_BAN_DURATION,
     ):
         """
         Initialize the rate limiter.
@@ -82,40 +96,135 @@ class OrderbookRateLimiter:
         Args:
             rate_limit: Maximum number of responses per interval (currently unused,
                        always 1 response per interval for simplicity)
-            interval: Time window in seconds
+            interval: Base time window in seconds
+            violation_ban_threshold: Ban peer after this many violations
+            violation_warning_threshold: Start exponential backoff after this
+            violation_severe_threshold: Severe backoff threshold
+            ban_duration: How long to ban peers (seconds)
         """
         self.interval = interval
+        self.violation_ban_threshold = violation_ban_threshold
+        self.violation_warning_threshold = violation_warning_threshold
+        self.violation_severe_threshold = violation_severe_threshold
+        self.ban_duration = ban_duration
+
         self._last_response: dict[str, float] = {}
         self._violation_counts: dict[str, int] = {}
+        self._banned_peers: dict[str, float] = {}  # peer_nick -> ban_timestamp
 
     def check(self, peer_nick: str) -> bool:
         """
         Check if we should respond to an orderbook request from this peer.
 
-        Returns True if allowed, False if rate limited.
+        Returns True if allowed, False if rate limited or banned.
         """
         now = time.monotonic()
+
+        # Check if peer is banned
+        if peer_nick in self._banned_peers:
+            ban_time = self._banned_peers[peer_nick]
+            if now - ban_time < self.ban_duration:
+                # Still banned, increment violation count
+                self._violation_counts[peer_nick] = self._violation_counts.get(peer_nick, 0) + 1
+                return False
+            else:
+                # Ban expired, reset state completely
+                del self._banned_peers[peer_nick]
+                self._violation_counts[peer_nick] = 0
+                # Reset last response time so they can immediately get a response
+                self._last_response[peer_nick] = 0.0
+
+        violations = self._violation_counts.get(peer_nick, 0)
+
+        # Check if peer should be banned based on violations
+        if violations >= self.violation_ban_threshold:
+            self._banned_peers[peer_nick] = now
+            logger.warning(
+                f"BANNED peer {peer_nick} for {self.ban_duration}s "
+                f"after {violations} rate limit violations"
+            )
+            return False
+
+        # Calculate effective interval with exponential backoff
+        effective_interval = self._get_effective_interval(violations)
+
         last = self._last_response.get(peer_nick, 0.0)
 
-        if now - last >= self.interval:
+        if now - last >= effective_interval:
             self._last_response[peer_nick] = now
             return True
 
         # Rate limited
-        self._violation_counts[peer_nick] = self._violation_counts.get(peer_nick, 0) + 1
+        self._violation_counts[peer_nick] = violations + 1
         return False
+
+    def _get_effective_interval(self, violations: int) -> float:
+        """
+        Calculate effective rate limit interval based on violation count.
+
+        Implements exponential backoff:
+        - 0-10 violations: base interval (10s)
+        - 11-50 violations: 6x base interval (60s)
+        - 51-99 violations: 30x base interval (300s = 5min)
+        - 100+ violations: banned (handled separately)
+
+        Args:
+            violations: Number of violations for this peer
+
+        Returns:
+            Effective interval in seconds
+        """
+        if violations < self.violation_warning_threshold:
+            return self.interval
+        elif violations < self.violation_severe_threshold:
+            # Moderate backoff: 6x base interval
+            return self.interval * 6
+        else:
+            # Severe backoff: 30x base interval
+            return self.interval * 30
 
     def get_violation_count(self, peer_nick: str) -> int:
         """Get the number of rate limit violations for a peer."""
         return self._violation_counts.get(peer_nick, 0)
 
+    def is_banned(self, peer_nick: str) -> bool:
+        """Check if a peer is currently banned."""
+        if peer_nick not in self._banned_peers:
+            return False
+
+        now = time.monotonic()
+        ban_time = self._banned_peers[peer_nick]
+        if now - ban_time < self.ban_duration:
+            return True
+
+        # Ban expired, clean up and reset violations
+        del self._banned_peers[peer_nick]
+        self._violation_counts[peer_nick] = 0
+        self._last_response[peer_nick] = 0.0
+        return False
+
     def cleanup_old_entries(self, max_age: float = 3600.0) -> None:
         """Remove entries older than max_age to prevent memory growth."""
         now = time.monotonic()
+
+        # Clean up old responses
         stale_peers = [peer for peer, last in self._last_response.items() if now - last > max_age]
         for peer in stale_peers:
             del self._last_response[peer]
-            self._violation_counts.pop(peer, None)
+            # Don't reset violation counts for stale peers - preserve ban history
+            # Only reset if they're not banned
+            if peer not in self._banned_peers:
+                self._violation_counts.pop(peer, None)
+
+        # Clean up expired bans
+        expired_bans = [
+            peer
+            for peer, ban_time in self._banned_peers.items()
+            if now - ban_time > self.ban_duration
+        ]
+        for peer in expired_bans:
+            del self._banned_peers[peer]
+            self._violation_counts[peer] = 0  # Reset violations after ban expires
 
 
 class MakerBot:
@@ -166,6 +275,10 @@ class MakerBot:
         self._orderbook_rate_limiter = OrderbookRateLimiter(
             rate_limit=config.orderbook_rate_limit,
             interval=config.orderbook_rate_interval,
+            violation_ban_threshold=config.orderbook_violation_ban_threshold,
+            violation_warning_threshold=config.orderbook_violation_warning_threshold,
+            violation_severe_threshold=config.orderbook_violation_severe_threshold,
+            ban_duration=config.orderbook_ban_duration,
         )
 
     async def _setup_tor_hidden_service(self) -> str | None:
@@ -891,12 +1004,29 @@ class MakerBot:
                 # Apply rate limiting to prevent spam attacks
                 if not self._orderbook_rate_limiter.check(from_nick):
                     violations = self._orderbook_rate_limiter.get_violation_count(from_nick)
+                    is_banned = self._orderbook_rate_limiter.is_banned(from_nick)
+
                     # Only log every 10 violations to prevent log flooding
-                    if violations <= 1 or violations % 10 == 0:
-                        logger.debug(
-                            f"Rate limiting orderbook request from {from_nick} "
-                            f"(violations: {violations})"
-                        )
+                    # Or always log ban status changes
+                    if violations <= 1 or violations % 10 == 0 or is_banned:
+                        if is_banned:
+                            logger.warning(
+                                f"BANNED peer {from_nick} attempted orderbook request "
+                                f"(violations: {violations})"
+                            )
+                        else:
+                            # Show backoff level for context
+                            if violations >= self.config.orderbook_violation_severe_threshold:
+                                backoff_level = "SEVERE"
+                            elif violations >= self.config.orderbook_violation_warning_threshold:
+                                backoff_level = "MODERATE"
+                            else:
+                                backoff_level = "NORMAL"
+
+                            logger.debug(
+                                f"Rate limiting orderbook request from {from_nick} "
+                                f"(violations: {violations}, backoff: {backoff_level})"
+                            )
                     return
 
                 logger.info(

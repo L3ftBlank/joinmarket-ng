@@ -181,6 +181,64 @@ jm-maker start \
   --fidelity-bond-locktimes 1735689600
 ```
 
+## Migrating from JoinMarket Reference Implementation
+
+If you have an existing maker on the reference implementation (JoinMarket-Org/joinmarket-clientserver), you can migrate using your 12-word mnemonic.
+
+### Quick Migration Steps
+
+1. **Save your mnemonic** to a file on the host:
+
+```bash
+mkdir -p ~/.joinmarket-ng/wallets
+# Edit and paste your 12-word mnemonic (plaintext, see below for encryption)
+vim ~/.joinmarket-ng/wallets/maker.mnemonic
+```
+
+2. **Register your existing fidelity bond** (if you have one):
+
+Find your bond info from the old maker (path like `m/84'/0'/0'/2/123:1767225600`).
+You can use `wallet-tool.py`. Then:
+
+```bash
+docker exec -it <maker-container> jm-wallet generate-bond-address \
+  --mnemonic-file /home/jm/.joinmarket-ng/wallets/maker.mnemonic \
+  --locktime 1767225600 \
+  --index 123
+```
+
+This verifies the address and adds it to the bond registry for auto-discovery.
+
+3. **Sync bond status** from the blockchain:
+
+```bash
+docker exec -it <maker-container> jm-wallet registry-sync \
+  --mnemonic-file /home/jm/.joinmarket-ng/wallets/maker.mnemonic
+```
+
+4. **Restart the maker** - it will automatically discover and use your bond.
+
+### Key Differences
+
+- **No wallet.jmdat file**: JoinMarket-NG uses only the mnemonic + blockchain state
+- **Bond registry**: Fidelity bonds tracked in `~/.joinmarket-ng/fidelity_bonds.json`
+- **Stateless design**: Everything derived from mnemonic on each startup
+- **Same derivation paths**: Compatible with reference implementation (BIP84)
+
+### Encrypting Your Mnemonic (Optional)
+
+For better security, encrypt your mnemonic file:
+
+```bash
+jm-wallet generate \
+  --mnemonic "your 12 word phrase here" \
+  --save \
+  --prompt-password \
+  --output ~/.joinmarket-ng/wallets/maker.mnemonic
+```
+
+Then use `--password` or `MNEMONIC_PASSWORD` env var when running commands.
+
 ## Docker Deployment
 
 Docker includes Tor container. For ephemeral .onion creation, Tor needs control port accessible.

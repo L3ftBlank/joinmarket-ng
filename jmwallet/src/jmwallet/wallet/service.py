@@ -380,13 +380,24 @@ class WalletService:
 
         return utxos
 
-    async def sync_all(self) -> dict[int, list[UTXOInfo]]:
-        """Sync all mixdepths"""
+    async def sync_all(
+        self, fidelity_bond_addresses: list[tuple[str, int]] | None = None
+    ) -> dict[int, list[UTXOInfo]]:
+        """
+        Sync all mixdepths, optionally including fidelity bond addresses.
+
+        Args:
+            fidelity_bond_addresses: Optional list of (address, locktime) tuples for fidelity bonds
+                                    to scan in the same pass as wallet descriptors
+
+        Returns:
+            Dictionary mapping mixdepth to list of UTXOs
+        """
         logger.info("Syncing all mixdepths...")
 
         # Try efficient descriptor-based sync if backend supports it
         if hasattr(self.backend, "scan_descriptors"):
-            result = await self._sync_all_with_descriptors()
+            result = await self._sync_all_with_descriptors(fidelity_bond_addresses)
             if result is not None:
                 return result
             # Fall back to address-by-address sync on failure
@@ -400,7 +411,9 @@ class WalletService:
         logger.info(f"Sync complete: {sum(len(u) for u in result.values())} total UTXOs")
         return result
 
-    async def _sync_all_with_descriptors(self) -> dict[int, list[UTXOInfo]] | None:
+    async def _sync_all_with_descriptors(
+        self, fidelity_bond_addresses: list[tuple[str, int]] | None = None
+    ) -> dict[int, list[UTXOInfo]] | None:
         """
         Sync all mixdepths using efficient descriptor scanning.
 
@@ -408,14 +421,20 @@ class WalletService:
         which is much faster than scanning addresses individually (especially on mainnet
         where a full UTXO set scan takes ~90 seconds).
 
+        Args:
+            fidelity_bond_addresses: Optional list of (address, locktime) tuples to scan
+                                    in the same pass as wallet descriptors
+
         Returns:
             Dictionary mapping mixdepth to list of UTXOInfo, or None on failure
         """
         # Generate descriptors for all mixdepths and build a lookup table
         scan_range = max(DEFAULT_SCAN_RANGE, self.gap_limit * 10)
-        descriptors = []
+        descriptors: list[str | dict[str, Any]] = []
         # Map descriptor string (without checksum) -> (mixdepth, change)
         desc_to_path: dict[str, tuple[int, int]] = {}
+        # Map fidelity bond address -> locktime
+        bond_address_to_locktime: dict[str, int] = {}
 
         for mixdepth in range(self.mixdepth_count):
             xpub = self.get_account_xpub(mixdepth)
@@ -429,6 +448,22 @@ class WalletService:
             desc_int = f"wpkh({xpub}/1/*)"
             descriptors.append({"desc": desc_int, "range": [0, scan_range - 1]})
             desc_to_path[desc_int] = (mixdepth, 1)
+
+        # Add fidelity bond addresses to the scan
+        if fidelity_bond_addresses:
+            logger.info(
+                f"Including {len(fidelity_bond_addresses)} fidelity bond address(es) in scan"
+            )
+            # Initialize locktime cache if needed
+            if not hasattr(self, "fidelity_bond_locktime_cache"):
+                self.fidelity_bond_locktime_cache = {}
+
+            for address, locktime in fidelity_bond_addresses:
+                descriptors.append(f"addr({address})")
+                bond_address_to_locktime[address] = locktime
+                # Cache the address with locktime
+                self.address_cache[address] = (0, FIDELITY_BOND_BRANCH, -1)  # Index unknown
+                self.fidelity_bond_locktime_cache[address] = locktime
 
         # Get current block height for confirmation calculation
         try:
@@ -444,13 +479,55 @@ class WalletService:
 
         # Parse results and organize by mixdepth
         result: dict[int, list[UTXOInfo]] = {md: [] for md in range(self.mixdepth_count)}
+        fidelity_bond_utxos: list[UTXOInfo] = []
 
         for utxo_data in scan_result.get("unspents", []):
-            # Parse the descriptor to extract change and index
+            desc = utxo_data.get("desc", "")
+
+            # Check if this is a fidelity bond address result
+            # Fidelity bond descriptors are returned as: addr(bc1q...)#checksum
+            if "#" in desc:
+                desc_base = desc.split("#")[0]
+            else:
+                desc_base = desc
+
+            if desc_base.startswith("addr(") and desc_base.endswith(")"):
+                bond_address = desc_base[5:-1]
+                if bond_address in bond_address_to_locktime:
+                    # This is a fidelity bond UTXO
+                    locktime = bond_address_to_locktime[bond_address]
+                    confirmations = 0
+                    utxo_height = utxo_data.get("height", 0)
+                    if utxo_height > 0:
+                        confirmations = tip_height - utxo_height + 1
+
+                    # Path format for fidelity bonds: m/84'/0'/0'/2/index:locktime
+                    # Index is unknown from registry, so we use placeholder
+                    path = f"{self.root_path}/0'/{FIDELITY_BOND_BRANCH}/?:{locktime}"
+
+                    utxo_info = UTXOInfo(
+                        txid=utxo_data["txid"],
+                        vout=utxo_data["vout"],
+                        value=btc_to_sats(utxo_data["amount"]),
+                        address=bond_address,
+                        confirmations=confirmations,
+                        scriptpubkey=utxo_data.get("scriptPubKey", ""),
+                        path=path,
+                        mixdepth=0,  # Fidelity bonds in mixdepth 0
+                        height=utxo_height if utxo_height > 0 else None,
+                        locktime=locktime,
+                    )
+                    fidelity_bond_utxos.append(utxo_info)
+                    logger.info(
+                        f"Found fidelity bond UTXO: {utxo_info.txid}:{utxo_info.vout} "
+                        f"value={utxo_info.value} locktime={locktime}"
+                    )
+                    continue
+
+            # Parse the descriptor to extract change and index for regular wallet UTXOs
             # Descriptor format from Bitcoin Core when using xpub:
             # wpkh([fingerprint/change/index]pubkey)#checksum
             # The fingerprint is the parent xpub's fingerprint
-            desc = utxo_data.get("desc", "")
             path_info = self._parse_descriptor_path(desc, desc_to_path)
 
             if path_info is None:
@@ -484,14 +561,25 @@ class WalletService:
             )
             result[mixdepth].append(utxo_info)
 
+        # Add fidelity bond UTXOs to mixdepth 0
+        if fidelity_bond_utxos:
+            result[0].extend(fidelity_bond_utxos)
+
         # Update cache
         self.utxo_cache = result
 
         total_utxos = sum(len(u) for u in result.values())
         total_value = sum(sum(u.value for u in utxos) for utxos in result.values())
-        logger.info(
-            f"Descriptor sync complete: {total_utxos} UTXOs, {format_amount(total_value)} total"
-        )
+        bond_count = len(fidelity_bond_utxos)
+        if bond_count > 0:
+            logger.info(
+                f"Descriptor sync complete: {total_utxos} UTXOs "
+                f"({bond_count} fidelity bond(s)), {format_amount(total_value)} total"
+            )
+        else:
+            logger.info(
+                f"Descriptor sync complete: {total_utxos} UTXOs, {format_amount(total_value)} total"
+            )
 
         return result
 

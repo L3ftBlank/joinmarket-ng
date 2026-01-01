@@ -424,35 +424,60 @@ class MakerBot:
             # Initialize commitment blacklist with configured data directory
             set_blacklist_path(data_dir=self.config.data_dir)
 
-            logger.info("Syncing wallet...")
-            await self.wallet.sync_all()
+            # Load fidelity bond addresses from registry for optimized scanning
+            # We scan wallet + fidelity bonds in a single pass to avoid two separate
+            # scantxoutset calls (which take ~90s each on mainnet)
+            from jmcore.paths import get_default_data_dir
+            from jmwallet.wallet.bond_registry import load_registry
+
+            resolved_data_dir = (
+                self.config.data_dir if self.config.data_dir else get_default_data_dir()
+            )
+            bond_registry = load_registry(resolved_data_dir)
+            fidelity_bond_addresses: list[tuple[str, int]] = []
+            if bond_registry.bonds:
+                # Extract (address, locktime) tuples from registry
+                fidelity_bond_addresses = [
+                    (bond.address, bond.locktime) for bond in bond_registry.bonds
+                ]
+                logger.info(
+                    f"Loaded {len(fidelity_bond_addresses)} fidelity bond address(es) from registry"
+                )
+
+            logger.info("Syncing wallet and fidelity bonds...")
+            await self.wallet.sync_all(fidelity_bond_addresses)
+
+            # Update bond registry with UTXO info from the scan
+            if bond_registry.bonds:
+                from jmwallet.wallet.bond_registry import save_registry
+
+                for bond in bond_registry.bonds:
+                    # Find the UTXO for this bond address in mixdepth 0
+                    bond_utxo = next(
+                        (
+                            utxo
+                            for utxo in self.wallet.utxo_cache.get(0, [])
+                            if utxo.address == bond.address
+                        ),
+                        None,
+                    )
+                    if bond_utxo:
+                        # Update the bond registry with UTXO info
+                        bond.txid = bond_utxo.txid
+                        bond.vout = bond_utxo.vout
+                        bond.value = bond_utxo.value
+                        bond.confirmations = bond_utxo.confirmations
+                        logger.debug(
+                            f"Updated bond {bond.address[:20]}... with UTXO "
+                            f"{bond_utxo.txid[:16]}...:{bond_utxo.vout}, value={bond_utxo.value}"
+                        )
+
+                # Save updated registry
+                save_registry(bond_registry, resolved_data_dir)
 
             # Get current block height for bond proof generation
             self.current_block_height = await self.backend.get_block_height()
             logger.debug(f"Current block height: {self.current_block_height}")
-
-            # Sync fidelity bonds - auto-discover locktimes from registry if not specified
-            fidelity_locktimes = list(self.config.fidelity_bond_locktimes)  # Copy to avoid mutating
-
-            # Auto-discover locktimes from bond registry if none specified
-            if not fidelity_locktimes:
-                from jmcore.paths import get_default_data_dir
-                from jmwallet.wallet.bond_registry import get_all_locktimes
-
-                resolved_data_dir = (
-                    self.config.data_dir if self.config.data_dir else get_default_data_dir()
-                )
-                registry_locktimes = get_all_locktimes(resolved_data_dir)
-                if registry_locktimes:
-                    fidelity_locktimes = registry_locktimes
-                    logger.info(
-                        f"Auto-discovered {len(registry_locktimes)} fidelity bond locktime(s) "
-                        "from registry"
-                    )
-
-            if fidelity_locktimes:
-                logger.info(f"Syncing fidelity bonds for locktimes: {fidelity_locktimes}")
-                await self.wallet.sync_fidelity_bonds(fidelity_locktimes)
 
             total_balance = await self.wallet.get_total_balance()
             logger.info(f"Wallet synced. Total balance: {total_balance:,} sats")

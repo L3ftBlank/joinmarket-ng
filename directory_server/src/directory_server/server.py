@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from jmcore.models import MessageEnvelope, NetworkType, PeerStatus
 from jmcore.network import ConnectionPool, TCPConnection
 from jmcore.protocol import MessageType
-from jmcore.rate_limiter import RateLimiter
+from jmcore.rate_limiter import RateLimitAction, RateLimiter
 from loguru import logger
 
 from directory_server.config import Settings
@@ -38,11 +38,16 @@ class DirectoryServer:
         self.handshake_handler = HandshakeHandler(
             network=self.network, server_nick=f"directory-{settings.network}", motd=settings.motd
         )
+        # Rate limit by connection ID to prevent nick spoofing attacks.
+        # A malicious peer could claim another's nick and spam to get them rate limited.
+        # Using connection ID ensures each physical connection has its own bucket.
         self.rate_limiter = RateLimiter(
             rate_limit=settings.message_rate_limit,
             burst_limit=settings.message_burst_limit,
+            disconnect_threshold=settings.rate_limit_disconnect_threshold
+            if settings.rate_limit_disconnect_threshold > 0
+            else None,
         )
-        self._rate_limit_disconnect_threshold = settings.rate_limit_disconnect_threshold
 
         self.server: asyncio.Server | None = None
         self._shutdown = False
@@ -194,17 +199,28 @@ class DirectoryServer:
             try:
                 data = await connection.receive()
 
-                # Rate limiting check - before parsing to prevent DoS
-                if not self.rate_limiter.check(peer_key):
-                    violations = self.rate_limiter.get_violation_count(peer_key)
-                    if violations >= self._rate_limit_disconnect_threshold:
-                        logger.warning(
-                            f"Rate limit exceeded for {peer_info.nick}: "
-                            f"{violations} violations, disconnecting"
+                # Rate limiting by connection ID to prevent nick spoofing attacks.
+                # A malicious peer could claim another's nick in handshake and spam
+                # to get the legitimate peer rate-limited. Using conn_id ensures
+                # each physical connection is rate-limited independently.
+                action, delay = self.rate_limiter.check(conn_id)
+
+                if action == RateLimitAction.DISCONNECT:
+                    violations = self.rate_limiter.get_violation_count(conn_id)
+                    logger.warning(
+                        f"Rate limit exceeded for {peer_info.nick} ({conn_id}): "
+                        f"{violations} violations, disconnecting"
+                    )
+                    break
+                elif action == RateLimitAction.DELAY:
+                    violations = self.rate_limiter.get_violation_count(conn_id)
+                    if violations % 50 == 1:  # Log every 50th violation to avoid spam
+                        logger.debug(
+                            f"Rate limiting {peer_info.nick} ({conn_id}): "
+                            f"{violations} violations, delay={delay:.2f}s"
                         )
-                        break
-                    logger.debug(f"Rate limiting {peer_info.nick}: {violations} violations")
-                    continue  # Drop message but stay connected
+                    # Drop message but stay connected - this is the "slowdown" approach
+                    continue
 
                 envelope = MessageEnvelope.from_bytes(
                     data,
@@ -236,11 +252,11 @@ class DirectoryServer:
             if peer_key in self.peer_key_to_conn_id:
                 del self.peer_key_to_conn_id[peer_key]
 
-            # Clean up rate limiter state
-            self.rate_limiter.remove_peer(peer_key)
-
             # Clean up offer tracking
             self.message_router.remove_peer_offers(peer_key)
+
+        # Clean up rate limiter state (keyed by conn_id, not peer_key)
+        self.rate_limiter.remove_peer(conn_id)
 
         self.connections.remove(conn_id)
 

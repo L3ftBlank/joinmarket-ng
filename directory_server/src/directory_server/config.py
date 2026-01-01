@@ -22,7 +22,8 @@ class Settings(BaseSettings):
     max_json_nesting_depth: int = 10  # Maximum nesting depth for JSON parsing
     message_rate_limit: int = 10  # messages per second (sustained, lowered from 100)
     message_burst_limit: int = 100  # maximum burst size (generous, allows 10s at max rate)
-    rate_limit_disconnect_threshold: int = 100  # disconnect after N violations
+    # 0 = never disconnect (slowdown only), >0 = disconnect after N violations
+    rate_limit_disconnect_threshold: int = 0
 
     # Batch size for concurrent broadcasts to limit memory usage
     # Lower values = less memory, higher values = faster broadcasts

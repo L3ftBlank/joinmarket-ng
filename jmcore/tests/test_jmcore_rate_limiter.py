@@ -7,7 +7,7 @@ from __future__ import annotations
 import time
 from unittest.mock import patch
 
-from jmcore.rate_limiter import RateLimiter, TokenBucket
+from jmcore.rate_limiter import RateLimitAction, RateLimiter, TokenBucket
 
 
 class TestTokenBucket:
@@ -76,14 +76,17 @@ class TestRateLimiter:
         """New peers can send messages immediately."""
         limiter = RateLimiter(rate_limit=10, burst_limit=20)
         for _ in range(20):
-            assert limiter.check("peer1") is True
+            action, _ = limiter.check("peer1")
+            assert action == RateLimitAction.ALLOW
 
     def test_blocks_after_burst(self) -> None:
         """Blocks messages after burst is exhausted."""
         limiter = RateLimiter(rate_limit=10, burst_limit=5)
         for _ in range(5):
-            assert limiter.check("peer1") is True
-        assert limiter.check("peer1") is False
+            action, _ = limiter.check("peer1")
+            assert action == RateLimitAction.ALLOW
+        action, _ = limiter.check("peer1")
+        assert action == RateLimitAction.DELAY
 
     def test_independent_peers(self) -> None:
         """Different peers have independent rate limits."""
@@ -92,10 +95,12 @@ class TestRateLimiter:
         # Exhaust peer1's burst
         for _ in range(5):
             limiter.check("peer1")
-        assert limiter.check("peer1") is False
+        action, _ = limiter.check("peer1")
+        assert action == RateLimitAction.DELAY
 
         # peer2 should still be allowed
-        assert limiter.check("peer2") is True
+        action, _ = limiter.check("peer2")
+        assert action == RateLimitAction.ALLOW
 
     def test_violation_counting(self) -> None:
         """Violations are counted per peer."""
@@ -129,7 +134,8 @@ class TestRateLimiter:
 
         assert limiter.get_violation_count("peer1") == 0
         # New bucket created on next check
-        assert limiter.check("peer1") is True
+        action, _ = limiter.check("peer1")
+        assert action == RateLimitAction.ALLOW
 
     def test_stats(self) -> None:
         """Stats returns summary information."""
@@ -151,8 +157,10 @@ class TestRateLimiter:
         limiter = RateLimiter(rate_limit=50)
         # Should allow 500 messages (10x rate)
         for i in range(500):
-            assert limiter.check("peer1") is True, f"Failed at message {i}"
-        assert limiter.check("peer1") is False
+            action, _ = limiter.check("peer1")
+            assert action == RateLimitAction.ALLOW, f"Failed at message {i}"
+        action, _ = limiter.check("peer1")
+        assert action == RateLimitAction.DELAY
 
     def test_clear(self) -> None:
         """Clear removes all state."""
@@ -165,3 +173,98 @@ class TestRateLimiter:
 
         assert limiter.get_stats()["tracked_peers"] == 0
         assert limiter.get_stats()["total_violations"] == 0
+
+
+class TestRateLimiterActions:
+    """Tests for check and action-based behavior."""
+
+    def test_allow_action_on_success(self) -> None:
+        """Returns ALLOW action when tokens available."""
+        limiter = RateLimiter(rate_limit=10, burst_limit=5)
+        action, delay = limiter.check("peer1")
+        assert action == RateLimitAction.ALLOW
+        assert delay == 0.0
+
+    def test_delay_action_on_rate_limit(self) -> None:
+        """Returns DELAY action when rate limited."""
+        limiter = RateLimiter(rate_limit=10, burst_limit=2)
+
+        # Exhaust burst
+        limiter.check("peer1")
+        limiter.check("peer1")
+
+        # Next message should be delayed
+        action, delay = limiter.check("peer1")
+        assert action == RateLimitAction.DELAY
+        assert delay > 0.0
+
+    def test_disconnect_action_on_threshold(self) -> None:
+        """Returns DISCONNECT action after threshold violations."""
+        limiter = RateLimiter(rate_limit=10, burst_limit=2, disconnect_threshold=3)
+
+        # Exhaust burst
+        limiter.check("peer1")
+        limiter.check("peer1")
+
+        # First two violations should DELAY
+        action1, _ = limiter.check("peer1")
+        action2, _ = limiter.check("peer1")
+        assert action1 == RateLimitAction.DELAY
+        assert action2 == RateLimitAction.DELAY
+
+        # Third violation should DISCONNECT
+        action3, delay3 = limiter.check("peer1")
+        assert action3 == RateLimitAction.DISCONNECT
+        assert delay3 == 0.0
+
+    def test_no_disconnect_when_threshold_none(self) -> None:
+        """Never disconnects when disconnect_threshold is None."""
+        limiter = RateLimiter(rate_limit=10, burst_limit=2, disconnect_threshold=None)
+
+        # Exhaust burst
+        limiter.check("peer1")
+        limiter.check("peer1")
+
+        # Even after many violations, should only DELAY
+        for _ in range(100):
+            action, _ = limiter.check("peer1")
+            assert action == RateLimitAction.DELAY
+
+    def test_get_delay_for_peer(self) -> None:
+        """get_delay_for_peer returns recommended wait time."""
+        limiter = RateLimiter(rate_limit=10, burst_limit=2)
+
+        # New peer should have no delay
+        assert limiter.get_delay_for_peer("peer1") == 0.0
+
+        # Exhaust burst
+        limiter.check("peer1")
+        limiter.check("peer1")
+        limiter.check("peer1")  # Rate limited
+
+        # Should have delay
+        delay = limiter.get_delay_for_peer("peer1")
+        assert delay > 0.0
+        # At 10 msg/sec, delay should be ~0.1s per token
+        assert 0.05 < delay < 0.2
+
+    def test_token_bucket_get_delay_seconds(self) -> None:
+        """TokenBucket.get_delay_seconds calculates wait time correctly."""
+        bucket = TokenBucket(capacity=10, refill_rate=10.0)
+
+        # Full bucket should have no delay
+        assert bucket.get_delay_seconds() == 0.0
+
+        # Consume all tokens
+        for _ in range(10):
+            bucket.consume(1)
+
+        # Should need time to refill 1 token
+        delay = bucket.get_delay_seconds()
+        # At 10 tokens/sec, need 0.1s per token
+        assert 0.09 < delay < 0.11
+
+        # Partially consumed bucket
+        bucket.reset()
+        bucket.consume(9)  # 1 token left
+        assert bucket.get_delay_seconds() == 0.0

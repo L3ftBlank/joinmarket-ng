@@ -81,7 +81,7 @@ def format_status_output(stats: dict) -> str:
             [
                 "",
                 "Rate Limiting:",
-                f"  Tracked peers: {rl_stats['tracked_peers']}",
+                f"  Tracked connections: {rl_stats['tracked_peers']}",
                 f"  Total violations: {rl_stats['total_violations']}",
             ]
         )
@@ -90,11 +90,10 @@ def format_status_output(stats: dict) -> str:
         if rl_stats.get("top_violators"):
             top_violators = rl_stats["top_violators"][:5]  # Show top 5
             if top_violators:
-                lines.append("  Top violators:")
-                for peer_key, count in top_violators:
-                    # Truncate long onion addresses for readability
-                    display_key = peer_key if len(peer_key) < 30 else f"{peer_key[:27]}..."
-                    lines.append(f"    {display_key}: {count} violations")
+                lines.append("  Top violators (by connection):")
+                for conn_id, count in top_violators:
+                    # Connection IDs are IP:port format - display as-is
+                    lines.append(f"    {conn_id}: {count} violations")
 
     lines.append("===============================")
 

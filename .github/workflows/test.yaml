@@ -368,6 +368,12 @@ jobs:
           pip install -e maker[dev]
           pip install -e taker[dev]
 
+      - name: Clone and install reference implementation
+        run: |
+          git clone --depth 1 https://github.com/JoinMarket-Org/joinmarket-clientserver.git
+          # Install the reference implementation with jmbitcoin and jmclient dependencies
+          pip install -e joinmarket-clientserver[jmbitcoin,jmclient]
+
       - name: "Start reference services"
         env:
           # Use CI-specific Tor hidden service key from GitHub secrets

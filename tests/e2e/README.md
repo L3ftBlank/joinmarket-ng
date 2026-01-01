@@ -87,6 +87,17 @@ docker compose --profile e2e down -v
 
 Tests our makers with the reference JoinMarket taker (JAM).
 
+**Note:** Some tests (e.g., `test_bond_reference_validation.py`) require the reference
+implementation to be installed for validation purposes:
+
+```bash
+# Clone and install reference implementation (one-time setup)
+git clone --depth 1 https://github.com/JoinMarket-Org/joinmarket-clientserver.git
+pip install -e joinmarket-clientserver[jmbitcoin,jmclient]
+```
+
+To run the tests:
+
 ```bash
 # Clean start
 docker compose --profile reference down -v

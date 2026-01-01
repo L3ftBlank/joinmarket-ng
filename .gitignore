@@ -64,5 +64,8 @@ tor/
 !tests/e2e/reference/tor/
 tests/e2e/reference/tor/run/
 
+# Reference implementation (cloned for testing)
+joinmarket-clientserver/
+
 # Documentation build output (published to GitHub Pages)
 docs_build/

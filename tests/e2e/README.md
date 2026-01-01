@@ -93,7 +93,10 @@ implementation to be installed for validation purposes:
 ```bash
 # Clone and install reference implementation (one-time setup)
 git clone --depth 1 https://github.com/JoinMarket-Org/joinmarket-clientserver.git
-pip install -e joinmarket-clientserver[jmbitcoin,jmclient]
+# Install minimal dependencies (python-bitcointx for signing, chromalog for logging)
+pip install python-bitcointx==1.1.5 chromalog==1.0.5
+# Note: Full installation with pip install -e may fail on Python 3.14 due to version constraints,
+# but the minimal deps above are sufficient for bond validation tests
 ```
 
 To run the tests:

@@ -371,8 +371,10 @@ jobs:
       - name: Clone and install reference implementation
         run: |
           git clone --depth 1 https://github.com/JoinMarket-Org/joinmarket-clientserver.git
-          # Install the reference implementation with jmbitcoin and jmclient dependencies
-          pip install -e joinmarket-clientserver[jmbitcoin,jmclient]
+          # Install only the minimal dependencies needed for FidelityBondProof validation
+          # We can't use pip install -e due to Python 3.14 version constraint, so install deps manually
+          pip install python-bitcointx==1.1.5 chromalog==1.0.5
+          # The test will add joinmarket-clientserver/src to sys.path
 
       - name: "Start reference services"
         env:

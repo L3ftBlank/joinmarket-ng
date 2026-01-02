@@ -532,9 +532,9 @@ class DirectoryClient:
                 )
                 if not disconnected:
                     peers.append((nick, location, features))
-                    # Also update peer_features cache
-                    if features:
-                        self.peer_features[nick] = features.to_dict()
+                    # Always update peer_features cache to track that we've seen this peer
+                    # This prevents triggering "new peer" logic for every message from this peer
+                    self.peer_features[nick] = features.to_dict()
             except ValueError as e:
                 logger.warning(f"Failed to parse peerlist entry '{entry}': {e}")
                 continue
@@ -1085,6 +1085,12 @@ class DirectoryClient:
                                                 # Update cache using tuple key
                                                 offer_key = (from_nick, oid)
                                                 self.offers[offer_key] = offer
+
+                                                # Track this peer as "known" even if peerlist didn't
+                                                # return features. This prevents re-triggering new peer
+                                                # logic for every message from this peer.
+                                                if from_nick not in self.peer_features:
+                                                    self.peer_features[from_nick] = {}
 
                                                 logger.debug(
                                                     f"Updated offer cache: {from_nick} "

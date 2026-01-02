@@ -450,6 +450,15 @@ tbody tr:hover {
     margin-bottom: 15px;
 }
 
+.feature-stats-description a {
+    color: #58a6ff;
+    text-decoration: none;
+}
+
+.feature-stats-description a:hover {
+    text-decoration: underline;
+}
+
 #feature-breakdown {
     display: flex;
     flex-wrap: wrap;

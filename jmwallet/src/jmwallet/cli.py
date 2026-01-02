@@ -482,7 +482,10 @@ async def _list_fidelity_bonds(
     locktimes: list[int],
 ) -> None:
     """List fidelity bonds implementation."""
+    from jmcore.paths import get_default_data_dir
+
     from jmwallet.backends.bitcoin_core import BitcoinCoreBackend
+    from jmwallet.wallet.bond_registry import load_registry
     from jmwallet.wallet.service import WalletService
 
     # Import fidelity bond utilities from maker
@@ -494,18 +497,35 @@ async def _list_fidelity_bonds(
 
     backend = BitcoinCoreBackend(rpc_url=rpc_url, rpc_user=rpc_user, rpc_password=rpc_password)
 
+    # Use large gap limit (1000) for discovery mode when scanning with --locktime
+    gap_limit = 1000 if locktimes else 20
     wallet = WalletService(
         mnemonic=mnemonic,
         backend=backend,
         network=network,
         mixdepth_count=5,
+        gap_limit=gap_limit,
     )
 
     try:
-        await wallet.sync_all()
+        # Load known bonds from registry for optimized scanning
+        data_dir = get_default_data_dir()
+        bond_registry = load_registry(data_dir)
+        fidelity_bond_addresses: list[tuple[str, int, int]] = []
+        if bond_registry.bonds:
+            fidelity_bond_addresses = [
+                (bond.address, bond.locktime, bond.index) for bond in bond_registry.bonds
+            ]
+            logger.info(
+                f"Loading {len(fidelity_bond_addresses)} known bond(s) from registry for scanning"
+            )
 
-        # Sync fidelity bonds if locktimes provided
+        # Sync wallet + known bonds in single pass
+        await wallet.sync_all(fidelity_bond_addresses)
+
+        # If user provided locktimes, also scan with large gap limit to discover new bonds
         if locktimes:
+            logger.info(f"Scanning for undiscovered bonds with gap_limit={gap_limit}")
             await wallet.sync_fidelity_bonds(locktimes)
 
         bonds = find_fidelity_bonds(wallet)
@@ -513,7 +533,11 @@ async def _list_fidelity_bonds(
         if not bonds:
             print("\nNo fidelity bonds found in wallet.")
             if not locktimes:
-                print("TIP: Use --locktime to specify locktime(s) to scan for")
+                print("TIP: Use --locktime to specify locktime(s) to scan for undiscovered bonds")
+                print(
+                    "     Or use 'jm-wallet generate-bond-address' to create a new bond "
+                    "and register it"
+                )
             return
 
         print(f"\nFound {len(bonds)} fidelity bond(s):\n")

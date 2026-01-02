@@ -1167,25 +1167,16 @@ class MakerBot:
                     violations = self._orderbook_rate_limiter.get_violation_count(from_nick)
                     is_banned = self._orderbook_rate_limiter.is_banned(from_nick)
 
-                    # Only log at specific violation milestones to prevent log flooding:
+                    # Only log rate limiting (not bans) at specific violation milestones
+                    # to prevent log flooding:
                     # - First violation (violations == 1)
                     # - Every 10th violation when not banned (10, 20, 30, etc.)
-                    # - ONLY when ban first triggers (violations == threshold AND is_banned)
-                    # Do NOT log every subsequent banned request - that would flood logs
-                    should_log = violations <= 1 or (not is_banned and violations % 10 == 0)
+                    # Note: Ban events are already logged by check() method, so we skip
+                    # logging here to avoid duplicate log messages
+                    if not is_banned:
+                        should_log = violations <= 1 or violations % 10 == 0
 
-                    # Special case: log exactly once when ban is triggered
-                    if is_banned and violations == self.config.orderbook_violation_ban_threshold:
-                        should_log = True
-
-                    if should_log:
-                        if is_banned:
-                            logger.warning(
-                                f"BANNED peer {from_nick} for "
-                                f"{self.config.orderbook_ban_duration}s "
-                                f"after {violations} violations"
-                            )
-                        else:
+                        if should_log:
                             # Show backoff level for context
                             if violations >= self.config.orderbook_violation_severe_threshold:
                                 backoff_level = "SEVERE"

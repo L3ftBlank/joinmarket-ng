@@ -35,49 +35,35 @@ Unlike other CoinJoin implementations (Wasabi, Whirlpool), JoinMarket has **no c
 
 ### JoinMarket-NG vs Reference Implementation
 
-This project is an alternative implementation of the reference JoinMarket protocol from [joinmarket-clientserver](https://github.com/JoinMarket-Org/joinmarket-clientserver/). The goal is to provide a clean, maintainable, and auditable codebase while maintaining full wire protocol compatibility with the existing JoinMarket network.
+This is a modern alternative implementation of the JoinMarket protocol, maintaining **full wire protocol compatibility** with the [reference implementation](https://github.com/JoinMarket-Org/joinmarket-clientserver/) while offering significant improvements.
+
+#### Key Advantages
+
+**Architectural Improvements:**
+- **Stateless, no daemon**: Simpler deployment and operation
+- **Run multiple roles simultaneously**: Act as maker and taker at the same time without stopping/restarting - huge privacy win by avoiding suspicious orderbook gaps
+- **Light client support**: Full Neutrino/BIP157 integration - no full node required
+- **No wallet daemon**: Direct wallet access without RPC overhead or remote wallet complexity
+- **Modern async stack**: Python 3.14+, Pydantic v2, AsyncIO with full type hints
+
+**Quality & Maintainability:**
+- **~100% unit test coverage**: Every component thoroughly tested in isolation
+- **E2E compatibility tests**: Full CoinJoin flows tested against reference implementation
+- **Type safety**: Strict type hints enforced with Mypy (static type checker) and Pydantic (runtime data validation)
+- **Clean, auditable code**: Easy to understand, review, and contribute to
+- **Modern tooling**: Ruff formatting, pre-commit hooks, comprehensive CI/CD
 
 #### Why a New Implementation?
 
-The [reference implementation](https://github.com/JoinMarket-Org/joinmarket-clientserver/) has served the community well for years, and we're deeply grateful for all that the contributors have done. However, the project faces some challenges:
+The reference implementation has served the community well, but faces challenges that make improvements difficult:
+- Limited active development (maintenance mode)
+- 181+ open issues and 41+ open pull requests
+- Technical debt requiring full rewrites
+- Tight coupling to Bitcoin Core's BerkeleyDB
 
-- **Limited active development**: Currently only basic maintenance and security updates
-- **181 open issues and 41 open pull requests**: Difficult to get improvements merged
-- **Technical debt**: Contributors have acknowledged that many parts need full rewrites
-- **Architectural limitations**: Tight coupling to Bitcoin Core's BerkeleyDB, difficult to add modern backends like Neutrino
-
-Starting fresh allowed us to:
-- **Modernize the stack**: Python 3.14+, Pydantic v2, AsyncIO, full type hints
-- **Rethink architecture**: Detach wallets from Bitcoin node, support multiple backends
-- **Build comprehensive documentation**: Deep dive into protocol details useful for both implementations
-- **Establish strong testing**: Close to 100% unit test coverage + E2E tests for reference implementation compatibility
-
-#### Code Quality & Testing
-
-This implementation prioritizes auditability and correctness:
-
-- **~100% unit test coverage**: Every component thoroughly tested in isolation
-- **E2E integration tests**: Full CoinJoin flows tested against the reference implementation to ensure wire protocol compatibility
-- **Type safety**: Strict type hints enforced with Mypy
-- **Modern best practices**: Ruff formatting, pre-commit hooks, CI/CD
-
-While this project currently lacks peer review (contributions welcome!), the extensive test suite and clean, well-documented code make auditing straightforward. When additional contributors join, we plan to establish protected branches and require signed commits with multiple approvals.
+Starting fresh let us build on modern foundations while honoring the protocol's proven design. This project currently lacks peer review (contributions welcome!), but the extensive test suite and clear documentation make auditing straightforward.
 
 **We see this as our turn to take JoinMarket to the next level while honoring the foundation built by the original contributors.**
-
-### Key Features
-
-- **No BerkeleyDB Required**: Works with Bitcoin Core v30+ out of the box
-- **Neutrino SPV Support**: Run without a full node using BIP157/158 compact block filters
-- **Privacy-Preserving**: Tor integration, Neutrino filters never reveal your addresses
-- **Modern Stack**: Python 3.14+, Pydantic v2, AsyncIO
-
-### Implementation Goals
-
-- **Clean Code**: Easy to understand, review, and audit
-- **Modern Stack**: Python 3.14+, Pydantic v2, AsyncIO
-- **Security First**: Isolated architecture, minimal attack surface
-- **Full Compatibility**: Works seamlessly with reference implementation peers
 
 ### Tor Integration
 

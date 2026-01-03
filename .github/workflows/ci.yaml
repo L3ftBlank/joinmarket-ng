@@ -107,6 +107,7 @@ jobs:
   # Stage 2a: Unit tests (combined in single job for efficiency)
   # Runs in parallel with image builds for faster feedback
   # Single job frees up runner slots faster for integration tests
+  # Excludes tests marked with @pytest.mark.docker (those run in integration tests)
   # ==========================================================================
   test-unit:
     runs-on: ubuntu-latest
@@ -114,14 +115,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-python-deps
         with:
-          components: jmcore,jmwallet,directory_server,orderbook_watcher,taker
+          components: jmcore,jmwallet,directory_server,orderbook_watcher,maker,taker
           install-dev: 'true'
 
       - name: Run unit tests
         run: |
-          pytest -c pytest.ini jmcore directory_server orderbook_watcher taker \
+          pytest -c pytest.ini jmcore jmwallet directory_server orderbook_watcher maker taker \
             --junitxml=junit/unit-tests.xml \
-            --cov=jmcore --cov=directory_server --cov=orderbook_watcher --cov=taker \
+            --cov=jmcore --cov=jmwallet --cov=directory_server --cov=orderbook_watcher --cov=maker --cov=taker \
             --cov-report=term-missing --cov-report=xml --cov-report=html \
             -v --fail-on-skip
 
@@ -139,110 +140,9 @@ jobs:
         if: always()
 
   # ==========================================================================
-  # Stage 2b: Tests requiring external Docker services (bitcoin, neutrino)
-  # These don't need our custom images, just external ones
-  # Runs in parallel with image builds
-  # ==========================================================================
-  test-jmwallet:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-python-deps
-        with:
-          components: jmcore,jmwallet
-          install-dev: 'true'
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Start Bitcoin and Neutrino
-        run: |
-          docker compose --profile neutrino up -d bitcoin neutrino
-
-          echo "Waiting for Bitcoin..."
-          for i in {1..30}; do
-            if docker compose exec -T bitcoin bitcoin-cli -chain=regtest \
-                -rpcport=18443 -rpcuser=test -rpcpassword=test getblockchaininfo 2>/dev/null; then
-              echo "Bitcoin ready"
-              break
-            fi
-            sleep 2
-          done
-
-          echo "Waiting for Neutrino..."
-          for i in {1..30}; do
-            if curl -s http://localhost:8334/v1/status >/dev/null 2>&1; then
-              echo "Neutrino ready"
-              break
-            fi
-            sleep 2
-          done
-
-      - name: Run jmwallet tests
-        run: |
-          pytest -c pytest.ini jmwallet --junitxml=junit/test-results.xml \
-            --cov=jmwallet --cov-report=term-missing --cov-report=xml -v \
-            --fail-on-skip
-
-      - name: Cleanup
-        if: always()
-        run: docker compose --profile neutrino down -v
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: jmwallet-results
-          path: |
-            junit/test-results.xml
-            coverage.xml
-        if: always()
-
-  test-maker:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-python-deps
-        with:
-          components: jmcore,jmwallet,maker
-          install-dev: 'true'
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Start Bitcoin
-        run: |
-          docker compose up -d bitcoin
-
-          echo "Waiting for Bitcoin..."
-          for i in {1..30}; do
-            if docker compose exec -T bitcoin bitcoin-cli -chain=regtest \
-                -rpcport=18443 -rpcuser=test -rpcpassword=test getblockchaininfo 2>/dev/null; then
-              echo "Bitcoin ready"
-              break
-            fi
-            sleep 2
-          done
-
-      - name: Run maker tests
-        run: |
-          pytest -c pytest.ini maker --junitxml=junit/test-results.xml \
-            --cov=maker --cov-report=term-missing --cov-report=xml -v \
-            --fail-on-skip
-
-      - name: Cleanup
-        if: always()
-        run: docker compose down -v
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: maker-results
-          path: |
-            junit/test-results.xml
-            coverage.xml
-        if: always()
-
-  # ==========================================================================
-  # Stage 3: Integration tests (require our custom Docker images)
-  # Uses pre-built images from Stage 1
+  # Stage 3: Integration tests (require Docker infrastructure)
+  # Uses pre-built images from build-images where needed
+  # Also runs docker-marked tests from jmwallet and maker
   # ==========================================================================
   test-e2e:
     needs: build-images
@@ -336,6 +236,132 @@ jobs:
           name: e2e-results
           path: |
             junit/test-results.xml
+            coverage.xml
+        if: always()
+
+  test-jmwallet:
+    needs: build-images
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DIRECTORY_SERVER_IMAGE: ghcr.io/${{ github.repository }}/directory-server:ci-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-python-deps
+        with:
+          components: jmcore,jmwallet
+          install-dev: 'true'
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull pre-built directory-server image
+        run: docker pull $DIRECTORY_SERVER_IMAGE
+
+      - name: Start Bitcoin Core for jmwallet tests
+        run: |
+          docker compose up -d bitcoin
+
+          .github/scripts/wait-for-service.sh "Bitcoin" \
+            "docker compose exec -T bitcoin bitcoin-cli -chain=regtest -rpcport=18443 -rpcuser=test -rpcpassword=test getblockchaininfo" \
+            60 1
+
+      - name: Run jmwallet docker-marked tests only
+        env:
+          BITCOIN_RPC_URL: http://127.0.0.1:18443
+          BITCOIN_RPC_USER: test
+          BITCOIN_RPC_PASSWORD: test
+        run: |
+          pytest -c pytest.ini -m docker jmwallet/tests/ \
+            --junitxml=junit/jmwallet-docker-tests.xml \
+            --cov=jmwallet --cov-report=term-missing --cov-report=xml \
+            -v -s --timeout=300 --fail-on-skip
+
+      - name: Show logs
+        if: always()
+        run: |
+          echo "=== Bitcoin logs ==="
+          docker compose logs bitcoin --tail=50
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jmwallet-docker-results
+          path: |
+            junit/jmwallet-docker-tests.xml
+            coverage.xml
+        if: always()
+
+  test-maker:
+    needs: build-images
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DIRECTORY_SERVER_IMAGE: ghcr.io/${{ github.repository }}/directory-server:ci-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-python-deps
+        with:
+          components: jmcore,jmwallet,maker
+          install-dev: 'true'
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull pre-built directory-server image
+        run: docker pull $DIRECTORY_SERVER_IMAGE
+
+      - name: Start Bitcoin Core for maker tests
+        run: |
+          docker compose up -d bitcoin
+
+          .github/scripts/wait-for-service.sh "Bitcoin" \
+            "docker compose exec -T bitcoin bitcoin-cli -chain=regtest -rpcport=18443 -rpcuser=test -rpcpassword=test getblockchaininfo" \
+            60 1
+
+      - name: Run maker docker-marked tests only
+        env:
+          BITCOIN_RPC_URL: http://127.0.0.1:18443
+          BITCOIN_RPC_USER: test
+          BITCOIN_RPC_PASSWORD: test
+        run: |
+          pytest -c pytest.ini -m docker maker/tests/ \
+            --junitxml=junit/maker-docker-tests.xml \
+            --cov=maker --cov-report=term-missing --cov-report=xml \
+            -v -s --timeout=300 --fail-on-skip
+
+      - name: Show logs
+        if: always()
+        run: |
+          echo "=== Bitcoin logs ==="
+          docker compose logs bitcoin --tail=50
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: maker-docker-results
+          path: |
+            junit/maker-docker-tests.xml
             coverage.xml
         if: always()
 
@@ -886,7 +912,7 @@ jobs:
     needs:
       # Unit tests (combined in single job)
       - test-unit
-      # Tests with external Docker (run in parallel with build)
+      # Component integration tests (run docker-marked tests only)
       - test-jmwallet
       - test-maker
       # Integration tests (depend on build-images)

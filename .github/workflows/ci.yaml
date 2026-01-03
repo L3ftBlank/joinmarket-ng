@@ -279,7 +279,7 @@ jobs:
           BITCOIN_RPC_USER: test
           BITCOIN_RPC_PASSWORD: test
         run: |
-          pytest -c pytest.ini -m docker jmwallet/tests/ \
+          pytest -c pytest.ini -m "docker and not neutrino" jmwallet/tests/ \
             --junitxml=junit/jmwallet-docker-tests.xml \
             --cov=jmwallet --cov-report=term-missing --cov-report=xml \
             -v -s --timeout=300 --fail-on-skip

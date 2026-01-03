@@ -677,6 +677,166 @@ def generate_bond_address(
     print("=" * 80 + "\n")
 
 
+@app.command("create-bond-address")
+def create_bond_address(
+    pubkey: Annotated[str, typer.Argument(help="Public key (hex, 33 bytes compressed)")],
+    locktime: Annotated[
+        int, typer.Option("--locktime", "-L", help="Locktime as Unix timestamp")
+    ] = 0,
+    locktime_date: Annotated[
+        str | None,
+        typer.Option(
+            "--locktime-date", "-d", help="Locktime as date (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)"
+        ),
+    ] = None,
+    network: Annotated[str, typer.Option("--network", "-n")] = "mainnet",
+    data_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--data-dir",
+            help="Data directory (default: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR)",
+        ),
+    ] = None,
+    no_save: Annotated[
+        bool,
+        typer.Option("--no-save", help="Do not save the bond to the registry"),
+    ] = False,
+    log_level: Annotated[str, typer.Option("--log-level", "-l")] = "INFO",
+) -> None:
+    """
+    Create a fidelity bond address from a public key (cold wallet workflow).
+
+    This command creates a timelocked P2WSH bond address from a public key WITHOUT
+    requiring your mnemonic or private keys. Use this for true cold storage security.
+
+    WORKFLOW:
+    1. Use Sparrow Wallet (or similar) with your hardware wallet
+    2. Navigate to your wallet's receive addresses
+    3. Find or create an address at the fidelity bond derivation path (m/84'/0'/0'/2/0)
+    4. Copy the public key from the address details
+    5. Use this command with the public key to create the bond address
+    6. Fund the bond address from any wallet
+    7. Use 'prepare-certificate-message' and hardware wallet signing for certificates
+
+    Your hardware wallet never needs to be connected to this online tool.
+    """
+    setup_logging(log_level)
+
+    # Validate pubkey
+    try:
+        pubkey_bytes = bytes.fromhex(pubkey)
+        if len(pubkey_bytes) != 33:
+            raise ValueError("Public key must be 33 bytes (compressed)")
+        # Verify it's a valid compressed pubkey (starts with 02 or 03)
+        if pubkey_bytes[0] not in (0x02, 0x03):
+            raise ValueError("Invalid compressed public key format")
+    except ValueError as e:
+        logger.error(f"Invalid public key: {e}")
+        raise typer.Exit(1)
+
+    # Parse locktime
+    if locktime_date:
+        try:
+            try:
+                dt = datetime.strptime(locktime_date, "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                dt = datetime.strptime(locktime_date, "%Y-%m-%d")
+            locktime = int(dt.timestamp())
+        except ValueError:
+            logger.error(f"Invalid date format: {locktime_date}")
+            logger.info("Use format: YYYY-MM-DD or YYYY-MM-DD HH:MM:SS")
+            raise typer.Exit(1)
+
+    if locktime <= 0:
+        logger.error("Locktime is required. Use --locktime or --locktime-date")
+        raise typer.Exit(1)
+
+    # Validate locktime is in the future
+    if locktime <= datetime.now().timestamp():
+        logger.warning("Locktime is in the past - the bond will be immediately spendable")
+
+    from jmcore.btc_script import disassemble_script, mk_freeze_script
+    from jmcore.paths import get_default_data_dir
+
+    from jmwallet.wallet.address import script_to_p2wsh_address
+    from jmwallet.wallet.bond_registry import (
+        create_bond_info,
+        load_registry,
+        save_registry,
+    )
+
+    # Create the witness script from the public key
+    witness_script = mk_freeze_script(pubkey, locktime)
+    address = script_to_p2wsh_address(witness_script, network)
+
+    locktime_dt = datetime.fromtimestamp(locktime)
+    disassembled = disassemble_script(witness_script)
+
+    # Resolve data directory
+    resolved_data_dir = data_dir if data_dir else get_default_data_dir()
+
+    # Save to registry unless --no-save
+    saved = False
+    existing = False
+    if not no_save:
+        registry = load_registry(resolved_data_dir)
+        existing_bond = registry.get_bond_by_address(address)
+        if existing_bond:
+            existing = True
+            logger.info(f"Bond already exists in registry (created: {existing_bond.created_at})")
+        else:
+            # For bonds created from pubkey, we don't have the derivation path or index
+            # So we use placeholder values
+            bond_info = create_bond_info(
+                address=address,
+                locktime=locktime,
+                index=-1,  # Unknown index for pubkey-based bonds
+                path="unknown",  # Path is unknown when created from pubkey
+                pubkey_hex=pubkey,
+                witness_script=witness_script,
+                network=network,
+            )
+            registry.add_bond(bond_info)
+            save_registry(registry, resolved_data_dir)
+            saved = True
+
+    print("\n" + "=" * 80)
+    print("FIDELITY BOND ADDRESS (created from public key)")
+    print("=" * 80)
+    print(f"\nAddress:      {address}")
+    print(f"Locktime:     {locktime} ({locktime_dt.strftime('%Y-%m-%d %H:%M:%S')})")
+    print(f"Network:      {network}")
+    print(f"Public Key:   {pubkey}")
+    print()
+    print("-" * 80)
+    print("WITNESS SCRIPT (redeemScript)")
+    print("-" * 80)
+    print(f"Hex:          {witness_script.hex()}")
+    print(f"Disassembled: {disassembled}")
+    print("-" * 80)
+    if saved:
+        print(f"\nSaved to registry: {resolved_data_dir / 'fidelity_bonds.json'}")
+    elif existing:
+        print("\nBond already in registry (not updated)")
+    elif no_save:
+        print("\nNot saved to registry (--no-save)")
+    print("\n" + "=" * 80)
+    print("HOW TO GET PUBLIC KEY FROM SPARROW WALLET:")
+    print("=" * 80)
+    print("  1. Open Sparrow Wallet with your hardware wallet")
+    print("  2. Go to Addresses tab")
+    print("  3. Navigate to the fidelity bond path: m/84'/0'/0'/2/0")
+    print("     (Or use the address you want for the bond)")
+    print("  4. Right-click the address and select 'Copy Public Key'")
+    print("  5. Use the copied public key with this command")
+    print()
+    print("IMPORTANT:")
+    print("  - Funds sent to this address are LOCKED until the locktime!")
+    print("  - Make sure you can sign with this address in your hardware wallet")
+    print("  - Your private keys never leave the hardware wallet")
+    print("=" * 80 + "\n")
+
+
 @app.command()
 def send(
     destination: Annotated[str, typer.Argument(help="Destination address")],

@@ -869,40 +869,47 @@ Allows cold storage of bond privkey while hot wallet handles per-session proofs.
 
 For maximum security, fidelity bonds can use a certificate chain that keeps the bond UTXO private key completely offline in cold storage (hardware wallet):
 
-1. **Generate bond address** (can be done on cold wallet or using watch-only):
+1. **Get public key from hardware wallet** (using Sparrow Wallet):
+   - Open Sparrow Wallet and connect your hardware wallet
+   - Navigate to the Addresses tab
+   - Find or create an address at the fidelity bond derivation path: `m/84'/0'/0'/2/0`
+   - Right-click the address and select "Copy Public Key"
+   - Save this public key - you'll need it for the next steps
+
+2. **Create bond address from public key** (on online machine - NO private keys needed):
    ```bash
-   jm-wallet generate-bond-address \
-     --mnemonic-file wallet.enc \
-     --password "..." \
+   jm-wallet create-bond-address <pubkey_from_step_1> \
      --locktime-date "2026-01-01" \
-     --index 0 \
      --network mainnet
    ```
-   Fund this address with Bitcoin to create the bond. Note the bond address for later steps.
+   This creates the bond address WITHOUT requiring your mnemonic. Note the bond address.
+   
+3. **Fund the bond address**:
+   Fund the address from step 2 with Bitcoin to create the bond.
 
-2. **Generate hot wallet keypair** (on online machine):
+4. **Generate hot wallet keypair** (on online machine):
    ```bash
    jm-wallet generate-hot-keypair
    ```
    This creates a random keypair. Store both the private and public keys securely.
 
-3. **Prepare certificate message** (on online machine - NO private keys needed):
+5. **Prepare certificate message** (on online machine - NO private keys needed):
    ```bash
    jm-wallet prepare-certificate-message <bond_address> \
      --cert-pubkey <hot_wallet_pubkey> \
      --cert-expiry-blocks 104832  # ~2 years
    ```
-   This outputs the message that needs to be signed. **IMPORTANT**: This step does NOT require your cold wallet mnemonic or private keys.
+   This outputs the message that needs to be signed.
 
-4. **Sign the message** (using hardware wallet with Sparrow or similar):
+6. **Sign the message** (using hardware wallet with Sparrow or similar):
    - Open Sparrow Wallet and connect your hardware wallet
    - Navigate to the bond address (the P2WSH timelocked address)
    - Use the "Sign Message" feature
-   - Paste the exact message from step 3
+   - Paste the message from step 5
    - The hardware wallet will sign the message
    - Copy the resulting signature (in hex format)
 
-5. **Import certificate** (on online machine):
+7. **Import certificate** (on online machine):
    ```bash
    jm-wallet import-certificate <bond_address> \
      --cert-pubkey <hot_wallet_pubkey> \
@@ -912,7 +919,7 @@ For maximum security, fidelity bonds can use a certificate chain that keeps the 
    ```
    This imports the certificate into the hot wallet's bond registry.
 
-6. **Run maker** (on online machine):
+8. **Run maker** (on online machine):
    ```bash
    jm-maker start --mnemonic-file hot-wallet.enc
    ```

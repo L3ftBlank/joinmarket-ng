@@ -76,7 +76,7 @@ jobs:
             tag_suffix: ""
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -112,7 +112,7 @@ jobs:
   test-unit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-python-deps
         with:
           components: jmcore,jmwallet,directory_server,orderbook_watcher,maker,taker
@@ -130,7 +130,7 @@ jobs:
         if: always()
         run: mv coverage.xml coverage-unit.xml
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: unit-test-results
           path: |
@@ -155,7 +155,7 @@ jobs:
       MAKER_IMAGE: ghcr.io/${{ github.repository }}/maker:ci-${{ github.sha }}
       TAKER_IMAGE: ghcr.io/${{ github.repository }}/taker:ci-${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-python-deps
         with:
           components: jmcore,jmwallet,directory_server,orderbook_watcher,maker,taker
@@ -231,7 +231,7 @@ jobs:
         if: always()
         run: docker compose --profile e2e down -v
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: e2e-results
           path: |
@@ -246,7 +246,7 @@ jobs:
     env:
       DIRECTORY_SERVER_IMAGE: ghcr.io/${{ github.repository }}/directory-server:ci-${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-python-deps
         with:
           components: jmcore,jmwallet
@@ -294,7 +294,7 @@ jobs:
         if: always()
         run: docker compose down -v
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: jmwallet-docker-results
           path: |
@@ -309,7 +309,7 @@ jobs:
     env:
       DIRECTORY_SERVER_IMAGE: ghcr.io/${{ github.repository }}/directory-server:ci-${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-python-deps
         with:
           components: jmcore,jmwallet,maker
@@ -357,7 +357,7 @@ jobs:
         if: always()
         run: docker compose down -v
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: maker-docker-results
           path: |
@@ -375,7 +375,7 @@ jobs:
       MAKER_IMAGE: ghcr.io/${{ github.repository }}/maker:ci-${{ github.sha }}
       TAKER_IMAGE: ghcr.io/${{ github.repository }}/taker:ci-${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-python-deps
         with:
           components: jmcore,jmwallet,directory_server,orderbook_watcher,maker,taker
@@ -507,7 +507,7 @@ jobs:
         if: always()
         run: docker compose --profile reference down -v
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: reference-results
           path: |
@@ -525,7 +525,7 @@ jobs:
       MAKER_IMAGE: ghcr.io/${{ github.repository }}/maker:ci-${{ github.sha }}
       TAKER_IMAGE: ghcr.io/${{ github.repository }}/taker:ci-${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-python-deps
         with:
           components: jmcore,jmwallet,directory_server,orderbook_watcher,maker,taker
@@ -616,7 +616,7 @@ jobs:
         if: always()
         run: docker compose --profile neutrino down -v
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: neutrino-results
           path: |
@@ -634,7 +634,7 @@ jobs:
       MAKER_IMAGE: ghcr.io/${{ github.repository }}/maker:ci-${{ github.sha }}
       TAKER_IMAGE: ghcr.io/${{ github.repository }}/taker:ci-${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-python-deps
         with:
           components: jmcore,jmwallet,directory_server,orderbook_watcher,maker,taker
@@ -745,7 +745,7 @@ jobs:
         if: always()
         run: docker compose --profile reference-maker down -v
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: reference-maker-results
           path: |
@@ -795,7 +795,7 @@ jobs:
             tag_suffix: ""
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -865,7 +865,7 @@ jobs:
             tag_suffix: ""
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -944,7 +944,7 @@ jobs:
             tag_suffix: ""
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

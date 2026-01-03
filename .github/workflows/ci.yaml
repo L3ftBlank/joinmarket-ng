@@ -52,15 +52,28 @@ jobs:
           - name: directory-server
             dockerfile: ./directory_server/Dockerfile
             image: directory-server
+            target: production
+            tag_suffix: ""
+          - name: directory-server-debug
+            dockerfile: ./directory_server/Dockerfile
+            image: directory-server
+            target: debug
+            tag_suffix: "-debug"
           - name: orderbook-watcher
             dockerfile: ./orderbook_watcher/Dockerfile
             image: orderbook-watcher
+            target: ""
+            tag_suffix: ""
           - name: maker
             dockerfile: ./maker/Dockerfile
             image: maker
+            target: ""
+            tag_suffix: ""
           - name: taker
             dockerfile: ./taker/Dockerfile
             image: taker
+            target: ""
+            tag_suffix: ""
 
     steps:
       - uses: actions/checkout@v4
@@ -80,8 +93,9 @@ jobs:
         with:
           context: .
           file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target || '' }}
           push: true
-          tags: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.image }}:${{ env.CI_TAG }}
+          tags: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.image }}:${{ env.CI_TAG }}${{ matrix.tag_suffix }}
           cache-from: |
             type=registry,ref=${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.image }}:buildcache
             type=registry,ref=${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.image }}:latest

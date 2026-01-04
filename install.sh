@@ -42,6 +42,73 @@ print_header() {
     echo ""
 }
 
+# Check system dependencies
+check_system_dependencies() {
+    print_header "Checking System Dependencies"
+
+    local missing_deps=()
+    local os_type=""
+
+    # Detect OS
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        os_type="linux"
+        # Check for Debian/Ubuntu-based systems
+        if command -v apt &> /dev/null; then
+            # Check for required build tools
+            if ! dpkg -s build-essential &> /dev/null; then
+                missing_deps+=("build-essential")
+            fi
+            if ! dpkg -s libffi-dev &> /dev/null; then
+                missing_deps+=("libffi-dev")
+            fi
+            if ! dpkg -s libsodium-dev &> /dev/null; then
+                missing_deps+=("libsodium-dev")
+            fi
+            if ! dpkg -s pkg-config &> /dev/null; then
+                missing_deps+=("pkg-config")
+            fi
+            if ! dpkg -s python3-venv &> /dev/null; then
+                missing_deps+=("python3-venv")
+            fi
+        fi
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        os_type="macos"
+        # Check for Homebrew
+        if ! command -v brew &> /dev/null; then
+            print_warning "Homebrew not found. Install from https://brew.sh"
+        else
+            # Check for required packages
+            if ! brew list libsodium &> /dev/null 2>&1; then
+                missing_deps+=("libsodium")
+            fi
+            if ! brew list pkg-config &> /dev/null 2>&1; then
+                missing_deps+=("pkg-config")
+            fi
+        fi
+    fi
+
+    if [ ${#missing_deps[@]} -gt 0 ]; then
+        print_warning "Missing system dependencies: ${missing_deps[*]}"
+        echo ""
+        echo "Please install the required dependencies:"
+        echo ""
+        if [[ "$os_type" == "linux" ]]; then
+            echo "  sudo apt update"
+            echo "  sudo apt install -y ${missing_deps[*]}"
+        elif [[ "$os_type" == "macos" ]]; then
+            echo "  brew install ${missing_deps[*]}"
+        fi
+        echo ""
+        read -p "Continue anyway? [y/N] " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            exit 1
+        fi
+    else
+        print_success "All system dependencies are installed"
+    fi
+}
+
 # Check Python version
 check_python_version() {
     print_info "Checking Python version..."
@@ -385,6 +452,9 @@ main() {
 
     # Parse arguments
     parse_args "$@"
+
+    # Check system dependencies
+    check_system_dependencies
 
     # Check Python version
     check_python_version

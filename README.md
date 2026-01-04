@@ -211,6 +211,15 @@ Lightweight SPV server using BIP157/158 compact block filters.
 **Quick install** (Linux/macOS):
 
 ```bash
+# Install system dependencies first
+# Debian/Ubuntu/Raspberry Pi OS:
+sudo apt update
+sudo apt install -y build-essential libffi-dev libsodium-dev pkg-config python3 python3-venv python3-pip
+
+# macOS:
+# brew install libsodium pkg-config python3
+
+# Clone and install
 git clone https://github.com/m0wer/joinmarket-ng.git
 cd joinmarket-ng
 ./install.sh
@@ -220,6 +229,8 @@ source jmvenv/bin/activate
 **Manual install** for developers:
 
 ```bash
+# Install system dependencies (see above)
+
 # Create virtual environment
 python3 -m venv jmvenv
 source jmvenv/bin/activate

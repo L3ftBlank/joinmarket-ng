@@ -13,27 +13,50 @@ This guide walks you through installing JoinMarket-NG on Linux, macOS, and Raspb
 
 The fastest way to get started is using the automated installation script:
 
-### 1. Clone the Repository
+### 1. Install System Dependencies
+
+Before installing JoinMarket-NG, you need to install some system packages required for building Python dependencies:
+
+**Debian/Ubuntu/Raspberry Pi OS:**
+```bash
+sudo apt update
+sudo apt install -y build-essential libffi-dev libsodium-dev pkg-config python3 python3-venv python3-pip
+```
+
+**macOS:**
+```bash
+brew install libsodium pkg-config python3
+```
+
+These packages are needed for:
+- `build-essential` / Xcode Command Line Tools: C compiler and build tools
+- `libffi-dev`: Foreign Function Interface library (for cryptography)
+- `libsodium-dev` / `libsodium`: Cryptographic library
+- `pkg-config`: Helper tool for compiling (required by coincurve)
+- `python3-venv`: Python virtual environment support
+
+### 2. Clone the Repository
 
 ```bash
 git clone https://github.com/m0wer/joinmarket-ng.git
 cd joinmarket-ng
 ```
 
-### 2. Run the Installer
+### 3. Run the Installer
 
 ```bash
 ./install.sh
 ```
 
 The script will:
+- Check for required system dependencies
 - Check Python version (3.11+ required)
 - Create a Python virtual environment at `jmvenv/`
 - Install all dependencies for core components
 - Optionally install maker, taker, or both
 - Set up the basic directory structure
 
-### 3. Activate the Environment
+### 4. Activate the Environment
 
 After installation completes:
 
@@ -47,14 +70,27 @@ You're now ready to use JoinMarket-NG! Jump to the [Next Steps](#next-steps) sec
 
 If you prefer to install manually or the script doesn't work on your system:
 
-### 1. Clone the Repository
+### 1. Install System Dependencies
+
+**Debian/Ubuntu/Raspberry Pi OS:**
+```bash
+sudo apt update
+sudo apt install -y build-essential libffi-dev libsodium-dev pkg-config python3 python3-venv python3-pip
+```
+
+**macOS:**
+```bash
+brew install libsodium pkg-config python3
+```
+
+### 2. Clone the Repository
 
 ```bash
 git clone https://github.com/m0wer/joinmarket-ng.git
 cd joinmarket-ng
 ```
 
-### 2. Create Virtual Environment
+### 3. Create Virtual Environment
 
 Python 3.11+ uses externally-managed environments by default, so you need to create a virtual environment:
 
@@ -65,7 +101,7 @@ source jmvenv/bin/activate
 
 **Note**: You'll need to run `source jmvenv/bin/activate` every time you open a new terminal to use JoinMarket-NG.
 
-### 3. Install Core Libraries
+### 4. Install Core Libraries
 
 Install the foundational libraries first:
 
@@ -81,7 +117,7 @@ pip install -e .
 cd ..
 ```
 
-### 4. Install Components
+### 5. Install Components
 
 Choose which components you want to install:
 
@@ -272,6 +308,21 @@ See [DOCS.md](./DOCS.md) for architecture details and [component READMEs](./READ
 
 ## Troubleshooting
 
+### "Could NOT find PkgConfig" or "CMake configuration failed"
+
+This error occurs when installing dependencies like `coincurve`. You need to install system build dependencies first:
+
+```bash
+# Debian/Ubuntu/Raspberry Pi OS
+sudo apt update
+sudo apt install -y build-essential libffi-dev libsodium-dev pkg-config python3-venv
+
+# macOS
+brew install libsodium pkg-config
+```
+
+After installing these packages, try the installation again.
+
 ### "python3: command not found"
 
 Install Python first:
@@ -296,9 +347,16 @@ sudo apt install python3-pip
 python3 -m ensurepip
 ```
 
-### "externally-managed-environment" Error
+### "error: externally-managed-environment" or "No module named 'venv'"
 
-Modern Python versions require virtual environments. Make sure you created and activated one:
+You need to install the `python3-venv` package:
+
+```bash
+# Debian/Ubuntu/Raspberry Pi OS
+sudo apt install python3-venv
+```
+
+Then create the virtual environment:
 
 ```bash
 python3 -m venv jmvenv
@@ -321,9 +379,24 @@ cd joinmarket-ng
 source jmvenv/bin/activate
 ```
 
+### Installation Takes a Long Time or Times Out
+
+Some dependencies like `coincurve` need to be compiled from source, which can take a few minutes on slower systems like Raspberry Pi. This is normal. If it fails, make sure all system dependencies are installed (see the "Could NOT find PkgConfig" section above).
+
 ### Installation Script Fails
 
-Try manual installation (see [Manual Installation](#manual-installation) section above).
+First, check if system dependencies are installed:
+
+```bash
+# Debian/Ubuntu/Raspberry Pi OS
+sudo apt update
+sudo apt install -y build-essential libffi-dev libsodium-dev pkg-config python3-venv
+
+# macOS
+brew install libsodium pkg-config
+```
+
+If the issue persists, try manual installation (see [Manual Installation](#manual-installation) section above).
 
 ## Updating
 

@@ -263,6 +263,17 @@ def generate(
             logger.error("Generated mnemonic failed validation - this should not happen")
             raise typer.Exit(1)
 
+        # Always display the mnemonic first
+        typer.echo("\n" + "=" * 80)
+        typer.echo("GENERATED MNEMONIC - WRITE THIS DOWN AND KEEP IT SAFE!")
+        typer.echo("=" * 80)
+        typer.echo(f"\n{mnemonic}\n")
+        typer.echo("=" * 80)
+        typer.echo("\nThis mnemonic controls your Bitcoin funds.")
+        typer.echo("Anyone with this phrase can spend your coins.")
+        typer.echo("Store it securely offline - NEVER share it with anyone!")
+        typer.echo("=" * 80 + "\n")
+
         if save:
             if output_file is None:
                 output_file = Path.home() / ".joinmarket-ng" / "wallets" / "default.mnemonic"
@@ -283,16 +294,6 @@ def generate(
             else:
                 typer.echo("WARNING: File is NOT encrypted - consider using --password")
             typer.echo("KEEP THIS FILE SECURE - IT CONTROLS YOUR FUNDS!")
-        else:
-            typer.echo("\n" + "=" * 80)
-            typer.echo("GENERATED MNEMONIC - WRITE THIS DOWN AND KEEP IT SAFE!")
-            typer.echo("=" * 80)
-            typer.echo(f"\n{mnemonic}\n")
-            typer.echo("=" * 80)
-            typer.echo("\nThis mnemonic controls your Bitcoin funds.")
-            typer.echo("Anyone with this phrase can spend your coins.")
-            typer.echo("Store it securely offline - NEVER share it with anyone!")
-            typer.echo("=" * 80 + "\n")
 
     except ValueError as e:
         logger.error(f"Failed to generate mnemonic: {e}")

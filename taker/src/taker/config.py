@@ -61,10 +61,19 @@ class TakerConfig(WalletConfig):
         default=3.0, ge=1.0, description="Multiply estimated fee by this factor"
     )
     bondless_makers_allowance: float = Field(
-        default=0.125,
+        default=0.0,
         ge=0.0,
         le=1.0,
         description="Fraction of time to choose makers randomly (not by fidelity bond)",
+    )
+    bond_value_exponent: float = Field(
+        default=1.3,
+        gt=0.0,
+        description="Exponent for fidelity bond value calculation (default 1.3)",
+    )
+    bondless_makers_allowance_require_zero_fee: bool = Field(
+        default=True,
+        description="For bondless maker spots, require zero absolute fee (percentage fee OK)",
     )
 
     # PoDLE settings

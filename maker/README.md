@@ -398,8 +398,9 @@ docker-compose logs -f maker
 |----------|---------|-------------|
 | `FIDELITY_BOND_LOCKTIMES` | Auto-discover | Comma-separated Unix timestamps for fidelity bond locktimes |
 | `MERGE_ALGORITHM` | `default` | UTXO selection: `default`, `gradual`, `greedy`, `random` |
-| `ONION_SERVING_HOST` | `127.0.0.1` | Host for incoming .onion connections (set to service name in Docker Compose) |
+| `ONION_SERVING_HOST` | `127.0.0.1` | Bind address for incoming connections (set to `0.0.0.0` in Docker) |
 | `ONION_SERVING_PORT` | `5222` | Port for incoming .onion connections |
+| `TOR_TARGET_HOST` | `127.0.0.1` | Target hostname for Tor hidden service (set to service name in Docker Compose) |
 | `JOINMARKET_DATA_DIR` | `~/.joinmarket-ng` | Data directory for history and blacklist |
 
 ## CLI Reference

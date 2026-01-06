@@ -351,7 +351,7 @@ class MakerBot:
             # Maps external port (advertised) to our local serving port
             logger.info(
                 f"Creating ephemeral hidden service on port {self.config.onion_serving_port} -> "
-                f"{self.config.onion_serving_host}:{self.config.onion_serving_port}..."
+                f"{self.config.tor_target_host}:{self.config.onion_serving_port}..."
             )
 
             self._ephemeral_hidden_service = (
@@ -359,7 +359,7 @@ class MakerBot:
                     ports=[
                         (
                             self.config.onion_serving_port,
-                            f"{self.config.onion_serving_host}:{self.config.onion_serving_port}",
+                            f"{self.config.tor_target_host}:{self.config.onion_serving_port}",
                         )
                     ],
                     # Don't discard private key in case we want to log it for debugging

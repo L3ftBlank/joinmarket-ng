@@ -227,7 +227,7 @@ def start(
         str,
         typer.Option(
             envvar="ONION_SERVING_HOST",
-            help="Host for incoming .onion connections (use service name in Docker Compose)",
+            help="Bind address for incoming connections (0.0.0.0 for Docker)",
         ),
     ] = "127.0.0.1",
     onion_serving_port: Annotated[
@@ -237,6 +237,13 @@ def start(
             help="Port for incoming .onion connections",
         ),
     ] = 5222,
+    tor_target_host: Annotated[
+        str,
+        typer.Option(
+            envvar="TOR_TARGET_HOST",
+            help="Target hostname for Tor hidden service (use service name in Docker Compose)",
+        ),
+    ] = "127.0.0.1",
     fidelity_bond_locktimes: Annotated[
         list[int],
         typer.Option("--fidelity-bond-locktime", "-L", help="Fidelity bond locktimes to scan for"),
@@ -383,6 +390,7 @@ def start(
         tor_control=tor_control_cfg,
         onion_serving_host=onion_serving_host,
         onion_serving_port=onion_serving_port,
+        tor_target_host=tor_target_host,
         min_size=min_size,
         offer_type=parsed_offer_type,
         cj_fee_relative=actual_cj_fee_relative,

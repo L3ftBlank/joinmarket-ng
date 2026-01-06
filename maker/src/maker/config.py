@@ -49,10 +49,14 @@ class MakerConfig(WalletConfig):
         default=None, description="Hidden service address (e.g., 'mymaker...onion')"
     )
     onion_serving_host: str = Field(
-        default="127.0.0.1", description="Local address Tor forwards to"
+        default="127.0.0.1", description="Local bind address for incoming connections"
     )
     onion_serving_port: int = Field(
         default=5222, ge=0, le=65535, description="Default JoinMarket port (0 = auto-assign)"
+    )
+    tor_target_host: str = Field(
+        default="127.0.0.1",
+        description="Target host for Tor hidden service (use service name in Docker Compose)",
     )
 
     # Tor control port configuration for dynamic hidden service creation

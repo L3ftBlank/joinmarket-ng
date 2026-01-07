@@ -34,6 +34,10 @@ class DirectoryNodeStatus:
         self.current_session_start: datetime | None = None
         self.tracking_started = tracking_started or datetime.now(UTC)
         self.grace_period_seconds = grace_period_seconds
+        # Exponential backoff state
+        self.retry_delay: float = 4.0  # Initial retry delay in seconds
+        self.retry_delay_max: float = 3600.0  # Max retry delay (1 hour)
+        self.retry_delay_multiplier: float = 1.5
 
     def mark_connected(self, current_time: datetime | None = None) -> None:
         now = current_time or datetime.now(UTC)
@@ -41,6 +45,8 @@ class DirectoryNodeStatus:
         self.last_connected = now
         self.current_session_start = now
         self.successful_connections += 1
+        # Reset retry delay on successful connection
+        self.retry_delay = 4.0
 
     def mark_disconnected(self, current_time: datetime | None = None) -> None:
         now = current_time or datetime.now(UTC)
@@ -107,7 +113,15 @@ class DirectoryNodeStatus:
             "tracking_started": self.tracking_started.isoformat()
             if self.tracking_started
             else None,
+            "retry_delay": self.retry_delay,
         }
+
+    def get_next_retry_delay(self) -> float:
+        """Get the next retry delay using exponential backoff."""
+        current_delay = self.retry_delay
+        # Increase delay for next retry
+        self.retry_delay = min(self.retry_delay * self.retry_delay_multiplier, self.retry_delay_max)
+        return current_delay
 
 
 class OrderbookAggregator:
@@ -320,6 +334,56 @@ class OrderbookAggregator:
 
         logger.info("Directory connection status task stopped")
 
+    async def _periodic_peerlist_refresh(self) -> None:
+        """Background task to periodically refresh peerlists and clean up stale offers.
+
+        This runs every 5 minutes to:
+        1. Refresh peerlists from all connected directories
+        2. Remove offers from nicks that are no longer in ANY directory's peerlist
+        3. Deduplicate offers that use the same fidelity bond UTXO
+
+        This is critical for orderbook accuracy - it ensures we don't show offers
+        from makers that have gone offline or restarted with different nicks.
+        """
+        # Initial wait to let connections stabilize
+        await asyncio.sleep(120)
+
+        while True:
+            try:
+                # Collect active nicks from ALL connected directories
+                all_active_nicks: set[str] = set()
+                directories_checked = 0
+
+                for node_id, client in self.clients.items():
+                    try:
+                        # Refresh peerlist for this client
+                        # This also triggers cleanup of offers for nicks that left
+                        await client.get_peerlist_with_features()
+                        active_nicks = client.get_active_nicks()
+                        all_active_nicks.update(active_nicks)
+                        directories_checked += 1
+                        logger.debug(f"Directory {node_id}: {len(active_nicks)} active nicks")
+                    except Exception as e:
+                        logger.debug(f"Failed to refresh peerlist from {node_id}: {e}")
+
+                if directories_checked > 0:
+                    logger.info(
+                        f"Peerlist refresh: {len(all_active_nicks)} unique nicks "
+                        f"across {directories_checked} directories"
+                    )
+
+                # Sleep for 5 minutes before next refresh
+                await asyncio.sleep(300)
+
+            except asyncio.CancelledError:
+                logger.info("Peerlist refresh task cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in peerlist refresh task: {e}")
+                await asyncio.sleep(300)
+
+        logger.info("Peerlist refresh task stopped")
+
     async def _connect_to_node(self, onion_address: str, port: int) -> DirectoryClient | None:
         node_id = f"{onion_address}:{port}"
         status = self.node_statuses[node_id]
@@ -357,10 +421,15 @@ class OrderbookAggregator:
             return None
 
     async def _retry_failed_connection(self, onion_address: str, port: int) -> None:
+        """Retry connecting to a directory with exponential backoff."""
         node_id = f"{onion_address}:{port}"
+        status = self.node_statuses[node_id]
 
         while True:
-            await asyncio.sleep(60)
+            # Get next retry delay with exponential backoff
+            retry_delay = status.get_next_retry_delay()
+            logger.info(f"Waiting {retry_delay:.1f}s before retrying connection to {node_id}")
+            await asyncio.sleep(retry_delay)
 
             if node_id in self.clients:
                 logger.debug(f"Node {node_id} already connected, stopping retry")
@@ -384,6 +453,10 @@ class OrderbookAggregator:
         # Start periodic directory connection status logging task
         status_task = asyncio.create_task(self._periodic_directory_connection_status())
         self.listener_tasks.append(status_task)
+
+        # Start periodic peerlist refresh task for cleanup
+        peerlist_task = asyncio.create_task(self._periodic_peerlist_refresh())
+        self.listener_tasks.append(peerlist_task)
 
         connection_tasks = [
             self._connect_to_node(onion_address, port)
@@ -442,19 +515,81 @@ class OrderbookAggregator:
         self._retry_tasks.clear()
 
     async def get_live_orderbook(self, calculate_bonds: bool = True) -> OrderBook:
+        """Get the live orderbook with deduplication and bond value calculation.
+
+        This method implements several key cleanup mechanisms:
+        1. Deduplicates offers by bond UTXO - if multiple nicks use the same bond,
+           only the most recently received offer is kept
+        2. Deduplicates bonds by UTXO key
+        3. Links bonds to offers and calculates bond values
+
+        Returns:
+            OrderBook with deduplicated offers and calculated bond values
+        """
         orderbook = OrderBook(timestamp=datetime.now(UTC))
 
+        # Collect all offers with timestamps from all connected clients
+        # We'll use timestamp to determine which nick's offer to keep when same bond is used
+        all_offers_with_timestamps: list[tuple[Offer, float, str | None, str]] = []
+
         for node_id, client in self.clients.items():
-            offers = client.get_current_offers()
+            offers_with_ts = client.get_offers_with_timestamps()
             bonds = client.get_current_bonds()
-            logger.debug(f"Node {node_id}: {len(offers)} offers, {len(bonds)} bonds")
-            for offer in offers:
+            logger.debug(f"Node {node_id}: {len(offers_with_ts)} offers, {len(bonds)} bonds")
+
+            for offer_ts in offers_with_ts:
+                offer = offer_ts.offer
                 offer.directory_node = node_id
+                all_offers_with_timestamps.append(
+                    (offer, offer_ts.received_at, offer_ts.bond_utxo_key, node_id)
+                )
+
             for bond in bonds:
                 bond.directory_node = node_id
-            orderbook.add_offers(offers, node_id)
             orderbook.add_fidelity_bonds(bonds, node_id)
 
+        # Deduplicate offers by bond UTXO
+        # For offers with the same bond UTXO, keep only the most recent one
+        # This handles the case where a maker restarts with a new nick but same bond
+        bond_to_best_offer: dict[str, tuple[Offer, float]] = {}  # bond_utxo -> (offer, timestamp)
+        offers_without_bond: list[Offer] = []
+
+        for offer, timestamp, bond_utxo_key, _node_id in all_offers_with_timestamps:
+            if bond_utxo_key:
+                # Offer has a fidelity bond
+                existing = bond_to_best_offer.get(bond_utxo_key)
+                if existing is None or timestamp > existing[1]:
+                    # Keep this offer (either first with this bond or more recent)
+                    if existing is not None:
+                        old_offer = existing[0]
+                        logger.info(
+                            f"Replacing stale offer from {old_offer.counterparty} with "
+                            f"{offer.counterparty} (same bond UTXO: {bond_utxo_key[:20]}...)"
+                        )
+                    bond_to_best_offer[bond_utxo_key] = (offer, timestamp)
+            else:
+                # Offer without bond - check if it's in the active peerlist
+                offers_without_bond.append(offer)
+
+        # Build final offers list
+        deduplicated_offers = [offer for offer, _ts in bond_to_best_offer.values()]
+        deduplicated_offers.extend(offers_without_bond)
+
+        # Group offers by (counterparty, oid) to merge across directories
+        offer_key_to_offer: dict[tuple[str, int], Offer] = {}
+        for offer in deduplicated_offers:
+            key = (offer.counterparty, offer.oid)
+            if key not in offer_key_to_offer:
+                offer_key_to_offer[key] = offer
+            # else: duplicate from multiple directories, keep first
+
+        # Add deduplicated offers to orderbook
+        for offer in offer_key_to_offer.values():
+            orderbook.offers.append(offer)
+            if offer.directory_node and offer.directory_node not in orderbook.directory_nodes:
+                orderbook.directory_nodes.append(offer.directory_node)
+
+        # Deduplicate bonds by UTXO key
         unique_bonds: dict[str, FidelityBond] = {}
         for bond in orderbook.fidelity_bonds:
             cache_key = f"{bond.utxo_txid}:{bond.utxo_vout}"

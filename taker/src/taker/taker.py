@@ -59,7 +59,16 @@ class MultiDirectoryClient:
     Wrapper for managing multiple DirectoryClient connections.
 
     Provides a unified interface for connecting to multiple directory servers
-    and aggregating orderbook data.
+    and aggregating orderbook data. Implements multi-directory aware nick
+    tracking - a nick is only considered "gone" when ALL directories report
+    it as disconnected.
+
+    This prevents premature maker removal when:
+    - A maker temporarily disconnects from one directory but remains on others
+    - Directory connections are flaky or experiencing network issues
+    - There's a race condition between directory updates
+
+    Reference: JoinMarket onionmc.py lines 1078-1103
     """
 
     def __init__(
@@ -70,6 +79,7 @@ class MultiDirectoryClient:
         socks_host: str = "127.0.0.1",
         socks_port: int = 9050,
         neutrino_compat: bool = False,
+        on_nick_leave: Any | None = None,
     ):
         self.directory_servers = directory_servers
         self.network = network
@@ -80,6 +90,74 @@ class MultiDirectoryClient:
         self.neutrino_compat = neutrino_compat
         self.clients: dict[str, DirectoryClient] = {}
         self._response_queues: dict[str, asyncio.Queue[dict[str, Any]]] = {}
+        self.on_nick_leave = on_nick_leave
+
+        # Multi-directory nick tracking
+        # Format: active_nicks[nick] = {server1: True, server2: True, ...}
+        # True = nick is present on this server, False = gone from this server
+        # A nick is only considered completely gone when ALL servers report False
+        self._active_nicks: dict[str, dict[str, bool]] = {}
+
+    def _update_nick_status(self, nick: str, server: str, is_present: bool) -> None:
+        """
+        Update a nick's presence status on a specific directory server.
+
+        If this causes the nick to become completely gone (absent from ALL servers),
+        triggers the on_nick_leave callback.
+        """
+        if nick not in self._active_nicks:
+            self._active_nicks[nick] = {}
+
+        old_status = self._active_nicks[nick].get(server)
+        self._active_nicks[nick][server] = is_present
+
+        # Check if this update causes the nick to be completely gone
+        if not is_present and old_status is True:
+            # Nick just disappeared from this directory
+            # Check if it's still present on any other directory
+            if not any(status for status in self._active_nicks[nick].values()):
+                logger.info(
+                    f"Nick {nick} has left all directories "
+                    f"(servers: {list(self._active_nicks[nick].keys())})"
+                )
+                if self.on_nick_leave:
+                    self.on_nick_leave(nick)
+                # Clean up the entry
+                del self._active_nicks[nick]
+        elif is_present and old_status is False:
+            logger.debug(f"Nick {nick} returned to server {server}")
+
+    def is_nick_active(self, nick: str) -> bool:
+        """
+        Check if a nick is active on at least one directory server.
+
+        Returns:
+            True if nick is present on at least one server
+        """
+        if nick not in self._active_nicks:
+            return False
+        return any(status for status in self._active_nicks[nick].values())
+
+    def sync_nicks_with_peerlist(self, server: str, active_nicks: set[str]) -> None:
+        """
+        Synchronize nick tracking with a directory's peerlist.
+
+        This is called after fetching a peerlist from a directory to update
+        the nick tracking state. Nicks not in the peerlist are marked as gone
+        from that directory.
+
+        Args:
+            server: The server identifier reporting the peerlist
+            active_nicks: Set of nicks currently active on this server
+        """
+        # Mark all nicks in the peerlist as present
+        for nick in active_nicks:
+            self._update_nick_status(nick, server, True)
+
+        # Mark nicks we're tracking but not in this peerlist as gone from this server
+        for nick in list(self._active_nicks.keys()):
+            if server in self._active_nicks[nick] and nick not in active_nicks:
+                self._update_nick_status(nick, server, False)
 
     async def connect_all(self) -> int:
         """Connect to all directory servers, return count of successful connections."""
@@ -117,13 +195,41 @@ class MultiDirectoryClient:
         self.clients.clear()
 
     async def fetch_orderbook(self, timeout: float = 10.0) -> list[Offer]:
-        """Fetch orderbook from all connected directory servers."""
+        """
+        Fetch orderbook from all connected directory servers.
+
+        Also updates multi-directory nick tracking based on peerlists.
+        A maker is only considered gone when it disappears from ALL directories.
+        """
         all_offers: list[Offer] = []
         seen_offers: set[tuple[str, int]] = set()
 
         for server, client in self.clients.items():
             try:
                 offers, _bonds = await client.fetch_orderbooks()
+
+                # Update nick tracking with makers from this server's orderbook
+                active_makers = {offer.counterparty for offer in offers}
+
+                # Try to get peerlist for more accurate nick tracking
+                # (not all directories support this, so we fallback to offer-based tracking)
+                try:
+                    peerlist = await client.get_peerlist()
+                    if peerlist:
+                        active_nicks = set(peerlist)
+                        self.sync_nicks_with_peerlist(server, active_nicks)
+                        logger.debug(
+                            f"Updated nick tracking for {server}: {len(active_nicks)} active nicks"
+                        )
+                    else:
+                        # Fallback: track based on offers
+                        self.sync_nicks_with_peerlist(server, active_makers)
+                except Exception as e:
+                    # Peerlist not supported or failed - track based on offers only
+                    logger.debug(f"Peerlist unavailable from {server}, tracking via offers: {e}")
+                    self.sync_nicks_with_peerlist(server, active_makers)
+
+                # Add offers to result (deduplicated)
                 for offer in offers:
                     key = (offer.counterparty, offer.oid)
                     if key not in seen_offers:

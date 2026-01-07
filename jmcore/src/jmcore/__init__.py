@@ -50,7 +50,11 @@ from jmcore.constants import (
     DUST_THRESHOLD,
     STANDARD_DUST_LIMIT,
 )
-from jmcore.directory_client import DirectoryClient, DirectoryClientError
+from jmcore.directory_client import (
+    DirectoryClient,
+    DirectoryClientError,
+    OfferWithTimestamp,
+)
 from jmcore.encryption import CryptoSession, NaclError
 from jmcore.models import (
     DIRECTORY_NODES_MAINNET,
@@ -60,6 +64,7 @@ from jmcore.models import (
     PeerInfo,
     get_default_directory_nodes,
 )
+from jmcore.nick_tracker import NickTracker
 from jmcore.paths import get_commitment_blacklist_path, get_default_data_dir
 from jmcore.podle import (
     PoDLECommitment,
@@ -122,10 +127,13 @@ __all__ = [
     "DIRECTORY_NODES_TESTNET",
     "DirectoryClient",
     "DirectoryClientError",
+    "OfferWithTimestamp",
     "get_default_directory_nodes",
     # Models
     "MessageEnvelope",
     "PeerInfo",
+    # Nick tracking
+    "NickTracker",
     # Paths
     "get_commitment_blacklist_path",
     "get_default_data_dir",

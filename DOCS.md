@@ -386,6 +386,28 @@ This section documents protocol compatibility findings between our implementatio
 - Works with both feature-aware and legacy directory servers
 - Gracefully handles regtest/NOT-SERVING-ONION environments where peerlist may be empty
 
+### Multi-Directory Nick Tracking
+
+**Problem**: In multi-directory setups, a maker may temporarily disconnect from one directory while remaining connected to others. Naive implementations might prematurely mark the maker as "gone" and ignore their offers.
+
+**Solution**: The `MultiDirectoryClient` implements multi-directory aware nick tracking - a nick is only considered "gone" when ALL connected directories report it as disconnected.
+
+**Implementation**:
+- Format: `active_nicks[nick] = {server1: True, server2: False, ...}`
+- A nick is active if at least one server reports `True`
+- The `on_nick_leave` callback only fires when ALL servers report the nick as gone
+- Prevents premature maker removal during network flakiness or directory-specific connection issues
+
+**Reference**: JoinMarket `onionmc.py` lines 1078-1103
+
+**Benefits**:
+- Improves maker availability in multi-directory environments
+- Reduces false positives from temporary connection issues
+- Handles directory-specific disconnections gracefully
+- Compatible with flaky Tor connections
+
+The standalone `NickTracker` class (`jmcore/nick_tracker.py`) can be used by any component needing multi-directory awareness (makers, takers, orderbook watchers).
+
 ### Peerlist Format
 
 The peerlist response may contain metadata entries that don't follow the standard `nick;location` format:

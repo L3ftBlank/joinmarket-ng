@@ -15,6 +15,7 @@ import binascii
 import contextlib
 import json
 import struct
+import time
 from collections.abc import Callable
 from decimal import Decimal
 from typing import Any
@@ -37,6 +38,18 @@ from jmcore.protocol import (
     parse_peerlist_entry,
     peer_supports_neutrino_compat,
 )
+
+
+class OfferWithTimestamp:
+    """Wrapper for Offer with metadata for staleness tracking."""
+
+    __slots__ = ("offer", "received_at", "bond_utxo_key")
+
+    def __init__(self, offer: Offer, received_at: float, bond_utxo_key: str | None = None) -> None:
+        self.offer = offer
+        self.received_at = received_at
+        # Bond UTXO key (txid:vout) for deduplication across nick changes
+        self.bond_utxo_key = bond_utxo_key
 
 
 class DirectoryClientError(Exception):
@@ -170,9 +183,16 @@ class DirectoryClient:
         # hostid is used for message signing to prevent replay attacks
         # For onion-based networks, this is always "onion-network"
         self.hostid = "onion-network"
-        self.offers: dict[tuple[str, int], Offer] = {}
+        # Offers indexed by (counterparty, oid) with timestamp metadata
+        self.offers: dict[tuple[str, int], OfferWithTimestamp] = {}
+        # Bonds indexed by UTXO key (txid:vout)
         self.bonds: dict[str, FidelityBond] = {}
+        # Reverse index: bond UTXO key -> set of (counterparty, oid) keys that use this bond
+        # Used for deduplication when same bond is used by different nicks
+        self._bond_to_offers: dict[str, set[tuple[str, int]]] = {}
         self.peer_features: dict[str, dict[str, bool]] = {}  # nick -> features dict
+        # Active peers from last peerlist (nick -> location)
+        self._active_peers: dict[str, str] = {}
         self.running = False
         self.on_disconnect = on_disconnect
         self.initial_orderbook_received = False
@@ -512,9 +532,17 @@ class DirectoryClient:
         self._peerlist_supported = True
 
         if not peerlist_str:
+            # Empty peerlist - clear our active peers tracking
+            old_nicks = set(self._active_peers.keys())
+            self._active_peers.clear()
+            # Remove offers from nicks that are no longer active
+            for nick in old_nicks:
+                self.remove_offers_for_nick(nick)
             return []
 
         peers: list[tuple[str, str, FeatureSet]] = []
+        new_active_peers: dict[str, str] = {}
+
         for entry in peerlist_str.split(","):
             # Skip empty entries
             if not entry or not entry.strip():
@@ -532,6 +560,7 @@ class DirectoryClient:
                 )
                 if not disconnected:
                     peers.append((nick, location, features))
+                    new_active_peers[nick] = location
                     # Always update peer_features cache to track that we've seen this peer
                     # This prevents triggering "new peer" logic for every message from this peer
                     self.peer_features[nick] = features.to_dict()
@@ -539,8 +568,21 @@ class DirectoryClient:
                 logger.warning(f"Failed to parse peerlist entry '{entry}': {e}")
                 continue
 
+        # Find nicks that left (were in old peerlist but not in new)
+        old_nicks = set(self._active_peers.keys())
+        new_nicks = set(new_active_peers.keys())
+        left_nicks = old_nicks - new_nicks
+
+        # Remove offers from nicks that left
+        for nick in left_nicks:
+            self.remove_offers_for_nick(nick)
+
+        # Update active peers
+        self._active_peers = new_active_peers
+
         logger.info(
             f"Received {len(peers)} active peers with features from {self.host}:{self.port}"
+            + (f", {len(left_nicks)} nicks left" if left_nicks else "")
         )
         return peers
 
@@ -1082,9 +1124,17 @@ class DirectoryClient:
                                                     features=self.peer_features.get(from_nick, {}),
                                                 )
 
+                                                # Extract bond UTXO key for deduplication
+                                                bond_utxo_key: str | None = None
+                                                if bond_data:
+                                                    bond_utxo_key = (
+                                                        f"{bond_data['utxo_txid']}:"
+                                                        f"{bond_data['utxo_vout']}"
+                                                    )
+
                                                 # Update cache using tuple key
                                                 offer_key = (from_nick, oid)
-                                                self.offers[offer_key] = offer
+                                                self._store_offer(offer_key, offer, bond_utxo_key)
 
                                                 # Track this peer as "known" even if peerlist didn't
                                                 # return features. This prevents re-triggering new peer
@@ -1117,8 +1167,101 @@ class DirectoryClient:
         self.running = False
         logger.info(f"Stopped continuous listening on {self.host}:{self.port}")
 
+    def _store_offer(
+        self,
+        offer_key: tuple[str, int],
+        offer: Offer,
+        bond_utxo_key: str | None = None,
+    ) -> None:
+        """
+        Store an offer with timestamp and handle bond-based deduplication.
+
+        When a maker restarts with a new nick but the same fidelity bond, we need to
+        remove the old offer(s) associated with that bond to prevent duplicates.
+
+        Args:
+            offer_key: Tuple of (counterparty, oid)
+            offer: The offer to store
+            bond_utxo_key: Bond UTXO key (txid:vout) if offer has a fidelity bond
+        """
+        current_time = time.time()
+
+        # If this offer has a fidelity bond, check for and remove old offers with same bond
+        if bond_utxo_key:
+            # Get all offer keys that previously used this bond
+            old_offer_keys = self._bond_to_offers.get(bond_utxo_key, set()).copy()
+
+            # Remove old offers (from different nicks using same bond)
+            for old_key in old_offer_keys:
+                if old_key != offer_key and old_key in self.offers:
+                    logger.info(
+                        f"Removing stale offer from {old_key[0]} oid={old_key[1]} - "
+                        f"same bond UTXO now used by {offer_key[0]}"
+                    )
+                    del self.offers[old_key]
+
+            # Clear the old bond -> offers mapping and set up new one
+            self._bond_to_offers[bond_utxo_key] = {offer_key}
+        else:
+            # Remove this offer from any previous bond mapping
+            old_offer_data = self.offers.get(offer_key)
+            if old_offer_data and old_offer_data.bond_utxo_key:
+                old_bond_key = old_offer_data.bond_utxo_key
+                if old_bond_key in self._bond_to_offers:
+                    self._bond_to_offers[old_bond_key].discard(offer_key)
+
+        # Store the new offer with timestamp
+        self.offers[offer_key] = OfferWithTimestamp(
+            offer=offer, received_at=current_time, bond_utxo_key=bond_utxo_key
+        )
+
+    def remove_offers_for_nick(self, nick: str) -> int:
+        """
+        Remove all offers from a specific nick (e.g., when nick goes offline).
+
+        This is the equivalent of the reference implementation's on_nick_leave callback.
+
+        Args:
+            nick: The nick to remove offers for
+
+        Returns:
+            Number of offers removed
+        """
+        keys_to_remove = [key for key in self.offers if key[0] == nick]
+        removed = 0
+
+        for key in keys_to_remove:
+            offer_data = self.offers.pop(key, None)
+            if offer_data:
+                removed += 1
+                # Clean up bond mapping
+                if offer_data.bond_utxo_key and offer_data.bond_utxo_key in self._bond_to_offers:
+                    self._bond_to_offers[offer_data.bond_utxo_key].discard(key)
+
+        if removed > 0:
+            logger.info(f"Removed {removed} offers for nick {nick} (left/offline)")
+
+        # Also remove from peer_features and active_peers
+        self.peer_features.pop(nick, None)
+        self._active_peers.pop(nick, None)
+
+        # Remove any bonds from this nick
+        bonds_to_remove = [k for k, v in self.bonds.items() if v.counterparty == nick]
+        for bond_key in bonds_to_remove:
+            del self.bonds[bond_key]
+
+        return removed
+
+    def get_active_nicks(self) -> set[str]:
+        """Get set of nicks from the last peerlist update."""
+        return set(self._active_peers.keys())
+
     def get_current_offers(self) -> list[Offer]:
         """Get the current list of cached offers."""
+        return [offer_data.offer for offer_data in self.offers.values()]
+
+    def get_offers_with_timestamps(self) -> list[OfferWithTimestamp]:
+        """Get offers with their timestamp metadata."""
         return list(self.offers.values())
 
     def get_current_bonds(self) -> list[FidelityBond]:

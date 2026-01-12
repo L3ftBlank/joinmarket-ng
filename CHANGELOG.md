@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-01-12
+
 ### Added
 
 - **Descriptor Wallet Backend now exposed via CLI**: Users can now select `--backend descriptor_wallet` for fast UTXO tracking.
@@ -277,7 +279,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pre-built image support for directory server compose.
 - Tor configuration instructions.
 
-[Unreleased]: https://github.com/m0wer/joinmarket-ng/compare/0.8.0...HEAD
+[Unreleased]: https://github.com/m0wer/joinmarket-ng/compare/0.9.0...HEAD
+[0.9.0]: https://github.com/m0wer/joinmarket-ng/compare/0.8.0...0.9.0
 [0.8.0]: https://github.com/m0wer/joinmarket-ng/compare/0.7.0...0.8.0
 [0.7.0]: https://github.com/m0wer/joinmarket-ng/compare/0.6.0...0.7.0
 [0.6.0]: https://github.com/m0wer/joinmarket-ng/compare/0.5.0...0.6.0

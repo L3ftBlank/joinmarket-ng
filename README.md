@@ -83,7 +83,7 @@ rpc_password = "your_password"
    ```bash
    jm-wallet info
    ```
-   Use one of the mixdepth 0 addresses shown.
+   Use the mixdepth 0 address shown.
 
 3. **Fund your wallet** with the address from step 2. Wait for confirmations.
 

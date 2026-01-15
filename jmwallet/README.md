@@ -26,11 +26,19 @@ pip install -e ../jmcore .
 Create an encrypted wallet file with password protection:
 
 ```bash
-mkdir -p ~/.joinmarket-ng/wallets
-jm-wallet generate --save --prompt-password --output ~/.joinmarket-ng/wallets/wallet.mnemonic
+# Generate with defaults (saves to ~/.joinmarket-ng/wallets/default.mnemonic with password)
+jm-wallet generate
+
+# Or specify a custom location
+jm-wallet generate --output ~/.joinmarket-ng/wallets/my-wallet.mnemonic
+
+# Generate without saving (display only)
+jm-wallet generate --no-save --no-prompt-password
 ```
 
 **IMPORTANT**: The mnemonic is displayed once during generation. Write it down and store it securely offline - it's your only backup if you lose the encrypted file!
+
+**Note**: By default, the wallet is saved and password-protected. Use `--no-save` to skip saving or `--no-prompt-password` to skip password protection (not recommended for production).
 
 ### 2. Choose Your Backend
 
@@ -64,8 +72,11 @@ Check wallet balance (first run will import descriptors):
 ```bash
 source ~/.joinmarket-ng/bitcoin.env
 jm-wallet info \
-  --mnemonic-file ~/.joinmarket-ng/wallets/wallet.mnemonic \
+  --mnemonic-file ~/.joinmarket-ng/wallets/my-wallet.mnemonic \
   --backend descriptor_wallet
+
+# Or if using default wallet:
+jm-wallet info --backend descriptor_wallet
 ```
 
 The first run imports your wallet descriptors into Bitcoin Core (one-time ~5 second operation). Subsequent syncs are nearly instant.
@@ -83,8 +94,11 @@ Uses `scantxoutset` RPC to scan the entire UTXO set each time. No persistent sta
 ```bash
 source ~/.joinmarket-ng/bitcoin.env
 jm-wallet info \
-  --mnemonic-file ~/.joinmarket-ng/wallets/wallet.mnemonic \
+  --mnemonic-file ~/.joinmarket-ng/wallets/my-wallet.mnemonic \
   --backend full_node
+
+# Or if using default wallet:
+jm-wallet info --backend full_node
 ```
 
 #### Option C: Neutrino (Lightweight SPV)
@@ -115,8 +129,11 @@ Check wallet balance:
 
 ```bash
 jm-wallet info \
-  --mnemonic-file ~/.joinmarket-ng/wallets/wallet.mnemonic \
+  --mnemonic-file ~/.joinmarket-ng/wallets/my-wallet.mnemonic \
   --backend neutrino
+
+# Or if using default wallet:
+jm-wallet info --backend neutrino
 ```
 
 #### Backend Comparison
@@ -151,33 +168,46 @@ Balance by mixdepth:
 ### Generate Wallet
 
 ```bash
-# Generate and save encrypted wallet (RECOMMENDED)
-jm-wallet generate --save --prompt-password --output ~/.joinmarket-ng/wallets/wallet.mnemonic
-
-# Just generate (display only, not saved)
+# Generate and save encrypted wallet to default location (recommended)
 jm-wallet generate
 
+# Generate and save to custom location
+jm-wallet generate --output ~/my-wallet.mnemonic
+
+# Just display (not saved - for testing only)
+jm-wallet generate --no-save --no-prompt-password
+
 # 12-word mnemonic instead of 24
-jm-wallet generate --words 12 --save --prompt-password --output ~/.joinmarket-ng/wallets/wallet.mnemonic
+jm-wallet generate --words 12
 ```
 
-**Note**: `--prompt-password` only works with `--save`. The wallet file is encrypted and requires the password to use.
+**Note**:
+- Default location: `~/.joinmarket-ng/wallets/default.mnemonic`
+- By default, the wallet is saved and password-protected
+- Use `--no-save` to skip saving, `--no-prompt-password` to skip encryption (not recommended)
 
 ### View Balance
 
 ```bash
-# Neutrino backend (default ports)
-jm-wallet info --mnemonic-file ~/.joinmarket-ng/wallets/wallet.mnemonic --backend neutrino
+# Using default wallet
+jm-wallet info --backend neutrino
+
+# Using specific wallet file
+jm-wallet info --mnemonic-file ~/my-wallet.mnemonic --backend neutrino
 
 # Bitcoin Core (with environment file)
 source ~/.joinmarket-ng/bitcoin.env
-jm-wallet info --mnemonic-file ~/.joinmarket-ng/wallets/wallet.mnemonic --backend full_node
+jm-wallet info --backend full_node
 ```
 
 ### List Fidelity Bonds
 
 ```bash
-jm-wallet list-bonds --mnemonic-file ~/.joinmarket-ng/wallets/wallet.mnemonic
+# Using default wallet
+jm-wallet list-bonds
+
+# Using specific wallet file
+jm-wallet list-bonds --mnemonic-file ~/my-wallet.mnemonic
 ```
 
 ### All Commands

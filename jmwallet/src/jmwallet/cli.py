@@ -237,7 +237,9 @@ def generate(
     word_count: Annotated[
         int, typer.Option("--words", "-w", help="Number of words (12, 15, 18, 21, or 24)")
     ] = 24,
-    save: Annotated[bool, typer.Option("--save", "-s", help="Save to file")] = False,
+    save: Annotated[
+        bool, typer.Option("--save/--no-save", help="Save to file (default: save)")
+    ] = True,
     output_file: Annotated[
         Path | None, typer.Option("--output", "-o", help="Output file path")
     ] = None,
@@ -245,10 +247,18 @@ def generate(
         str | None, typer.Option("--password", "-p", help="Password for encryption")
     ] = None,
     prompt_password: Annotated[
-        bool, typer.Option("--prompt-password", help="Prompt for password interactively")
-    ] = False,
+        bool,
+        typer.Option(
+            "--prompt-password/--no-prompt-password",
+            help="Prompt for password interactively (default: prompt)",
+        ),
+    ] = True,
 ) -> None:
-    """Generate a new BIP39 mnemonic phrase with secure entropy."""
+    """Generate a new BIP39 mnemonic phrase with secure entropy.
+
+    By default, saves to ~/.joinmarket-ng/wallets/default.mnemonic with password protection.
+    Use --no-save to only display the mnemonic without saving.
+    """
     setup_logging()
 
     try:
@@ -270,12 +280,23 @@ def generate(
         typer.echo("Store it securely offline - NEVER share it with anyone!")
         typer.echo("=" * 80 + "\n")
 
-        if save:
+        # Auto-enable save if output_file is specified (even if --no-save was used)
+        should_save = save or output_file is not None
+
+        if should_save:
             if output_file is None:
                 output_file = Path.home() / ".joinmarket-ng" / "wallets" / "default.mnemonic"
 
-            # Prompt for password if requested
-            if prompt_password:
+            # Check if file already exists and prompt for confirmation
+            if output_file.exists():
+                logger.warning(f"Wallet file already exists: {output_file}")
+                overwrite = typer.confirm("Overwrite existing wallet file?", default=False)
+                if not overwrite:
+                    typer.echo("Wallet generation cancelled")
+                    raise typer.Exit(0)
+
+            # Prompt for password if requested and not already provided
+            if prompt_password and password is None:
                 password = typer.prompt("Enter encryption password", hide_input=True)
                 confirm = typer.prompt("Confirm password", hide_input=True)
                 if password != confirm:
@@ -288,12 +309,19 @@ def generate(
             if password:
                 typer.echo("File is encrypted - you will need the password to use it.")
             else:
-                typer.echo("WARNING: File is NOT encrypted - consider using --password")
+                typer.echo("WARNING: File is NOT encrypted")
+                typer.echo("For production use, generate again with a password!")
             typer.echo("KEEP THIS FILE SECURE - IT CONTROLS YOUR FUNDS!")
+        else:
+            typer.echo("\nMnemonic NOT saved (--no-save was used)")
+            typer.echo("To save it, run: jm-wallet generate")
 
     except ValueError as e:
         logger.error(f"Failed to generate mnemonic: {e}")
         raise typer.Exit(1)
+    except typer.Exit:
+        # Re-raise Exit exceptions without modification
+        raise
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
         raise typer.Exit(1)
@@ -314,6 +342,7 @@ def _resolve_mnemonic(
     3. MNEMONIC_FILE environment variable (path to mnemonic file)
     4. MNEMONIC environment variable
     5. Config file wallet.mnemonic_file setting
+    6. Default wallet path (~/.joinmarket-ng/wallets/default.mnemonic)
     """
     if mnemonic:
         return mnemonic
@@ -350,6 +379,13 @@ def _resolve_mnemonic(
     elif mnemonic_file:
         mnemonic_source = "--mnemonic-file argument"
 
+    # If still no mnemonic file, try default wallet path
+    if not actual_mnemonic_file:
+        default_wallet = Path.home() / ".joinmarket-ng" / "wallets" / "default.mnemonic"
+        if default_wallet.exists():
+            actual_mnemonic_file = default_wallet
+            mnemonic_source = "default wallet path"
+
     if actual_mnemonic_file:
         if not actual_mnemonic_file.exists():
             source_msg = f" (from {mnemonic_source})" if mnemonic_source else ""
@@ -370,7 +406,8 @@ def _resolve_mnemonic(
 
     raise ValueError(
         "Mnemonic required. Use --mnemonic, --mnemonic-file, MNEMONIC_FILE, MNEMONIC env var, "
-        "or set wallet.mnemonic_file in config.toml"
+        "set wallet.mnemonic_file in config.toml, or create default wallet with: "
+        "jm-wallet generate --save"
     )
 
 

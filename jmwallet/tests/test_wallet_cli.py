@@ -119,16 +119,16 @@ def test_generate_and_validate_mnemonic():
     with tempfile.TemporaryDirectory() as tmpdir:
         output_file = Path(tmpdir) / "new.mnemonic"
 
-        # Generate a new 24-word mnemonic and save it
+        # Generate a new 24-word mnemonic and save it (no password for test simplicity)
         result = runner.invoke(
             app,
             [
                 "generate",
                 "--words",
                 "24",
-                "--save",
                 "--output",
                 str(output_file),
+                "--no-prompt-password",
             ],
         )
 
@@ -153,7 +153,7 @@ def test_validate_invalid_mnemonic():
 
 def test_generate_mnemonic_12_words():
     """Test generating a 12-word mnemonic."""
-    result = runner.invoke(app, ["generate", "--words", "12"])
+    result = runner.invoke(app, ["generate", "--words", "12", "--no-save"])
 
     assert result.exit_code == 0, f"generate failed: {result.stdout}"
     assert "GENERATED MNEMONIC" in result.stdout
@@ -188,11 +188,11 @@ def test_encrypted_mnemonic_file():
                 "generate",
                 "--words",
                 "12",
-                "--save",
                 "--output",
                 str(output_file),
                 "--password",
                 password,
+                "--no-prompt-password",  # Don't prompt, use the password arg
             ],
         )
 
@@ -435,3 +435,134 @@ def test_history_command_status_display():
             success_line and "[PENDING]" not in success_line and "[FAILED]" not in success_line
         ), "Success tx should have no status label"
         assert failed_line and "[FAILED]" in failed_line, "Failed tx should have [FAILED]"
+
+
+def test_generate_with_output_auto_saves():
+    """Test that --output automatically saves the file."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_file = Path(tmpdir) / "auto-save.mnemonic"
+
+        # Generate with --output (saves by default now)
+        result = runner.invoke(
+            app,
+            [
+                "generate",
+                "--output",
+                str(output_file),
+                "--no-prompt-password",
+            ],
+        )
+
+        assert result.exit_code == 0, f"generate failed: {result.stdout}"
+        assert "GENERATED MNEMONIC" in result.stdout
+        assert output_file.exists(), "File should be saved when --output is specified"
+
+
+def test_generate_with_save_uses_default_path():
+    """Test that default behavior saves to default path."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Override home directory for this test
+        with patch.object(Path, "home", return_value=Path(tmpdir)):
+            # Generate with defaults (should save to default path with password prompt)
+            # Mock the password prompt
+            with patch.object(typer, "prompt", side_effect=["testpass", "testpass"]):
+                result = runner.invoke(
+                    app,
+                    [
+                        "generate",
+                    ],
+                )
+
+                assert result.exit_code == 0, f"generate failed: {result.stdout}"
+                assert "GENERATED MNEMONIC" in result.stdout
+
+                # Check default path was used
+                default_path = Path(tmpdir) / ".joinmarket-ng" / "wallets" / "default.mnemonic"
+                assert default_path.exists(), f"Default wallet file not found at {default_path}"
+
+
+def test_generate_overwrite_protection():
+    """Test that generating a wallet with an existing file prompts for confirmation."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_file = Path(tmpdir) / "existing.mnemonic"
+
+        # Create an existing file
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text("existing mnemonic")
+
+        # Try to generate to existing file (decline overwrite)
+        result = runner.invoke(
+            app,
+            [
+                "generate",
+                "--output",
+                str(output_file),
+                "--no-prompt-password",  # Skip password to simplify test
+            ],
+            input="n\n",  # Decline overwrite
+        )
+
+        # Should exit with code 0 (cancelled by user choice)
+        assert result.exit_code == 0, (
+            f"Expected exit 0, got {result.exit_code}. Output: {result.stdout}"
+        )
+        assert "Overwrite existing wallet file?" in result.stdout
+        assert "Wallet generation cancelled" in result.stdout
+
+        # File should still contain original content
+        assert output_file.read_text() == "existing mnemonic"
+
+        # Try again with confirmation
+        result = runner.invoke(
+            app,
+            [
+                "generate",
+                "--output",
+                str(output_file),
+                "--no-prompt-password",
+            ],
+            input="y\n",  # Accept overwrite
+        )
+
+        assert result.exit_code == 0
+        assert "GENERATED MNEMONIC" in result.stdout
+
+        # File should be overwritten
+        assert output_file.read_text() != "existing mnemonic"
+
+
+def test_info_uses_default_wallet():
+    """Test that info command can use default wallet path."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Create default wallet
+        default_wallet = Path(tmpdir) / ".joinmarket-ng" / "wallets" / "default.mnemonic"
+        default_wallet.parent.mkdir(parents=True, exist_ok=True)
+
+        # Generate and save a valid mnemonic
+        from jmwallet.cli import generate_mnemonic_secure, save_mnemonic_file
+
+        mnemonic = generate_mnemonic_secure()
+        save_mnemonic_file(mnemonic, default_wallet, None)
+
+        # Mock backend
+        mock_backend = MagicMock()
+        mock_backend.get_utxos = AsyncMock(return_value=[])
+        mock_backend.close = AsyncMock()
+
+        # Override home directory for this test
+        with (
+            patch.object(Path, "home", return_value=Path(tmpdir)),
+            patch("jmwallet.backends.bitcoin_core.BitcoinCoreBackend", return_value=mock_backend),
+        ):
+            # Run info without --mnemonic-file (should use default)
+            result = runner.invoke(
+                app,
+                [
+                    "info",
+                    "--backend",
+                    "full_node",
+                ],
+            )
+
+            assert result.exit_code == 0, f"info command failed: {result.stdout}"
+            assert "Total Balance:" in result.stdout

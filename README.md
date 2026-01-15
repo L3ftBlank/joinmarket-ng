@@ -75,26 +75,26 @@ rpc_password = "your_password"
 
 1. **Create a wallet:**
    ```bash
-   jm-wallet create wallet.enc
+   jm-wallet generate
    ```
    Save your recovery phrase in a safe place.
 
 2. **Get a deposit address:**
    ```bash
-   jm-wallet deposit-address wallet.enc
+   jm-wallet info
    ```
+   Use one of the mixdepth 0 addresses shown.
 
 3. **Fund your wallet** with the address from step 2. Wait for confirmations.
 
 4. **Check your balance:**
    ```bash
-   jm-wallet info wallet.enc
+   jm-wallet info
    ```
 
 5. **Run your first CoinJoin:**
    ```bash
    jm-taker coinjoin \
-     --mnemonic-file wallet.enc \
      --amount 1000000 \
      --mixdepth 0 \
      --destination INTERNAL
@@ -117,7 +117,7 @@ rpc_password = "your_password"
 Run a maker bot to earn fees by providing liquidity:
 
 ```bash
-jm-maker start --mnemonic-file wallet.enc
+jm-maker start
 ```
 
 The maker bot will:

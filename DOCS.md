@@ -4,10 +4,31 @@ This document consolidates the JoinMarket protocol specification, implementation
 
 ## Overview
 
-JoinMarket is a decentralized CoinJoin implementation that allows Bitcoin users to improve their transaction privacy through collaborative transactions. The protocol consists of two main participant types:
+JoinMarket is a decentralized CoinJoin implementation that allows Bitcoin users to improve their transaction privacy through collaborative transactions.
+
+### How CoinJoin Works
+
+CoinJoin transactions combine multiple users' funds into a single transaction, making it difficult to trace coins. This enhances financial privacy.
+
+The transaction includes several equal amount outputs from inputs belonging to different users. An outside observer cannot determine which input corresponds to which equal amount output, effectively obfuscating the transaction history.
+
+Change outputs are also included, but they are of different amounts and can be easily identified as change and sometimes matched to inputs using heuristics. However, the equal amount outputs remain ambiguous.
+
+One round of CoinJoin increases privacy, but generally multiple rounds are needed to achieve strong anonymity. JoinMarket facilitates this by connecting users who want to mix their coins (takers) with those willing to provide liquidity for a fee (makers).
+
+### Participant Types
 
 - **Makers**: Liquidity providers who offer their UTXOs for CoinJoin and earn fees
 - **Takers**: Users who initiate CoinJoins by selecting makers and coordinating the transaction
+
+### What Makes JoinMarket Different
+
+Unlike other CoinJoin implementations (Wasabi, Whirlpool), JoinMarket has **no central coordinator**:
+
+- **Taker acts as coordinator**: Chooses peers, gains maximum privacy (doesn't share inputs/outputs with a centralized party)
+- **Most censorship-resistant**: Directory servers are easily replaceable and don't route communications, only host the orderbook
+- **Multiple fallbacks**: Works with IRC, Tor hidden services, and can easily move to alternatives like Nostr relays
+- **Peer-to-peer**: Direct encrypted communication between participants
 
 ### Key Design Principles
 
@@ -16,9 +37,76 @@ JoinMarket is a decentralized CoinJoin implementation that allows Bitcoin users 
 3. **Sybil-resistant**: PoDLE commitments prevent costless DOS attacks
 4. **Decentralized**: Multiple redundant directory servers for message routing
 
+### Why Financial Privacy Matters
+
+Just as you wouldn't want your employer to see your bank balance when paying you, or a friend to know your net worth when splitting a bill, Bitcoin users deserve financial privacy. JoinMarket helps individuals exercise their right to financial freedom without promoting illegal activities.
+
 ---
 
 ## Architecture
+
+### JoinMarket-NG vs Reference Implementation
+
+This is a modern alternative implementation of the JoinMarket protocol, maintaining **full wire protocol compatibility** with the [reference implementation](https://github.com/JoinMarket-Org/joinmarket-clientserver/) while offering significant improvements.
+
+#### Key Advantages
+
+**Architectural Improvements:**
+- **Stateless, no daemon**: Simpler deployment and operation
+- **Run multiple roles simultaneously**: Act as maker and taker at the same time without stopping/restarting - huge privacy win by avoiding suspicious orderbook gaps
+- **Light client support**: Full Neutrino/BIP157 integration - no full node required
+- **No wallet daemon**: Direct wallet access without RPC overhead or remote wallet complexity
+- **Modern async stack**: Python 3.14+, Pydantic v2, AsyncIO with full type hints
+
+**Quality & Maintainability:**
+- **~100% unit test coverage**: Every component thoroughly tested in isolation
+- **E2E compatibility tests**: Full CoinJoin flows tested against reference implementation
+- **Type safety**: Strict type hints enforced with Mypy (static type checker) and Pydantic (runtime data validation)
+- **Clean, auditable code**: Easy to understand, review, and contribute to
+- **Modern tooling**: Ruff formatting, pre-commit hooks, comprehensive CI/CD
+
+#### Why a New Implementation?
+
+The reference implementation has served the community well, but faces challenges that make improvements difficult:
+- Limited active development (maintenance mode)
+- 181+ open issues and 41+ open pull requests
+- Technical debt requiring full rewrites
+- Tight coupling to Bitcoin Core's BerkeleyDB
+
+Starting fresh let us build on modern foundations while honoring the protocol's proven design. This project currently lacks peer review (contributions welcome!), but the extensive test suite and clear documentation make auditing straightforward.
+
+**We see this as our turn to take JoinMarket to the next level while honoring the foundation built by the original contributors.**
+
+#### Compatibility & Feature Negotiation
+
+This implementation uses protocol v5 and maintains **full wire protocol compatibility** with the reference implementation. New features like Neutrino support are negotiated via the handshake features dict, not protocol version bumps.
+
+**Design principles:**
+- **Smooth rollout**: Features are adopted gradually without requiring network-wide upgrades
+- **No fragmentation**: All peers use protocol v5, avoiding version-based compatibility issues
+- **Backwards compatible**: New peers work seamlessly with existing JoinMarket makers and takers
+
+**Feature negotiation via handshake:**
+- During the CoinJoin handshake, peers exchange a features dict (e.g., `{"neutrino_compat": true}`)
+- Takers adapt their UTXO format based on maker capabilities
+- Legacy peers that don't advertise features receive legacy format
+
+**Compatibility matrix:**
+| Taker Backend | Maker Features | Status |
+|--------------|----------------|--------|
+| Full node | No `neutrino_compat` (legacy) | ✅ Works - sends legacy UTXO format |
+| Full node | Has `neutrino_compat` | ✅ Works - sends extended UTXO format |
+| Neutrino | No `neutrino_compat` (legacy) | ❌ Incompatible - taker filters out |
+| Neutrino | Has `neutrino_compat` | ✅ Works - both use extended format |
+
+Neutrino takers automatically filter out makers that don't advertise `neutrino_compat` since they require extended UTXO metadata for verification.
+
+#### Roadmap
+
+All components are fully implemented. Future work will focus on improvements, optimizations, and protocol extensions:
+
+- Nostr relays for offer broadcasting
+- CoinJoinXT and Lightning Network integration: https://www.youtube.com/watch?v=YS0MksuMl9k
 
 ### System Overview
 
@@ -1529,7 +1617,7 @@ Fidelity bonds are only sent via PRIVMSG as a direct response to `!orderbook` re
 The Nick Signature binds the bond proof to the specific taker, preventing replay attacks.
 ---
 
-## Transaction Policies
+## Tor Integration
 
 All JoinMarket components use Tor for privacy in different ways:
 

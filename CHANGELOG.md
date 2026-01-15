@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-01-15
+
 ### Security
 
 - **Sensitive data protection**: Refactored configuration models to use Pydantic's `SecretStr` type for sensitive fields (mnemonics, passphrases, passwords, destination addresses, notification URLs). This prevents accidental exposure of sensitive data in logs, error messages, and tracebacks. All sensitive values are automatically masked as `**********` in string representations and logging output, while remaining accessible via `.get_secret_value()` when needed.
@@ -401,6 +403,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tor configuration instructions.
 
 [Unreleased]: https://github.com/m0wer/joinmarket-ng/compare/0.9.0...HEAD
+[0.10.0]: https://github.com/m0wer/joinmarket-ng/compare/0.9.0...0.10.0
 [0.9.0]: https://github.com/m0wer/joinmarket-ng/compare/0.8.0...0.9.0
 [0.8.0]: https://github.com/m0wer/joinmarket-ng/compare/0.7.0...0.8.0
 [0.7.0]: https://github.com/m0wer/joinmarket-ng/compare/0.6.0...0.7.0

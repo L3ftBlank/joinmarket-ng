@@ -404,17 +404,28 @@ update_packages() {
     pip install --upgrade "${git_base}#subdirectory=jmwallet" --quiet
     print_success "jmwallet updated"
 
-    # Update components if installed
+    # Update/install maker (default: install if not present)
+    local should_install_maker="${INSTALL_MAKER:-true}"
     if pip show jm-maker &> /dev/null; then
         print_info "Updating maker..."
         pip install --upgrade "${git_base}#subdirectory=maker" --quiet
         print_success "Maker updated"
+    elif [[ "$should_install_maker" == "true" ]]; then
+        print_info "Installing maker..."
+        pip install "${git_base}#subdirectory=maker" --quiet
+        print_success "Maker installed"
     fi
 
+    # Update/install taker (default: install if not present)
+    local should_install_taker="${INSTALL_TAKER:-true}"
     if pip show jm-taker &> /dev/null; then
         print_info "Updating taker..."
         pip install --upgrade "${git_base}#subdirectory=taker" --quiet
         print_success "Taker updated"
+    elif [[ "$should_install_taker" == "true" ]]; then
+        print_info "Installing taker..."
+        pip install "${git_base}#subdirectory=taker" --quiet
+        print_success "Taker installed"
     fi
 
     print_success "Update complete!"

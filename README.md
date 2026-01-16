@@ -49,7 +49,7 @@ curl -sSL https://raw.githubusercontent.com/m0wer/joinmarket-ng/master/install.s
 The installer will:
 - Check and install system dependencies
 - Install and configure Tor
-- Set up JoinMarket-NG
+- Set up JoinMarket-NG (both maker and taker by default)
 - Create configuration files
 
 ### First Time Setup

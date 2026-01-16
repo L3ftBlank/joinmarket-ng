@@ -21,21 +21,21 @@ The installer will:
 - Check and install system dependencies (asks for confirmation)
 - Install and configure Tor for privacy
 - Create a Python virtual environment at `~/.joinmarket-ng/venv/`
-- Install JoinMarket-NG from the latest release
+- Install JoinMarket-NG from the latest release (both maker and taker by default)
 - Create a configuration file at `~/.joinmarket-ng/config.toml`
 - Add shell integration for easy activation
 
 ### Installation Options
 
 ```bash
-# Install maker only (for earning fees)
+# Install both maker and taker (default)
+curl -sSL https://raw.githubusercontent.com/m0wer/joinmarket-ng/master/install.sh | bash
+
+# Install maker only
 curl -sSL https://raw.githubusercontent.com/m0wer/joinmarket-ng/master/install.sh | bash -s -- --maker
 
-# Install taker only (for mixing coins)
+# Install taker only
 curl -sSL https://raw.githubusercontent.com/m0wer/joinmarket-ng/master/install.sh | bash -s -- --taker
-
-# Install both with automatic confirmation
-curl -sSL https://raw.githubusercontent.com/m0wer/joinmarket-ng/master/install.sh | bash -s -- --yes
 
 # Install specific version
 curl -sSL https://raw.githubusercontent.com/m0wer/joinmarket-ng/master/install.sh | bash -s -- --version 0.9.0

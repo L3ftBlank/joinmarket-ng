@@ -622,22 +622,26 @@ Options:
   -h, --help          Show this help message
   -y, --yes           Automatic yes to prompts
   --update            Update existing installation
-  --maker             Install maker component
-  --taker             Install taker component
+  --maker             Install maker component (installed by default)
+  --taker             Install taker component (installed by default)
   --version VERSION   Install specific version (default: latest)
-  --dev               Install from main branch (for development)
+  --dev               Install from master branch (for development)
   --skip-tor          Skip Tor installation and configuration
   --venv PATH         Custom virtual environment path
 
 Note: When piped from curl, auto-confirm is enabled by default for Tor
       configuration and other prompts. Use --skip-tor to skip Tor setup.
+      By default, both maker and taker are installed.
 
 Examples:
-  # Install (auto-confirms Tor setup when piped)
+  # Install with both maker and taker (default)
   curl -sSL https://raw.githubusercontent.com/m0wer/joinmarket-ng/master/install.sh | bash
 
-  # Install maker only, auto-confirm
-  curl -sSL ... | bash -s -- --maker --yes
+  # Install maker only
+  curl -sSL ... | bash -s -- --maker
+
+  # Install taker only
+  curl -sSL ... | bash -s -- --taker
 
   # Update existing installation
   curl -sSL ... | bash -s -- --update
@@ -655,11 +659,12 @@ EOF
 # Parse arguments
 parse_args() {
     MODE="install"
-    INSTALL_MAKER=false
-    INSTALL_TAKER=false
+    INSTALL_MAKER=""
+    INSTALL_TAKER=""
     AUTO_YES=false
     SKIP_TOR=false
     INSTALL_VERSION=""
+    EXPLICIT_COMPONENTS=false
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -669,8 +674,6 @@ parse_args() {
                 ;;
             -y|--yes)
                 AUTO_YES=true
-                INSTALL_MAKER=true
-                INSTALL_TAKER=true
                 shift
                 ;;
             --update)
@@ -679,10 +682,12 @@ parse_args() {
                 ;;
             --maker)
                 INSTALL_MAKER=true
+                EXPLICIT_COMPONENTS=true
                 shift
                 ;;
             --taker)
                 INSTALL_TAKER=true
+                EXPLICIT_COMPONENTS=true
                 shift
                 ;;
             --version)
@@ -690,7 +695,7 @@ parse_args() {
                 shift 2
                 ;;
             --dev)
-                INSTALL_VERSION="main"
+                INSTALL_VERSION="master"
                 shift
                 ;;
             --skip-tor)
@@ -708,6 +713,15 @@ parse_args() {
                 ;;
         esac
     done
+
+    # Set defaults if components not explicitly specified
+    if [[ "$EXPLICIT_COMPONENTS" == "false" ]]; then
+        INSTALL_MAKER=${INSTALL_MAKER:-true}
+        INSTALL_TAKER=${INSTALL_TAKER:-true}
+    else
+        INSTALL_MAKER=${INSTALL_MAKER:-false}
+        INSTALL_TAKER=${INSTALL_TAKER:-false}
+    fi
 }
 
 # Main

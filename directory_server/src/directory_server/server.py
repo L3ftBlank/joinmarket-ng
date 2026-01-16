@@ -29,9 +29,9 @@ def build_motd(user_motd: str) -> str:
 
     If the user-provided MOTD doesn't contain version info, append it.
     This ensures clients can see the JoinMarket NG version like:
-    "JOINMARKET VERSION: 0.9.0"
+    "JoinMarket NG version: 0.9.0"
     """
-    version_line = f"JOINMARKET VERSION: {__version__}"
+    version_line = f"JoinMarket NG version: {__version__}"
 
     # If user already included version info, use their MOTD as-is
     if "VERSION" in user_motd.upper():

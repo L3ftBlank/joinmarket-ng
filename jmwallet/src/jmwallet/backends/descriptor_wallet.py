@@ -94,6 +94,8 @@ class DescriptorWalletBackend(BlockchainBackend):
         self.wallet_name = wallet_name
         self.import_timeout = import_timeout
 
+        logger.info(f"Initialized DescriptorWalletBackend with wallet: {wallet_name}")
+
         # Client for regular RPC calls
         self.client = httpx.AsyncClient(timeout=DEFAULT_RPC_TIMEOUT, auth=(rpc_user, rpc_password))
         # Client for long-running import operations

@@ -59,13 +59,19 @@ class WalletService:
         coin_type = 0 if network == "mainnet" else 1
         self.root_path = f"m/84'/{coin_type}'"
 
+        # Log fingerprint for debugging (helps identify passphrase issues)
+        fingerprint = self.master_key.derive("m/0").fingerprint.hex()
+        logger.info(
+            f"Initialized wallet: fingerprint={fingerprint}, "
+            f"mixdepths={mixdepth_count}, network={network}, "
+            f"passphrase={'(set)' if passphrase else '(none)'}"
+        )
+
         self.address_cache: dict[str, tuple[int, int, int]] = {}
         self.utxo_cache: dict[int, list[UTXOInfo]] = {}
         # Track addresses that have ever had UTXOs (including spent ones)
         # This is used to correctly label addresses as "used-empty" vs "new"
         self.addresses_with_history: set[str] = set()
-
-        logger.info(f"Initialized wallet with {mixdepth_count} mixdepths")
 
     def get_address(self, mixdepth: int, change: int, index: int) -> str:
         """Get address for given path"""

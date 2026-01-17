@@ -2428,6 +2428,8 @@ async def _recover_bonds_async(
             rpc_password=backend_settings.rpc_password,
             wallet_name=wallet_name,
         )
+        # Must create/load wallet before importing descriptors
+        await backend.create_wallet()
     else:
         backend = BitcoinCoreBackend(
             rpc_url=backend_settings.rpc_url,

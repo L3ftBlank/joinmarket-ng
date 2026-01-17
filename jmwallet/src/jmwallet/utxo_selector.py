@@ -239,12 +239,11 @@ def select_utxos_interactive(
     if not utxos:
         return []
 
-    # If only one UTXO, return it directly
-    if len(utxos) == 1:
-        return utxos
-
     # For multiple UTXOs, we need a terminal
     if not sys.stdin.isatty() or not sys.stdout.isatty():
+        # If only one UTXO and no terminal, auto-select it
+        if len(utxos) == 1:
+            return utxos
         raise RuntimeError("Interactive UTXO selection requires a terminal")
 
     # Sort UTXOs by mixdepth, then by value (descending)

@@ -77,6 +77,18 @@ class BlockchainBackend(ABC):
             Fee rate in sat/vB. Can be fractional (e.g., 0.5 sat/vB).
         """
 
+    async def get_mempool_min_fee(self) -> float | None:
+        """Get the minimum fee rate (in sat/vB) for transaction to be accepted into mempool.
+
+        This is used as a floor for fee estimation to ensure transactions are
+        relayed and accepted into the mempool. Returns None if not supported
+        or unavailable (e.g., light clients).
+
+        Returns:
+            Minimum fee rate in sat/vB, or None if unavailable.
+        """
+        return None
+
     def can_estimate_fee(self) -> bool:
         """Check if this backend can perform fee estimation.
 

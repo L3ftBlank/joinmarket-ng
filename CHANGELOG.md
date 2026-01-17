@@ -62,6 +62,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Chunked PEERLIST responses**: Directory server now sends PEERLIST responses in chunks of 20 peers instead of a single massive message. This fixes timeout issues when receiving large peerlists over slow Tor connections. Previously, mainnet directories with hundreds of peers would frequently timeout because the entire peerlist had to be transmitted in one message. The client now accumulates peers from multiple PEERLIST messages, using a 5-second inter-chunk timeout to detect when all chunks have been received.
 
+- **CoinJoin output destination address path**: Changed INTERNAL destination addresses to use internal chain (/1) instead of external chain (/0). This matches the reference implementation where all JoinMarket-generated addresses (CJ outputs and change) use the internal branch, while external (/0) is reserved for user-facing deposit addresses.
+
+- **Fee rate randomization (tx_fee_factor)**: Changed from a simple multiplier (default 3.0x) to randomization like the reference implementation. Fees are now randomized between `base_fee` and `base_fee * (1 + tx_fee_factor)` for privacy. Default changed from 3.0 to 0.2 (20% randomization range). Set to 0 to disable randomization.
+
+- **Fee rate resolution with mempool minimum**: Fee estimation now checks against mempool minimum fee and uses the higher value. Manual fee rates below mempool minimum trigger a warning and use mempool minimum instead. This prevents transactions from being rejected due to insufficient fee.
+
+- **Interactive UTXO selection (--select-utxos) logging**: Improved logging for `--select-utxos` in sweep mode to better indicate whether UTXOs were manually selected or all UTXOs were used. This helps debug cases where the interactive selector might not appear.
+
 ### Improved
 
 - **BIP39 Passphrase Documentation**: Expanded DOCS.md to clarify that `jm-wallet import` only stores the mnemonic without the BIP39 passphrase. The passphrase is provided when using the wallet (via `--bip39-passphrase`, `--prompt-bip39-passphrase`, or `BIP39_PASSPHRASE` env var).

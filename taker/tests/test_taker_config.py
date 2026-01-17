@@ -84,10 +84,19 @@ class TestTakerConfig:
         with pytest.raises(ValidationError):
             TakerConfig(mnemonic=sample_mnemonic, counterparty_count=21)
 
-    def test_tx_fee_factor_minimum(self, sample_mnemonic: str) -> None:
-        """Test tx_fee_factor must be at least 1.0."""
+    def test_tx_fee_factor_bounds(self, sample_mnemonic: str) -> None:
+        """Test tx_fee_factor can be 0 or positive (for randomization)."""
+        # 0 disables randomization
+        config = TakerConfig(mnemonic=sample_mnemonic, tx_fee_factor=0.0)
+        assert config.tx_fee_factor == 0.0
+
+        # Default is 0.2 (20% randomization range)
+        config = TakerConfig(mnemonic=sample_mnemonic)
+        assert config.tx_fee_factor == 0.2
+
+        # Negative not allowed
         with pytest.raises(ValidationError):
-            TakerConfig(mnemonic=sample_mnemonic, tx_fee_factor=0.5)
+            TakerConfig(mnemonic=sample_mnemonic, tx_fee_factor=-0.1)
 
     def test_mixdepth_count_bounds(self, sample_mnemonic: str) -> None:
         """Test mixdepth count validation."""

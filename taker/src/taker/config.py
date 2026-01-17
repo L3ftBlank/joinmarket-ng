@@ -68,7 +68,9 @@ class TakerConfig(WalletConfig):
         default_factory=MaxCjFee, description="Maximum CoinJoin fee limits"
     )
     tx_fee_factor: float = Field(
-        default=3.0, ge=1.0, description="Multiply estimated fee by this factor"
+        default=0.2,
+        ge=0.0,
+        description="Randomization factor for fees (randomized between base and base*(1+factor))",
     )
     fee_rate: float | None = Field(
         default=None,

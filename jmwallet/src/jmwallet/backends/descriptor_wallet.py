@@ -846,6 +846,20 @@ class DescriptorWalletBackend(BlockchainBackend):
             logger.warning(f"Failed to estimate fee: {e}, using fallback")
             return 1.0
 
+    async def get_mempool_min_fee(self) -> float | None:
+        """Get the minimum fee rate (in sat/vB) for transaction to be accepted into mempool."""
+        try:
+            result = await self._rpc_call("getmempoolinfo", use_wallet=False)
+            if "mempoolminfee" in result:
+                btc_per_kb = result["mempoolminfee"]
+                sat_per_vbyte = btc_to_sats(btc_per_kb) / 1000
+                logger.debug(f"Mempool min fee: {sat_per_vbyte} sat/vB")
+                return sat_per_vbyte
+            return None
+        except Exception as e:
+            logger.debug(f"Failed to get mempool min fee: {e}")
+            return None
+
     async def get_block_height(self) -> int:
         """Get current blockchain height."""
         info = await self._rpc_call("getblockchaininfo", use_wallet=False)

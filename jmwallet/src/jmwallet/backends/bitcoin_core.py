@@ -376,6 +376,25 @@ class BitcoinCoreBackend(BlockchainBackend):
             logger.warning(f"Failed to estimate fee: {e}, using fallback")
             return 1.0
 
+    async def get_mempool_min_fee(self) -> float | None:
+        """Get the minimum fee rate (in sat/vB) for transaction to be accepted into mempool.
+
+        Returns:
+            Minimum fee rate in sat/vB, or None if unavailable.
+        """
+        try:
+            result = await self._rpc_call("getmempoolinfo", [])
+            if "mempoolminfee" in result:
+                btc_per_kb = result["mempoolminfee"]
+                # Convert BTC/kB to sat/vB
+                sat_per_vbyte = btc_to_sats(btc_per_kb) / 1000
+                logger.debug(f"Mempool min fee: {sat_per_vbyte} sat/vB")
+                return sat_per_vbyte
+            return None
+        except Exception as e:
+            logger.debug(f"Failed to get mempool min fee: {e}")
+            return None
+
     async def get_block_height(self) -> int:
         try:
             info = await self._rpc_call("getblockchaininfo", [])

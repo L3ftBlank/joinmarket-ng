@@ -1412,8 +1412,11 @@ class Taker:
             # Determine destination address
             if destination == "INTERNAL":
                 dest_mixdepth = (mixdepth + 1) % self.wallet.mixdepth_count
-                dest_index = self.wallet.get_next_address_index(dest_mixdepth, 0)
-                destination = self.wallet.get_receive_address(dest_mixdepth, dest_index)
+                # Use internal chain (/1) for CoinJoin outputs, not external (/0)
+                # This matches the reference implementation behavior where all JM-generated
+                # addresses (CJ outputs and change) use the internal branch
+                dest_index = self.wallet.get_next_address_index(dest_mixdepth, 1)
+                destination = self.wallet.get_change_address(dest_mixdepth, dest_index)
                 logger.info(f"Using internal address: {destination}")
 
             # Resolve fee rate early (before any fee estimation calls)
@@ -1451,7 +1454,8 @@ class Taker:
                         utxo.label = get_utxo_label(utxo.address, self.config.data_dir)
 
                     logger.info(
-                        f"Launching interactive UTXO selector ({len(available_utxos)} available)..."
+                        f"Launching interactive UTXO selector ({len(available_utxos)} available, "
+                        f"target amount: {amount} sats, sweep: {amount == 0})..."
                     )
                     manually_selected_utxos = select_utxos_interactive(available_utxos, amount)
 
@@ -1468,6 +1472,8 @@ class Taker:
                     logger.error(f"Interactive UTXO selection failed: {e}")
                     self.state = TakerState.FAILED
                     return None
+            else:
+                logger.debug("Interactive UTXO selection not requested (--select-utxos not set)")
 
             # Now fetch orderbook after UTXO selection is done
             self.state = TakerState.FETCHING_ORDERBOOK
@@ -1496,18 +1502,23 @@ class Taker:
 
             if self.is_sweep:
                 # SWEEP MODE: Select ALL UTXOs and calculate exact cj_amount for zero change
-                logger.info("Sweep mode: selecting all UTXOs from mixdepth")
+                logger.info("Sweep mode: selecting UTXOs from mixdepth")
 
                 # Use manually selected UTXOs if available, otherwise get all UTXOs
                 if manually_selected_utxos:
                     self.preselected_utxos = manually_selected_utxos
                     logger.info(
-                        f"Using {len(manually_selected_utxos)} manually selected UTXOs for sweep"
+                        f"Sweep using {len(manually_selected_utxos)} manually selected UTXOs "
+                        f"(--select-utxos was used)"
                     )
                 else:
-                    # Get ALL UTXOs from the mixdepth
+                    # Get ALL UTXOs from the mixdepth (default sweep behavior)
                     self.preselected_utxos = self.wallet.get_all_utxos(
                         mixdepth, self.config.taker_utxo_age
+                    )
+                    logger.info(
+                        f"Sweep using all {len(self.preselected_utxos)} UTXOs from mixdepth "
+                        f"(no --select-utxos)"
                     )
 
                 if not self.preselected_utxos:
@@ -2855,13 +2866,26 @@ class Taker:
         1. Manual fee_rate if specified in config
         2. Backend fee estimation with fee_block_target (default 3 blocks)
         3. Fallback to 1 sat/vB if estimation fails
+
+        The fee is randomized for privacy using tx_fee_factor (if > 0).
         """
+        import math
+        import random
+
         # P2WPKH: ~68 vbytes per input, 31 vbytes per output, ~11 overhead
         vsize = num_inputs * 68 + num_outputs * 31 + 11
-        fee_rate = self._fee_rate if self._fee_rate is not None else 1.0
-        import math
+        base_fee_rate = self._fee_rate if self._fee_rate is not None else 1.0
 
-        return math.ceil(vsize * fee_rate * self.config.tx_fee_factor)
+        # Apply privacy randomization (like reference implementation)
+        # Fee is randomized between base and base * (1 + factor)
+        if self.config.tx_fee_factor > 0:
+            randomized_rate = random.uniform(
+                base_fee_rate, base_fee_rate * (1 + self.config.tx_fee_factor)
+            )
+        else:
+            randomized_rate = base_fee_rate
+
+        return math.ceil(vsize * randomized_rate)
 
     async def _resolve_fee_rate(self) -> float:
         """
@@ -2873,6 +2897,9 @@ class Taker:
         3. Default 3-block estimation if backend supports it
         4. Fallback to 1 sat/vB
 
+        The resolved fee rate is also checked against mempool minimum fee
+        (if available) to ensure transactions are accepted.
+
         Returns:
             Fee rate in sat/vB (cached in self._fee_rate)
 
@@ -2883,9 +2910,26 @@ class Taker:
         if self._fee_rate is not None:
             return self._fee_rate
 
+        # Get mempool minimum fee (if available) as a floor
+        mempool_min_fee: float | None = None
+        try:
+            mempool_min_fee = await self.backend.get_mempool_min_fee()
+            if mempool_min_fee is not None:
+                logger.debug(f"Mempool min fee: {mempool_min_fee:.2f} sat/vB")
+        except Exception:
+            # Backend may not support this method
+            pass
+
         # 1. Manual fee rate takes priority
         if self.config.fee_rate is not None:
             self._fee_rate = self.config.fee_rate
+            # Check against mempool min fee
+            if mempool_min_fee is not None and self._fee_rate < mempool_min_fee:
+                logger.warning(
+                    f"Manual fee rate {self._fee_rate:.2f} sat/vB is below mempool min "
+                    f"{mempool_min_fee:.2f} sat/vB, using mempool min"
+                )
+                self._fee_rate = mempool_min_fee
             logger.info(f"Using manual fee rate: {self._fee_rate:.2f} sat/vB")
             return self._fee_rate
 
@@ -2898,6 +2942,13 @@ class Taker:
                     "Use --fee-rate to specify a manual rate instead."
                 )
             self._fee_rate = await self.backend.estimate_fee(self.config.fee_block_target)
+            # Check against mempool min fee
+            if mempool_min_fee is not None and self._fee_rate < mempool_min_fee:
+                logger.info(
+                    f"Estimated fee {self._fee_rate:.2f} sat/vB is below mempool min "
+                    f"{mempool_min_fee:.2f} sat/vB, using mempool min"
+                )
+                self._fee_rate = mempool_min_fee
             logger.info(
                 f"Fee estimation for {self.config.fee_block_target} blocks: "
                 f"{self._fee_rate:.2f} sat/vB"
@@ -2908,6 +2959,13 @@ class Taker:
         if self.backend.can_estimate_fee():
             default_target = 3
             self._fee_rate = await self.backend.estimate_fee(default_target)
+            # Check against mempool min fee
+            if mempool_min_fee is not None and self._fee_rate < mempool_min_fee:
+                logger.info(
+                    f"Estimated fee {self._fee_rate:.2f} sat/vB is below mempool min "
+                    f"{mempool_min_fee:.2f} sat/vB, using mempool min"
+                )
+                self._fee_rate = mempool_min_fee
             logger.info(
                 f"Fee estimation for {default_target} blocks (default): {self._fee_rate:.2f} sat/vB"
             )

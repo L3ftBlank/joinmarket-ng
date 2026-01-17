@@ -19,6 +19,7 @@ import time
 from enum import Enum
 from typing import Any
 
+from jmcore.bitcoin import calculate_tx_vsize
 from jmcore.bond_calc import calculate_timelocked_fidelity_bond_value
 from jmcore.commitment_blacklist import set_blacklist_path
 from jmcore.crypto import NickIdentity
@@ -2029,17 +2030,31 @@ class Taker:
             num_maker_inputs = sum(len(s.utxos) for s in self.maker_sessions.values())
             total_inputs = num_taker_inputs + num_maker_inputs
 
-            # Parse transaction to count outputs
+            # Parse transaction to count outputs and sum output values
             tx = deserialize_transaction(self.final_tx)
             total_outputs = len(tx.outputs)
+            total_output_value = sum(out.value for out in tx.outputs)
 
-            # Calculate fees
+            # Calculate total input value (taker + maker UTXOs)
+            taker_input_value = sum(utxo.value for utxo in self.selected_utxos)
+            maker_input_value = sum(
+                utxo["value"] for session in self.maker_sessions.values() for utxo in session.utxos
+            )
+            total_input_value = taker_input_value + maker_input_value
+
+            # Calculate actual mining fee from the transaction (includes any residual/dust)
+            actual_mining_fee = total_input_value - total_output_value
+
+            # Calculate maker fees
             total_maker_fees = sum(
                 calculate_cj_fee(session.offer, self.cj_amount)
                 for session in self.maker_sessions.values()
             )
-            mining_fee = self.tx_metadata.get("fee", 0)
-            total_cost = total_maker_fees + mining_fee
+            total_cost = total_maker_fees + actual_mining_fee
+
+            # Calculate actual fee rate from the final signed transaction
+            actual_vsize = calculate_tx_vsize(self.final_tx)
+            actual_fee_rate = actual_mining_fee / actual_vsize if actual_vsize > 0 else 0.0
 
             # Log final transaction details
             logger.info("=" * 70)
@@ -2056,9 +2071,11 @@ class Taker:
             )
             logger.info(f"Transaction outputs:  {total_outputs}")
             logger.info(f"Maker fees:           {total_maker_fees:,} sats")
-            logger.info(f"Mining fee:           {mining_fee:,} sats (~{self._fee_rate:.2f} sat/vB)")
+            logger.info(
+                f"Mining fee:           {actual_mining_fee:,} sats ({actual_fee_rate:.2f} sat/vB)"
+            )
             logger.info(f"Total cost:           {total_cost:,} sats")
-            logger.info(f"Transaction size:     {len(self.final_tx)} bytes")
+            logger.info(f"Transaction size:     {actual_vsize} vbytes ({len(self.final_tx)} bytes)")
             logger.info("-" * 70)
             logger.info("Transaction hex (for manual verification/broadcast):")
             logger.info(self.final_tx.hex())
@@ -2092,7 +2109,7 @@ class Taker:
                         cj_amount=self.cj_amount,
                         total_fee=total_cost,
                         destination=destination,
-                        mining_fee=mining_fee,
+                        mining_fee=actual_mining_fee,
                     )
                     if not confirmed:
                         logger.warning("User declined final broadcast confirmation")
@@ -2154,7 +2171,7 @@ class Taker:
                 logger.warning(f"Failed to record CoinJoin history: {e}")
 
             # Fire-and-forget notification for successful CoinJoin
-            total_fees = total_maker_fees + mining_fee
+            total_fees = total_maker_fees + actual_mining_fee
             asyncio.create_task(
                 get_notifier().notify_coinjoin_complete(
                     self.txid, self.cj_amount, len(self.maker_sessions), total_fees

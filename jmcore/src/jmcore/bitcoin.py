@@ -934,3 +934,73 @@ def estimate_vsize(input_types: list[str], output_types: list[str]) -> int:
 
     # vsize = ceil(weight / 4)
     return (weight + 3) // 4
+
+
+def calculate_tx_vsize(tx_bytes: bytes) -> int:
+    """
+    Calculate actual virtual size (vbytes) from a signed transaction.
+
+    For SegWit transactions: vsize = ceil((3 * non_witness_size + total_size) / 4)
+    For legacy transactions: vsize = total_size
+
+    Args:
+        tx_bytes: Serialized transaction bytes
+
+    Returns:
+        Virtual size in vbytes
+    """
+    total_size = len(tx_bytes)
+
+    # Check if this is a SegWit transaction (has marker 0x00 and flag 0x01 after version)
+    if len(tx_bytes) > 6 and tx_bytes[4] == 0x00 and tx_bytes[5] == 0x01:
+        # SegWit transaction - need to calculate non-witness size
+        # Parse to find witness data boundaries
+        offset = 4  # Skip version
+
+        # Skip marker and flag
+        offset += 2
+
+        # Read input count
+        input_count, offset = decode_varint(tx_bytes, offset)
+
+        # Skip inputs (each has: 32 txid + 4 vout + varint script_len + script + 4 sequence)
+        for _ in range(input_count):
+            offset += 32 + 4  # txid + vout
+            script_len, offset = decode_varint(tx_bytes, offset)
+            offset += script_len + 4  # script + sequence
+
+        # Read output count
+        output_count, offset = decode_varint(tx_bytes, offset)
+
+        # Skip outputs (each has: 8 value + varint script_len + script)
+        for _ in range(output_count):
+            offset += 8  # value
+            script_len, offset = decode_varint(tx_bytes, offset)
+            offset += script_len
+
+        # Now offset points to the start of witness data
+        witness_start = offset
+
+        # Skip witness data (one stack per input)
+        for _ in range(input_count):
+            stack_count, offset = decode_varint(tx_bytes, offset)
+            for _ in range(stack_count):
+                item_len, offset = decode_varint(tx_bytes, offset)
+                offset += item_len
+
+        # After witness comes locktime (4 bytes)
+        witness_end = offset
+
+        # Non-witness size = total - witness_data - marker(1) - flag(1)
+        witness_size = witness_end - witness_start
+        non_witness_size = total_size - witness_size - 2  # -2 for marker and flag
+
+        # Weight = non_witness_size * 4 + witness_size (witness counts as 1 weight unit per byte)
+        # But we also need to add marker+flag to witness weight (they're part of witness)
+        weight = non_witness_size * 4 + witness_size + 2  # +2 for marker/flag at 1 wu each
+
+        # vsize = ceil(weight / 4)
+        return (weight + 3) // 4
+    else:
+        # Legacy transaction - vsize equals byte size
+        return total_size

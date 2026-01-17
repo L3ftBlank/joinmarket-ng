@@ -912,6 +912,12 @@ class Taker:
         """Start the taker and connect to directory servers."""
         logger.info(f"Starting taker (nick: {self.nick})")
 
+        # Log wallet name if using descriptor wallet backend
+        from jmwallet.backends.descriptor_wallet import DescriptorWalletBackend
+
+        if isinstance(self.backend, DescriptorWalletBackend):
+            logger.info(f"Using wallet: {self.backend.wallet_name}")
+
         # Initialize commitment blacklist with configured data directory
         set_blacklist_path(data_dir=self.config.data_dir)
 
@@ -919,8 +925,6 @@ class Taker:
         logger.info("Syncing wallet...")
 
         # Setup descriptor wallet if needed (one-time operation)
-        from jmwallet.backends.descriptor_wallet import DescriptorWalletBackend
-
         if isinstance(self.backend, DescriptorWalletBackend):
             if not await self.wallet.is_descriptor_wallet_ready():
                 logger.info("Descriptor wallet not set up. Importing descriptors...")

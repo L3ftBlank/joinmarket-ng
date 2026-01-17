@@ -462,6 +462,12 @@ class MakerBot:
         try:
             logger.info(f"Starting maker bot (nick: {self.nick})")
 
+            # Log wallet name if using descriptor wallet backend
+            from jmwallet.backends.descriptor_wallet import DescriptorWalletBackend
+
+            if isinstance(self.backend, DescriptorWalletBackend):
+                logger.info(f"Using wallet: {self.backend.wallet_name}")
+
             # Initialize commitment blacklist with configured data directory
             set_blacklist_path(data_dir=self.config.data_dir)
 
@@ -510,8 +516,6 @@ class MakerBot:
             logger.info("Syncing wallet and fidelity bonds...")
 
             # Setup descriptor wallet if needed (one-time operation)
-            from jmwallet.backends.descriptor_wallet import DescriptorWalletBackend
-
             if isinstance(self.backend, DescriptorWalletBackend):
                 # Check if base wallet is set up (without counting bonds)
                 base_wallet_ready = await self.wallet.is_descriptor_wallet_ready(

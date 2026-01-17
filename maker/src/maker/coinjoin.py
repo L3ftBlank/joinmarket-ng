@@ -103,12 +103,35 @@ class CoinJoinSession:
         """Check if the session has exceeded the timeout."""
         return time.time() - self.created_at > self.session_timeout_sec
 
+    def _get_channel_type(self, source: str) -> str:
+        """Extract channel type from source string.
+
+        The JoinMarket protocol allows messages to arrive via different directory servers
+        (takers broadcast to all directories), so we only track "direct" vs "directory"
+        to prevent mixing those two channel types.
+
+        Args:
+            source: Message source ("direct" or "dir:<node_id>")
+
+        Returns:
+            "direct" or "directory"
+        """
+        if source == "direct":
+            return "direct"
+        if source.startswith("dir:"):
+            return "directory"
+        # Unknown source type, treat as its own type for safety
+        return source
+
     def validate_channel(self, source: str) -> bool:
         """
-        Validate that message comes from the same channel as the session.
+        Validate that message comes from the same channel TYPE as the session.
 
-        All messages in a CoinJoin session MUST use the same communication channel.
-        Mixing channels (e.g., !fill via directory, !auth via direct) could indicate:
+        We only check that "direct" vs "directory" are not mixed. Messages arriving
+        from different directory servers (dir:serverA vs dir:serverB) are expected
+        because takers broadcast to ALL directory servers.
+
+        Mixing channel types (e.g., !fill via directory, !auth via direct) could indicate:
         - Session confusion attack
         - Accidental misconfiguration
         - Network issues causing routing inconsistency
@@ -119,17 +142,19 @@ class CoinJoinSession:
         Returns:
             True if channel is valid, False if it violates consistency
         """
+        source_type = self._get_channel_type(source)
+
         if not self.comm_channel:
-            # First message - record the channel
-            self.comm_channel = source
-            logger.debug(f"Session with {self.taker_nick} established on channel: {source}")
+            # First message - record the channel type
+            self.comm_channel = source_type
+            logger.debug(f"Session with {self.taker_nick} established on channel: {source_type}")
             return True
 
-        if self.comm_channel != source:
+        if self.comm_channel != source_type:
             logger.warning(
                 f"Channel consistency violation for {self.taker_nick}: "
                 f"session started on '{self.comm_channel}', "
-                f"received message on '{source}'"
+                f"received message on '{source_type}'"
             )
             return False
 

@@ -212,7 +212,12 @@ async def test_multiple_maker_sessions():
 
 @pytest.mark.asyncio
 async def test_channel_consistency_validation():
-    """Test CoinJoinSession enforces channel consistency."""
+    """Test CoinJoinSession enforces channel consistency.
+
+    Channel consistency only checks "direct" vs "directory" channel TYPES.
+    Messages from different directory servers are allowed because the JoinMarket
+    protocol broadcasts to all directories, but mixing direct and directory is not.
+    """
     from unittest.mock import MagicMock
 
     from jmcore.models import Offer, OfferType
@@ -241,22 +246,19 @@ async def test_channel_consistency_validation():
         backend=mock_backend,
     )
 
-    # First message should record the channel
+    # First message should record the channel type
     assert session.comm_channel == ""
     assert session.validate_channel("dir:node1") is True
-    assert session.comm_channel == "dir:node1"
+    assert session.comm_channel == "directory"  # Normalized to channel type
 
-    # Subsequent messages on same channel should pass
+    # Subsequent messages on same channel type should pass (even different servers)
     assert session.validate_channel("dir:node1") is True
-    assert session.comm_channel == "dir:node1"
+    assert session.validate_channel("dir:node2") is True  # Different server is OK!
+    assert session.comm_channel == "directory"
 
-    # Message from different channel should fail
+    # Message from different channel TYPE should fail
     assert session.validate_channel("direct") is False
-    assert session.comm_channel == "dir:node1"  # Channel unchanged
-
-    # Message from different directory should also fail
-    assert session.validate_channel("dir:node2") is False
-    assert session.comm_channel == "dir:node1"
+    assert session.comm_channel == "directory"  # Channel unchanged
 
 
 @pytest.mark.asyncio

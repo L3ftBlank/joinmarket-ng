@@ -337,6 +337,10 @@ class MakerBot:
         # Key: node_id (host:port), Value: number of reconnection attempts
         self._directory_reconnect_attempts: dict[str, int] = {}
 
+        # Track last log time for rate-limited logging
+        # Key: log_key, Value: timestamp of last log
+        self._rate_limited_log_times: dict[str, float] = {}
+
     async def _setup_tor_hidden_service(self) -> str | None:
         """
         Create an ephemeral hidden service via Tor control port.
@@ -805,6 +809,22 @@ class MakerBot:
     def _cleanup_session_lock(self, taker_nick: str) -> None:
         """Clean up session lock when session is removed."""
         self._session_locks.pop(taker_nick, None)
+
+    def _log_rate_limited(self, key: str, message: str, interval_sec: float = 10.0) -> None:
+        """Log a warning message with rate limiting to avoid log spam.
+
+        Args:
+            key: Unique key for this log type (used for rate limiting)
+            message: The warning message to log
+            interval_sec: Minimum seconds between logs with the same key
+        """
+        import time
+
+        now = time.time()
+        last_log_time = self._rate_limited_log_times.get(key, 0.0)
+        if now - last_log_time >= interval_sec:
+            logger.warning(message)
+            self._rate_limited_log_times[key] = now
 
     def _cleanup_timed_out_sessions(self) -> None:
         """Remove timed-out sessions from active_sessions and clean up rate limiter."""
@@ -2487,7 +2507,19 @@ class MakerBot:
                     # Parse the message (supports both formats)
                     parsed = self._parse_direct_message(data)
                     if parsed is None:
-                        logger.warning(f"Failed to parse direct message from {peer_str}")
+                        # Log message content for debugging (truncate to avoid spam)
+                        # data is bytes, decode for display (replace errors to handle binary)
+                        data_str = (
+                            data.decode("utf-8", errors="replace")
+                            if isinstance(data, bytes)
+                            else str(data)
+                        )
+                        msg_preview = data_str[:100] + "..." if len(data_str) > 100 else data_str
+                        self._log_rate_limited(
+                            f"direct_parse_fail:{peer_str}",
+                            f"Failed to parse direct message from {peer_str}: {msg_preview!r}",
+                            interval_sec=10,
+                        )
                         continue
 
                     sender_nick, cmd, msg_data = parsed

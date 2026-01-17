@@ -667,6 +667,13 @@ def generate_address(
             help="BIP39 passphrase (13th/25th word)",
         ),
     ] = None,
+    prompt_bip39_passphrase: Annotated[
+        bool,
+        typer.Option(
+            "--prompt-bip39-passphrase",
+            help="Prompt for BIP39 passphrase interactively",
+        ),
+    ] = False,
     network: Annotated[
         NetworkType | None,
         typer.Option(case_sensitive=False, help="Protocol network"),
@@ -692,8 +699,10 @@ def generate_address(
             mnemonic_file=mnemonic_file,
             password=password,
             bip39_passphrase=bip39_passphrase,
+            prompt_bip39_passphrase=prompt_bip39_passphrase,
         )
         resolved_mnemonic = resolved.mnemonic if resolved else ""
+        resolved_passphrase = resolved.bip39_passphrase if resolved else ""
     except (ValueError, FileNotFoundError) as e:
         logger.error(str(e))
         raise typer.Exit(1)
@@ -703,7 +712,7 @@ def generate_address(
         config = build_maker_config(
             settings=settings,
             mnemonic=resolved_mnemonic,
-            passphrase=bip39_passphrase or "",
+            passphrase=resolved_passphrase,
             network=network,
             bitcoin_network=bitcoin_network,
             backend_type=backend_type,

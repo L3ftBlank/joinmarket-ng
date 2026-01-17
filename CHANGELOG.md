@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Automatic Password Prompt for Encrypted Mnemonics**: All CLI commands that load mnemonic files now automatically detect encrypted files (Fernet (AES)) and prompt for a password interactively. Previously, users had to explicitly pass `--password` on the command line, which led to confusing errors when trying to use encrypted mnemonic files. This works across `jm-taker`, `jm-maker`, and `jm-wallet` commands.
+
 - **Password Confirmation Retry Loop**: The `jm-wallet import` and `jm-wallet generate` commands now retry password confirmation up to 3 times when passwords don't match, instead of immediately exiting. This improves the user experience by allowing correction of typos without having to restart the command.
 
 - **BIP39 Passphrase Prompt for Maker/Taker**: Added `--prompt-bip39-passphrase` option to `jm-maker start` and `jm-taker coinjoin` commands. This allows users to enter their BIP39 passphrase interactively at startup rather than passing it via environment variable or command line argument.

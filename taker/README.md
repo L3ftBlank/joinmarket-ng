@@ -490,6 +490,9 @@ Use env vars for RPC credentials (see jmwallet README).
 │                                                             (13th/25th word) │
 │                                                             [env var:        │
 │                                                             BIP39_PASSPHRAS… │
+│    --prompt-bip39…                                          Prompt for BIP39 │
+│                                                             passphrase       │
+│                                                             interactively    │
 │    --network                               [mainnet|testne  Protocol network │
 │                                            t|signet|regtes  for handshakes   │
 │                                            t]                                │
@@ -594,49 +597,53 @@ Use env vars for RPC credentials (see jmwallet README).
 │ *    schedule_file      PATH  Path to schedule JSON file [required]          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --mnemonic                  TEXT                    Wallet mnemonic phrase   │
-│                                                     [env var: MNEMONIC]      │
-│ --mnemonic-file     -f      PATH                    Path to mnemonic file    │
-│ --password          -p      TEXT                    Password for encrypted   │
-│                                                     mnemonic file            │
-│ --bip39-passphrase          TEXT                    BIP39 passphrase         │
-│                                                     (13th/25th word)         │
-│                                                     [env var:                │
-│                                                     BIP39_PASSPHRASE]        │
-│ --network                   [mainnet|testnet|signe  Bitcoin network          │
-│                             t|regtest]                                       │
-│ --backend           -b      TEXT                    Backend type:            │
-│                                                     scantxoutset |           │
-│                                                     descriptor_wallet |      │
-│                                                     neutrino                 │
-│ --rpc-url                   TEXT                    Bitcoin full node RPC    │
-│                                                     URL                      │
-│                                                     [env var:                │
-│                                                     BITCOIN_RPC_URL]         │
-│ --rpc-user                  TEXT                    Bitcoin full node RPC    │
-│                                                     user                     │
-│                                                     [env var:                │
-│                                                     BITCOIN_RPC_USER]        │
-│ --rpc-password              TEXT                    Bitcoin full node RPC    │
-│                                                     password                 │
-│                                                     [env var:                │
-│                                                     BITCOIN_RPC_PASSWORD]    │
-│ --neutrino-url              TEXT                    Neutrino REST API URL    │
-│                                                     [env var: NEUTRINO_URL]  │
-│ --directory         -D      TEXT                    Directory servers        │
-│                                                     (comma-separated)        │
-│                                                     [env var:                │
-│                                                     DIRECTORY_SERVERS]       │
-│ --tor-socks-host            TEXT                    Tor SOCKS proxy host     │
-│                                                     (overrides               │
-│                                                     TOR__SOCKS_HOST)         │
-│ --tor-socks-port            INTEGER                 Tor SOCKS proxy port     │
-│                                                     (overrides               │
-│                                                     TOR__SOCKS_PORT)         │
-│ --log-level         -l      TEXT                    Log level                │
-│                                                     [default: INFO]          │
-│ --help                                              Show this message and    │
-│                                                     exit.                    │
+│ --mnemonic                      TEXT                  Wallet mnemonic phrase │
+│                                                       [env var: MNEMONIC]    │
+│ --mnemonic-file         -f      PATH                  Path to mnemonic file  │
+│ --password              -p      TEXT                  Password for encrypted │
+│                                                       mnemonic file          │
+│ --bip39-passphrase              TEXT                  BIP39 passphrase       │
+│                                                       (13th/25th word)       │
+│                                                       [env var:              │
+│                                                       BIP39_PASSPHRASE]      │
+│ --prompt-bip39-passph…                                Prompt for BIP39       │
+│                                                       passphrase             │
+│                                                       interactively          │
+│ --network                       [mainnet|testnet|sig  Bitcoin network        │
+│                                 net|regtest]                                 │
+│ --backend               -b      TEXT                  Backend type:          │
+│                                                       scantxoutset |         │
+│                                                       descriptor_wallet |    │
+│                                                       neutrino               │
+│ --rpc-url                       TEXT                  Bitcoin full node RPC  │
+│                                                       URL                    │
+│                                                       [env var:              │
+│                                                       BITCOIN_RPC_URL]       │
+│ --rpc-user                      TEXT                  Bitcoin full node RPC  │
+│                                                       user                   │
+│                                                       [env var:              │
+│                                                       BITCOIN_RPC_USER]      │
+│ --rpc-password                  TEXT                  Bitcoin full node RPC  │
+│                                                       password               │
+│                                                       [env var:              │
+│                                                       BITCOIN_RPC_PASSWORD]  │
+│ --neutrino-url                  TEXT                  Neutrino REST API URL  │
+│                                                       [env var:              │
+│                                                       NEUTRINO_URL]          │
+│ --directory             -D      TEXT                  Directory servers      │
+│                                                       (comma-separated)      │
+│                                                       [env var:              │
+│                                                       DIRECTORY_SERVERS]     │
+│ --tor-socks-host                TEXT                  Tor SOCKS proxy host   │
+│                                                       (overrides             │
+│                                                       TOR__SOCKS_HOST)       │
+│ --tor-socks-port                INTEGER               Tor SOCKS proxy port   │
+│                                                       (overrides             │
+│                                                       TOR__SOCKS_PORT)       │
+│ --log-level             -l      TEXT                  Log level              │
+│                                                       [default: INFO]        │
+│ --help                                                Show this message and  │
+│                                                       exit.                  │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 

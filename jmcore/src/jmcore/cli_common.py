@@ -36,7 +36,6 @@ Usage:
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -81,7 +80,11 @@ class ResolvedTorSettings:
 
 @dataclass
 class ResolvedMnemonic:
-    """Resolved mnemonic and passphrase."""
+    """Resolved mnemonic and BIP39 passphrase.
+
+    Note: bip39_passphrase is the optional BIP39 passphrase (13th/25th word),
+    NOT the password used to decrypt an encrypted mnemonic file.
+    """
 
     mnemonic: str
     bip39_passphrase: str
@@ -300,16 +303,30 @@ def resolve_directory_servers(
 # =============================================================================
 
 
+def _prompt_for_password() -> str:
+    """Prompt for mnemonic file password interactively."""
+    try:
+        import typer
+
+        return typer.prompt("Enter mnemonic file password", hide_input=True)
+    except ImportError:
+        import getpass
+
+        return getpass.getpass("Enter mnemonic file password: ")
+
+
 def load_mnemonic_from_file(
     path: Path,
     password: str | None = None,
+    auto_prompt: bool = True,
 ) -> str:
     """
-    Load mnemonic from a file (plain text or GPG encrypted).
+    Load mnemonic from a file (plain text or Fernet encrypted).
 
     Args:
         path: Path to mnemonic file
-        password: Password for GPG-encrypted files
+        password: Password for decrypting the file (NOT BIP39 passphrase)
+        auto_prompt: If True, prompt for password when encrypted file is detected
 
     Returns:
         The mnemonic phrase
@@ -323,35 +340,61 @@ def load_mnemonic_from_file(
 
     content = path.read_bytes()
 
-    # Check for GPG encryption (ASCII armor or binary)
-    is_gpg = content.startswith(b"-----BEGIN PGP MESSAGE-----") or content.startswith(b"\x85\x02")
+    # Try to decode as plain text first
+    try:
+        text = content.decode("utf-8")
+        # Check if it looks like a valid mnemonic (words separated by spaces)
+        words = text.strip().split()
+        if len(words) in (12, 15, 18, 21, 24) and all(w.isalpha() for w in words):
+            return text.strip()
+    except UnicodeDecodeError:
+        pass
 
-    if is_gpg:
-        if not password:
-            raise ValueError(f"Encrypted mnemonic file requires --password: {path}")
-
-        try:
-            result = subprocess.run(
-                [
-                    "gpg",
-                    "--batch",
-                    "--yes",
-                    "--passphrase-fd",
-                    "0",
-                    "--decrypt",
-                    str(path),
-                ],
-                input=password.encode(),
-                capture_output=True,
-                check=True,
+    # If not plain text, assume it's Fernet encrypted
+    if not password:
+        if auto_prompt:
+            password = _prompt_for_password()
+        else:
+            raise ValueError(
+                f"Mnemonic file appears to be encrypted. "
+                f"Use --password <password> to decrypt: {path}"
             )
-            mnemonic = result.stdout.decode().strip()
-        except subprocess.CalledProcessError as e:
-            raise ValueError(f"Failed to decrypt mnemonic file: {e.stderr.decode()}") from e
-        except FileNotFoundError as e:
-            raise ValueError("GPG not found. Install gnupg to use encrypted mnemonics.") from e
-    else:
-        mnemonic = content.decode().strip()
+
+    # Try Fernet decryption
+    try:
+        import base64
+
+        from cryptography.fernet import Fernet, InvalidToken
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
+        if len(content) < 16:
+            raise ValueError("Invalid encrypted data")
+
+        # Extract salt and encrypted token
+        salt = content[:16]
+        encrypted_token = content[16:]
+
+        # Derive key from password
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=600_000,
+        )
+        key = base64.urlsafe_b64encode(kdf.derive(password.encode("utf-8")))
+
+        # Decrypt
+        fernet = Fernet(key)
+        try:
+            decrypted = fernet.decrypt(encrypted_token)
+            mnemonic = decrypted.decode("utf-8")
+        except InvalidToken as e:
+            raise ValueError("Decryption failed - wrong password or corrupted file") from e
+    except ImportError as e:
+        raise ValueError(
+            "Fernet encryption requires cryptography library. Install with: pip install cryptography"
+        ) from e
 
     # Basic validation
     words = mnemonic.split()
@@ -384,13 +427,16 @@ def resolve_mnemonic(
     4. MNEMONIC environment variable
     5. Config file wallet.mnemonic_file setting
 
+    If the mnemonic file is encrypted and no password is provided,
+    the user will be prompted interactively.
+
     Args:
         settings: JoinMarketSettings instance
         mnemonic: CLI mnemonic string
         mnemonic_file: CLI mnemonic file path
-        password: Password for encrypted file
-        bip39_passphrase: BIP39 passphrase
-        prompt_bip39_passphrase: Whether to prompt for passphrase
+        password: Password for encrypted mnemonic file (NOT BIP39 passphrase)
+        bip39_passphrase: BIP39 passphrase (13th/25th word, NOT file encryption password)
+        prompt_bip39_passphrase: Whether to prompt for BIP39 passphrase interactively
         required: Whether mnemonic is required (raises error if not found)
 
     Returns:

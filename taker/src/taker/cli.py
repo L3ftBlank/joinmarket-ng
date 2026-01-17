@@ -606,6 +606,13 @@ def tumble(
             help="BIP39 passphrase (13th/25th word)",
         ),
     ] = None,
+    prompt_bip39_passphrase: Annotated[
+        bool,
+        typer.Option(
+            "--prompt-bip39-passphrase",
+            help="Prompt for BIP39 passphrase interactively",
+        ),
+    ] = False,
     network: Annotated[
         NetworkType | None,
         typer.Option("--network", case_sensitive=False, help="Bitcoin network"),

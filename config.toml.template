@@ -167,6 +167,7 @@
 # Timeouts and intervals
 # session_timeout_sec = 300
 # rescan_interval_sec = 600
+# pending_tx_timeout_min = 60  # Minutes before marking unbroadcast CoinJoins as failed
 
 # Onion service settings
 # onion_serving_host = "127.0.0.1"

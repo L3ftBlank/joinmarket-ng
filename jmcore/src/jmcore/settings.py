@@ -296,6 +296,12 @@ class MakerSettings(BaseModel):
         ge=60,
         description="Maximum time for a CoinJoin session",
     )
+    pending_tx_timeout_min: int = Field(
+        default=60,
+        ge=10,
+        le=1440,
+        description="Minutes before marking unbroadcast CoinJoins as failed",
+    )
     rescan_interval_sec: int = Field(
         default=600,
         ge=60,

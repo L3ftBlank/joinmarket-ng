@@ -184,6 +184,18 @@ class MakerConfig(WalletConfig):
         description="Maximum time for a CoinJoin session to complete (all states)",
     )
 
+    # Pending transaction timeout
+    pending_tx_timeout_min: int = Field(
+        default=60,
+        ge=10,
+        le=1440,
+        description=(
+            "Minutes to wait for a pending CoinJoin transaction to appear on-chain "
+            "before marking it as failed. If the taker doesn't broadcast the transaction "
+            "within this time, we assume it was abandoned."
+        ),
+    )
+
     # Wallet rescan configuration
     post_coinjoin_rescan_delay: int = Field(
         default=60,

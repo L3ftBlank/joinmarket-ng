@@ -1292,9 +1292,15 @@ class MakerBot:
 
         For entries without txid, attempts to discover the txid by checking
         if the destination address has received funds.
+
+        Transactions that remain pending longer than pending_tx_timeout_min
+        are marked as failed (taker likely never broadcast the transaction).
         """
+        from datetime import datetime
+
         from jmwallet.history import (
             get_pending_transactions,
+            mark_pending_transaction_failed,
             update_pending_transaction_txid,
             update_transaction_confirmation_with_detection,
         )
@@ -1304,9 +1310,14 @@ class MakerBot:
             return
 
         logger.debug(f"Checking {len(pending)} pending transaction(s)...")
+        timeout_minutes = self.config.pending_tx_timeout_min
 
         for entry in pending:
             try:
+                # Calculate age of the pending transaction
+                timestamp = datetime.fromisoformat(entry.timestamp)
+                age_minutes = (datetime.now() - timestamp).total_seconds() / 60
+
                 # If entry has no txid, try to discover it from the blockchain
                 if not entry.txid:
                     if entry.destination_address:
@@ -1328,10 +1339,21 @@ class MakerBot:
                             )
                             # Update entry for confirmation check below
                             entry.txid = txid
+                        elif age_minutes >= timeout_minutes:
+                            # Timed out waiting for taker to broadcast
+                            mark_pending_transaction_failed(
+                                destination_address=entry.destination_address,
+                                failure_reason=(
+                                    f"Timed out after {int(age_minutes)} minutes - "
+                                    "taker never broadcast transaction"
+                                ),
+                                data_dir=self.config.data_dir,
+                            )
+                            continue
                         else:
                             logger.debug(
                                 f"No UTXO found for {entry.destination_address[:20]}... "
-                                f"(tx may not be confirmed yet)"
+                                f"(tx may not be confirmed yet, age: {age_minutes:.1f}m)"
                             )
                             continue
                     else:
@@ -1343,15 +1365,22 @@ class MakerBot:
 
                 if tx_info is None:
                     # Transaction not found - might have been rejected/replaced
-                    from datetime import datetime
-
-                    timestamp = datetime.fromisoformat(entry.timestamp)
-                    age_hours = (datetime.now() - timestamp).total_seconds() / 3600
-
-                    if age_hours > 24:
+                    # or never made it to the mempool
+                    if age_minutes >= timeout_minutes:
+                        # Mark as failed - tx was never broadcast or got dropped
+                        mark_pending_transaction_failed(
+                            destination_address=entry.destination_address,
+                            failure_reason=(
+                                f"Transaction {entry.txid[:16]}... not found after "
+                                f"{int(age_minutes)} minutes - likely never broadcast"
+                            ),
+                            data_dir=self.config.data_dir,
+                        )
+                    elif age_minutes > 30:
+                        # Log warning after 30 minutes
                         logger.warning(
                             f"Transaction {entry.txid[:16]}... not found after "
-                            f"{age_hours:.1f} hours, may have been rejected"
+                            f"{age_minutes:.1f} minutes"
                         )
                     continue
 

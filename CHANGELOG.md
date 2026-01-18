@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Pending Transaction Timeout**: Maker now automatically marks pending CoinJoin transactions as failed after 60 minutes (configurable via `pending_tx_timeout_min` setting). This prevents the transaction history from being cluttered with entries that the taker never broadcast. Previously, these entries would remain in "pending" state indefinitely, causing repeated (and noisy) transaction lookup attempts in the logs.
+
 - **Mempool Min Fee Check for Wallet Send**: The `jm-wallet send` command now checks the fee rate against the node's mempool minimum fee (like the taker already does). If a manual `--fee-rate` is below the node's `minrelaytxfee`, a warning is logged and the mempool minimum is used instead, preventing "min relay fee not met" broadcast failures.
 
 - **Minimum Relay Fee Documentation**: Added new section to DOCS.md explaining Bitcoin node fee rate configuration, including how to enable sub-satoshi fee rates via `minrelaytxfee` in `bitcoin.conf`.

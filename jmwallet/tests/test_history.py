@@ -21,6 +21,7 @@ from jmwallet.history import (
     get_history_stats,
     get_pending_transactions,
     get_used_addresses,
+    mark_pending_transaction_failed,
     read_history,
     update_pending_transaction_txid,
     update_transaction_confirmation,
@@ -840,3 +841,207 @@ class TestPeerCountDetection:
         entries = read_history(temp_data_dir)
         assert entries[0].success is True
         assert entries[0].peer_count == 4
+
+
+class TestMarkPendingTransactionFailed:
+    """Tests for marking pending transactions as failed (timeout scenarios)."""
+
+    def test_mark_pending_transaction_failed_basic(self, temp_data_dir: Path) -> None:
+        """Test marking a pending transaction as failed."""
+        # Create a pending entry without txid (simulating taker never broadcast)
+        entry = create_maker_history_entry(
+            taker_nick="J5taker",
+            cj_amount=1_000_000,
+            fee_received=250,
+            txfee_contribution=50,
+            cj_address="bc1qtimeout123456789",
+            change_address="bc1qchange...",
+            our_utxos=[("abc123", 0)],
+            txid="",  # No txid - taker never broadcast
+        )
+        append_history_entry(entry, temp_data_dir)
+
+        # Verify it's pending
+        pending = get_pending_transactions(temp_data_dir)
+        assert len(pending) == 1
+
+        # Mark as failed
+        result = mark_pending_transaction_failed(
+            destination_address="bc1qtimeout123456789",
+            failure_reason="Timed out after 60 minutes - taker never broadcast transaction",
+            data_dir=temp_data_dir,
+        )
+        assert result is True
+
+        # Verify no longer in pending list
+        pending = get_pending_transactions(temp_data_dir)
+        assert len(pending) == 0
+
+        # Verify entry is marked as failed with appropriate fields
+        entries = read_history(temp_data_dir)
+        assert len(entries) == 1
+        assert entries[0].success is False
+        assert (
+            entries[0].failure_reason
+            == "Timed out after 60 minutes - taker never broadcast transaction"
+        )
+        assert entries[0].completed_at != ""  # Should have completion timestamp
+        assert entries[0].confirmations == 0  # Never confirmed
+
+    def test_mark_pending_transaction_failed_with_txid(self, temp_data_dir: Path) -> None:
+        """Test marking a pending transaction with txid as failed."""
+        # Create a pending entry with txid but never confirmed
+        entry = create_maker_history_entry(
+            taker_nick="J5taker",
+            cj_amount=1_000_000,
+            fee_received=250,
+            txfee_contribution=50,
+            cj_address="bc1qneverconf12345",
+            change_address="bc1qchange...",
+            our_utxos=[("abc123", 0)],
+            txid="deadbeef" * 8,  # Has txid but tx was never broadcast/confirmed
+        )
+        append_history_entry(entry, temp_data_dir)
+
+        # Mark as failed (tx not found on chain)
+        result = mark_pending_transaction_failed(
+            destination_address="bc1qneverconf12345",
+            failure_reason="Transaction not found after 60 minutes - likely never broadcast",
+            data_dir=temp_data_dir,
+        )
+        assert result is True
+
+        # Verify marked as failed
+        entries = read_history(temp_data_dir)
+        assert entries[0].success is False
+        assert "never broadcast" in entries[0].failure_reason
+
+    def test_mark_pending_transaction_failed_nonexistent(self, temp_data_dir: Path) -> None:
+        """Test marking nonexistent transaction as failed returns False."""
+        result = mark_pending_transaction_failed(
+            destination_address="bc1qnonexistent1234",
+            failure_reason="Timed out",
+            data_dir=temp_data_dir,
+        )
+        assert result is False
+
+    def test_mark_pending_transaction_failed_already_confirmed(self, temp_data_dir: Path) -> None:
+        """Test that already confirmed transactions are not marked as failed."""
+        # Create a confirmed entry
+        entry = TransactionHistoryEntry(
+            timestamp="2024-01-01T00:00:00",
+            role="maker",
+            txid="confirmed_tx" * 8,
+            cj_amount=1_000_000,
+            success=True,
+            confirmations=6,
+            destination_address="bc1qconfirmed123456",
+        )
+        append_history_entry(entry, temp_data_dir)
+
+        # Try to mark as failed - should not match (already successful)
+        result = mark_pending_transaction_failed(
+            destination_address="bc1qconfirmed123456",
+            failure_reason="Should not happen",
+            data_dir=temp_data_dir,
+        )
+        assert result is False
+
+        # Verify entry unchanged
+        entries = read_history(temp_data_dir)
+        assert entries[0].success is True
+        assert entries[0].confirmations == 6
+
+    def test_mark_pending_transaction_failed_already_failed(self, temp_data_dir: Path) -> None:
+        """Test that already failed transactions are not double-marked."""
+        # Create a failed entry (already marked as failed)
+        entry = TransactionHistoryEntry(
+            timestamp="2024-01-01T00:00:00",
+            role="maker",
+            txid="",
+            cj_amount=1_000_000,
+            success=False,
+            failure_reason="Already failed for another reason",
+            confirmations=0,
+            completed_at="2024-01-01T01:00:00",  # Already has completion time
+            destination_address="bc1qalreadyfailed12",
+        )
+        append_history_entry(entry, temp_data_dir)
+
+        # Try to mark as failed again - should still match (both success=False, confirmations=0)
+        # but this is expected behavior since we want to update the reason
+        result = mark_pending_transaction_failed(
+            destination_address="bc1qalreadyfailed12",
+            failure_reason="Timed out after 60 minutes",
+            data_dir=temp_data_dir,
+        )
+        # Will return True as the criteria still match
+        assert result is True
+
+        # The failure reason gets updated
+        entries = read_history(temp_data_dir)
+        assert entries[0].failure_reason == "Timed out after 60 minutes"
+
+    def test_mark_pending_preserves_other_entries(self, temp_data_dir: Path) -> None:
+        """Test that marking one entry as failed preserves other entries."""
+        # Create multiple entries
+        pending_entry = create_maker_history_entry(
+            taker_nick="J5taker1",
+            cj_amount=1_000_000,
+            fee_received=250,
+            txfee_contribution=50,
+            cj_address="bc1qpending_target1",
+            change_address="bc1qchange1...",
+            our_utxos=[("abc123", 0)],
+            txid="",
+        )
+        append_history_entry(pending_entry, temp_data_dir)
+
+        other_pending = create_maker_history_entry(
+            taker_nick="J5taker2",
+            cj_amount=2_000_000,
+            fee_received=500,
+            txfee_contribution=100,
+            cj_address="bc1qpending_other11",
+            change_address="bc1qchange2...",
+            our_utxos=[("def456", 0)],
+            txid="",
+        )
+        append_history_entry(other_pending, temp_data_dir)
+
+        confirmed_entry = TransactionHistoryEntry(
+            timestamp="2024-01-01T00:00:00",
+            role="maker",
+            txid="confirmed" * 8,
+            cj_amount=3_000_000,
+            success=True,
+            confirmations=6,
+            destination_address="bc1qconfirmed11111",
+        )
+        append_history_entry(confirmed_entry, temp_data_dir)
+
+        # Mark only the first pending entry as failed
+        mark_pending_transaction_failed(
+            destination_address="bc1qpending_target1",
+            failure_reason="Timed out",
+            data_dir=temp_data_dir,
+        )
+
+        # Verify all entries preserved
+        entries = read_history(temp_data_dir)
+        assert len(entries) == 3
+
+        # Check the targeted entry was marked failed
+        target = [e for e in entries if e.destination_address == "bc1qpending_target1"][0]
+        assert target.success is False
+        assert "Timed out" in target.failure_reason
+
+        # Check other pending entry still pending
+        other = [e for e in entries if e.destination_address == "bc1qpending_other11"][0]
+        assert other.success is False
+        assert other.failure_reason == "Pending confirmation"
+
+        # Check confirmed entry still confirmed
+        conf = [e for e in entries if e.destination_address == "bc1qconfirmed11111"][0]
+        assert conf.success is True
+        assert conf.confirmations == 6

@@ -520,6 +520,69 @@ def update_pending_transaction_txid(
         return False
 
 
+def mark_pending_transaction_failed(
+    destination_address: str,
+    failure_reason: str,
+    data_dir: Path | None = None,
+) -> bool:
+    """
+    Mark a pending transaction as failed by matching the destination address.
+
+    This is used when a pending CoinJoin times out - the taker never broadcast
+    the transaction, so we mark it as failed rather than leaving it pending
+    indefinitely.
+
+    Args:
+        destination_address: The CoinJoin destination address to match
+        failure_reason: Reason for marking as failed (e.g., "Timed out after 60 minutes")
+        data_dir: Optional data directory
+
+    Returns:
+        True if a matching entry was found and updated, False otherwise
+    """
+    history_path = _get_history_path(data_dir)
+    if not history_path.exists():
+        return False
+
+    entries = read_history(data_dir)
+    updated = False
+
+    for entry in entries:
+        # Match by destination address and pending status (success=False, confirmations=0)
+        if (
+            entry.destination_address == destination_address
+            and not entry.success
+            and entry.confirmations == 0
+        ):
+            entry.success = False
+            entry.failure_reason = failure_reason
+            entry.completed_at = datetime.now().isoformat()
+            # Keep confirmations at 0 to distinguish from confirmed then reorged
+            logger.info(
+                f"Marked pending transaction for {destination_address[:20]}... as failed: "
+                f"{failure_reason}"
+            )
+            updated = True
+            break
+
+    if not updated:
+        return False
+
+    # Rewrite the entire history file
+    try:
+        fieldnames = _get_fieldnames()
+        with open(history_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            for entry in entries:
+                row = {f.name: getattr(entry, f.name) for f in fields(entry)}
+                writer.writerow(row)
+        return True
+    except Exception as e:
+        logger.error(f"Failed to update history: {e}")
+        return False
+
+
 def create_taker_history_entry(
     maker_nicks: list[str],
     cj_amount: int,

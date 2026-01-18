@@ -293,6 +293,7 @@ def build_maker_config(
         tx_fee_contribution=effective_tx_fee,
         min_confirmations=settings.maker.min_confirmations,
         session_timeout_sec=settings.maker.session_timeout_sec,
+        pending_tx_timeout_min=settings.maker.pending_tx_timeout_min,
         rescan_interval_sec=settings.maker.rescan_interval_sec,
         message_rate_limit=settings.maker.message_rate_limit,
         message_burst_limit=settings.maker.message_burst_limit,

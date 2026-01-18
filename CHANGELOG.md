@@ -72,6 +72,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Taker --fee-rate validation error with default fee_block_target**: Fixed bug where specifying `--fee-rate` on the CLI would fail with "Cannot specify both fee_rate and fee_block_target" error even when fee_block_target was not explicitly set. The issue was that `build_taker_config()` unconditionally fell back to `wallet.default_fee_block_target` (default: 3) even when `fee_rate` was provided. Now `fee_block_target` is only set when `fee_rate` is not provided.
+
 - **Channel consistency check allows messages from different directory servers**: Fixed false positive channel consistency violations when taker messages arrived via different directory servers. The JoinMarket protocol broadcasts messages to ALL directory servers, so receiving `!auth` from `dir:serverA` after `!fill` from `dir:serverB` is expected behavior. The check now only validates that "direct" and "directory" channel types are not mixed, not the specific server identity.
 
 - **Direct message parse failures now logged with content**: When the maker fails to parse a direct message, the log now includes a preview of the message content (truncated to 100 chars) to aid debugging. Previously only logged "Failed to parse direct message" with no indication of what was received.

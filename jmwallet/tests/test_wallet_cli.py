@@ -881,6 +881,16 @@ def test_interactive_mnemonic_input_paste_too_many_words():
     assert result == valid_mnemonic
 
 
+def test_supports_raw_terminal_returns_false_when_not_tty():
+    """Test that _supports_raw_terminal returns False when stdin is not a tty."""
+    from unittest.mock import patch
+
+    from jmwallet.cli import _supports_raw_terminal
+
+    with patch("sys.stdin.isatty", return_value=False):
+        assert _supports_raw_terminal() is False
+
+
 # ============================================================================
 # BIP39 Wordlist Helper Tests
 # ============================================================================

@@ -305,14 +305,185 @@ def format_word_suggestions(matches: list[str], max_display: int = 8) -> str:
     return ", ".join(matches[:max_display]) + f", ... (+{len(matches) - max_display} more)"
 
 
+def _read_char() -> str:
+    """Read a single character from stdin without waiting for Enter."""
+    import sys
+    import termios
+    import tty
+
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        ch = sys.stdin.read(1)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    return ch
+
+
+def _interactive_word_input(
+    prompt: str,
+    wordlist: list[str],
+    max_suggestions: int = 10,
+) -> str | None:
+    """
+    Read a single word with real-time autocomplete suggestions.
+
+    Shows matching words as the user types. Auto-completes when only one match remains.
+
+    Args:
+        prompt: The prompt to display (e.g., "Word 1/24: ")
+        wordlist: The BIP39 wordlist to match against
+        max_suggestions: Show suggestions when matches <= this number
+
+    Returns:
+        The completed word, or None if user wants to go back (backspace on empty)
+
+    Raises:
+        KeyboardInterrupt: If user presses Ctrl+C
+        EOFError: If user presses Ctrl+D
+    """
+    import sys
+
+    buffer = ""
+    suggestion_line = ""
+
+    # Print prompt
+    sys.stdout.write(prompt)
+    sys.stdout.flush()
+
+    while True:
+        ch = _read_char()
+
+        # Handle special characters
+        if ch == "\x03":  # Ctrl+C
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+            raise KeyboardInterrupt
+        elif ch == "\x04":  # Ctrl+D
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+            raise EOFError
+        elif ch in ("\r", "\n"):  # Enter
+            # Clear suggestion line and move to new line
+            if suggestion_line:
+                # Clear the suggestion line
+                sys.stdout.write(f"\r{prompt}{buffer}" + " " * (len(suggestion_line) + 5))
+                sys.stdout.write(f"\r{prompt}{buffer}")
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+            return buffer if buffer else None
+        elif ch == "\x7f" or ch == "\x08":  # Backspace
+            if buffer:
+                buffer = buffer[:-1]
+                # Clear current line and suggestion, redraw
+                clear_len = len(prompt) + len(buffer) + 1 + len(suggestion_line) + 10
+                sys.stdout.write("\r" + " " * clear_len + "\r")
+                sys.stdout.write(prompt + buffer)
+                sys.stdout.flush()
+            else:
+                # Backspace on empty buffer - could signal "go back" but we'll ignore
+                continue
+        elif ch == "\t":  # Tab - try to complete
+            if buffer:
+                matches = get_word_completions(buffer, wordlist)
+                if len(matches) == 1:
+                    # Complete the word
+                    buffer = matches[0]
+                    clear_len = len(prompt) + len(buffer) + len(suggestion_line) + 20
+                    sys.stdout.write("\r" + " " * clear_len + "\r")
+                    sys.stdout.write(prompt + buffer)
+                    sys.stdout.flush()
+                elif matches:
+                    # Find common prefix
+                    common = matches[0]
+                    for m in matches[1:]:
+                        while not m.startswith(common):
+                            common = common[:-1]
+                    if len(common) > len(buffer):
+                        buffer = common
+                        clear_len = len(prompt) + len(buffer) + len(suggestion_line) + 20
+                        sys.stdout.write("\r" + " " * clear_len + "\r")
+                        sys.stdout.write(prompt + buffer)
+                        sys.stdout.flush()
+            continue
+        elif ch == " ":  # Space - might be pasting multiple words
+            if buffer:
+                # Treat space as confirming current word and potentially starting paste mode
+                # Return current buffer, let caller handle it
+                if suggestion_line:
+                    sys.stdout.write(f"\r{prompt}{buffer}" + " " * (len(suggestion_line) + 5))
+                    sys.stdout.write(f"\r{prompt}{buffer}")
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+                return buffer
+            continue
+        elif not ch.isalpha():
+            # Ignore non-alphabetic characters
+            continue
+        else:
+            # Regular character - add to buffer
+            buffer += ch.lower()
+
+        # Get matches for current buffer
+        matches = get_word_completions(buffer, wordlist)
+
+        # Auto-complete if exactly one match and buffer is at least 3 chars
+        # (to avoid premature completion on short prefixes)
+        if len(matches) == 1 and len(buffer) >= 3:
+            completed_word = matches[0]
+            # Show completion
+            clear_len = len(prompt) + len(buffer) + len(suggestion_line) + 20
+            sys.stdout.write("\r" + " " * clear_len + "\r")
+            sys.stdout.write(prompt + completed_word + "\n")
+            sys.stdout.flush()
+            return completed_word
+
+        # Update display
+        clear_len = len(prompt) + len(buffer) + len(suggestion_line) + 20
+        sys.stdout.write("\r" + " " * clear_len + "\r")
+        sys.stdout.write(prompt + buffer)
+
+        # Show suggestions if few enough matches
+        if buffer and 1 < len(matches) <= max_suggestions:
+            suggestion_line = f"  [{', '.join(matches)}]"
+            sys.stdout.write(f"\033[90m{suggestion_line}\033[0m")  # Gray color
+        elif buffer and len(matches) > max_suggestions:
+            suggestion_line = f"  [{len(matches)} matches]"
+            sys.stdout.write(f"\033[90m{suggestion_line}\033[0m")
+        elif buffer and len(matches) == 0:
+            suggestion_line = "  [no match]"
+            sys.stdout.write(f"\033[91m{suggestion_line}\033[0m")  # Red color
+        else:
+            suggestion_line = ""
+
+        sys.stdout.flush()
+
+
+def _supports_raw_terminal() -> bool:
+    """Check if the terminal supports raw character input."""
+    import sys
+
+    if not sys.stdin.isatty():
+        return False
+    try:
+        import termios  # noqa: F401
+        import tty  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
 def interactive_mnemonic_input(word_count: int = 24) -> str:
     """
     Interactively input a BIP39 mnemonic with autocomplete support.
 
     Features:
-    - Tab completion (if terminal supports readline)
-    - Shows suggestions when prefix matches multiple words
-    - Auto-completes when only one word matches
+    - Real-time suggestions as you type (shows matches when <= 10)
+    - Auto-completes when only one word matches (after 3+ chars typed)
+    - Tab completion for partial matches
+    - Supports pasting all words at once
     - Validates each word against BIP39 wordlist
 
     Args:
@@ -330,32 +501,38 @@ def interactive_mnemonic_input(word_count: int = 24) -> str:
     wordlist = get_bip39_wordlist()
     words: list[str] = []
 
-    # Try to set up readline completion if available
-    try:
-        import readline
+    # Check if we can use real-time input
+    use_realtime = _supports_raw_terminal()
 
-        def completer(text: str, state: int) -> str | None:
-            matches = get_word_completions(text, wordlist)
-            if state < len(matches):
-                return matches[state]
-            return None
+    # Fallback: set up readline completion if available
+    has_readline = False
+    if not use_realtime:
+        try:
+            import readline
 
-        readline.set_completer(completer)
-        readline.parse_and_bind("tab: complete")
-        readline.set_completer_delims(" ")
-        has_readline = True
-    except ImportError:
-        has_readline = False
+            def completer(text: str, state: int) -> str | None:
+                matches = get_word_completions(text, wordlist)
+                if state < len(matches):
+                    return matches[state]
+                return None
+
+            readline.set_completer(completer)
+            readline.parse_and_bind("tab: complete")
+            readline.set_completer_delims(" ")
+            has_readline = True
+        except ImportError:
+            pass
 
     console.print("\n[bold]Enter your BIP39 mnemonic phrase[/bold]")
-    console.print(
-        f"[dim]Expected: {word_count} words | Tab to autocomplete | Ctrl+C to cancel[/dim]"
-    )
-    console.print("[dim]Tip: You can paste all words at once[/dim]")
-    if not has_readline:
+    if use_realtime:
         console.print(
-            "[dim]Tip: Type prefix and press Enter - auto-completes if unique match[/dim]"
+            f"[dim]Expected: {word_count} words | Auto-completes | Ctrl+C to cancel[/dim]"
         )
+    else:
+        console.print(
+            f"[dim]Expected: {word_count} words | Tab to autocomplete | Ctrl+C to cancel[/dim]"
+        )
+    console.print("[dim]Tip: You can paste all words at once[/dim]")
     console.print()
 
     try:
@@ -364,7 +541,12 @@ def interactive_mnemonic_input(word_count: int = 24) -> str:
             prompt_text = f"Word {word_num}/{word_count}: "
 
             try:
-                if has_readline:
+                if use_realtime:
+                    user_input = _interactive_word_input(prompt_text, wordlist)
+                    if user_input is None:
+                        continue
+                    user_input = user_input.strip().lower()
+                elif has_readline:
                     user_input = input(prompt_text).strip().lower()
                 else:
                     # For terminals without readline, use typer.prompt
@@ -411,7 +593,9 @@ def interactive_mnemonic_input(word_count: int = 24) -> str:
             # Check for exact match (single word)
             if user_input in wordlist:
                 words.append(user_input)
-                console.print(f"  [green]{user_input}[/green]", highlight=False)
+                # Only print confirmation if not using realtime (realtime already shows it)
+                if not use_realtime:
+                    console.print(f"  [green]{user_input}[/green]", highlight=False)
                 continue
 
             # Check for prefix matches
@@ -424,9 +608,10 @@ def interactive_mnemonic_input(word_count: int = 24) -> str:
                 # Auto-complete unique match
                 word = matches[0]
                 words.append(word)
-                console.print(
-                    f"  [green]{word}[/green] [dim](auto-completed from '{user_input}')[/dim]"
-                )
+                if not use_realtime:
+                    console.print(
+                        f"  [green]{word}[/green] [dim](auto-completed from '{user_input}')[/dim]"
+                    )
             else:
                 # Show suggestions
                 console.print(f"  [yellow]Matches: {format_word_suggestions(matches)}[/yellow]")
@@ -1004,7 +1189,12 @@ async def _show_wallet_info(
         print(f"\nTotal Balance: {format_amount(total_balance)}")
 
         # Show pending transactions if any
-        from jmwallet.history import get_pending_transactions
+        from jmwallet.history import cleanup_stale_pending_transactions, get_pending_transactions
+
+        # Clean up any stale pending transactions (older than 60 minutes)
+        cleaned = cleanup_stale_pending_transactions(max_age_minutes=60, data_dir=data_dir)
+        if cleaned > 0:
+            logger.info(f"Cleaned up {cleaned} stale pending transaction(s)")
 
         pending = get_pending_transactions(data_dir)
         if pending:

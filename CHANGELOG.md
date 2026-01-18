@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Paste All Mnemonic Words at Once**: The `jm-wallet import` interactive mnemonic input now supports pasting all words (or a subset) at once, instead of requiring word-by-word entry. When pasting, all words are validated against the BIP39 wordlist, with clear error messages for invalid words or when too many words are pasted. A hint is now displayed: "Tip: You can paste all words at once".
+- **Real-Time Autocomplete for Mnemonic Input**: The `jm-wallet import` interactive mnemonic input now features real-time autocomplete suggestions as you type. When there are 10 or fewer matching BIP39 words, they are displayed inline in gray. When only one match remains (after typing 3+ characters), the word auto-completes automatically. Tab completion is also available for partial matches. The feature gracefully falls back to readline-based completion on terminals that don't support raw input mode. Additionally, you can now paste all words at once (or a subset), with validation and clear error messages for invalid words.
 
 - **Component Name in Notification Titles**: Notifications now include the component name in the title, making it easier to identify which component sent a notification when running multiple JoinMarket components (Maker, Taker, Directory, Orderbook). For example, instead of "JoinMarket NG: Fill Request Received", notifications now show "JoinMarket NG (Maker): Fill Request Received". This is especially useful when running multiple components simultaneously and receiving notifications through a single channel.
 

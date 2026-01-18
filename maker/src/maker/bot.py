@@ -1375,6 +1375,7 @@ class MakerBot:
                                 f"{int(age_minutes)} minutes - likely never broadcast"
                             ),
                             data_dir=self.config.data_dir,
+                            txid=entry.txid,
                         )
                     elif age_minutes > 30:
                         # Log warning after 30 minutes

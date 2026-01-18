@@ -525,9 +525,10 @@ def mark_pending_transaction_failed(
     destination_address: str,
     failure_reason: str,
     data_dir: Path | None = None,
+    txid: str | None = None,
 ) -> bool:
     """
-    Mark a pending transaction as failed by matching the destination address.
+    Mark a pending transaction as failed by matching the destination address and optionally txid.
 
     This is used when a pending CoinJoin times out - the taker never broadcast
     the transaction, so we mark it as failed rather than leaving it pending
@@ -537,6 +538,8 @@ def mark_pending_transaction_failed(
         destination_address: The CoinJoin destination address to match
         failure_reason: Reason for marking as failed (e.g., "Timed out after 60 minutes")
         data_dir: Optional data directory
+        txid: Optional transaction ID for more precise matching (when multiple entries
+              share the same destination address)
 
     Returns:
         True if a matching entry was found and updated, False otherwise
@@ -549,19 +552,26 @@ def mark_pending_transaction_failed(
     updated = False
 
     for entry in entries:
-        # Match by destination address and pending status (success=False, confirmations=0)
+        # Match by destination address and pending status
+        # (success=False, confirmations=0, no completed_at)
         if (
             entry.destination_address == destination_address
             and not entry.success
             and entry.confirmations == 0
+            and not entry.completed_at
         ):
+            # If txid is provided, also match by txid
+            if txid is not None and entry.txid != txid:
+                continue
+
             entry.success = False
             entry.failure_reason = failure_reason
             entry.completed_at = datetime.now().isoformat()
             # Keep confirmations at 0 to distinguish from confirmed then reorged
+            txid_str = f" (txid: {entry.txid[:16]}...)" if entry.txid else ""
             logger.info(
-                f"Marked pending transaction for {destination_address[:20]}... as failed: "
-                f"{failure_reason}"
+                f"Marked pending transaction for {destination_address[:20]}...{txid_str} "
+                f"as failed: {failure_reason}"
             )
             updated = True
             break

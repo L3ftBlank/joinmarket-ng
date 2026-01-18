@@ -953,7 +953,7 @@ class TestMarkPendingTransactionFailed:
         assert entries[0].confirmations == 6
 
     def test_mark_pending_transaction_failed_already_failed(self, temp_data_dir: Path) -> None:
-        """Test that already failed transactions are not double-marked."""
+        """Test that already failed transactions are not re-marked (prevents loops)."""
         # Create a failed entry (already marked as failed)
         entry = TransactionHistoryEntry(
             timestamp="2024-01-01T00:00:00",
@@ -968,19 +968,20 @@ class TestMarkPendingTransactionFailed:
         )
         append_history_entry(entry, temp_data_dir)
 
-        # Try to mark as failed again - should still match (both success=False, confirmations=0)
-        # but this is expected behavior since we want to update the reason
+        # Try to mark as failed again - should NOT match because completed_at is set
+        # This prevents infinite loops where we keep trying to mark the same entry
         result = mark_pending_transaction_failed(
             destination_address="bc1qalreadyfailed12",
             failure_reason="Timed out after 60 minutes",
             data_dir=temp_data_dir,
         )
-        # Will return True as the criteria still match
-        assert result is True
+        # Should return False since entry is already completed (has completed_at)
+        assert result is False
 
-        # The failure reason gets updated
+        # The original failure reason should be preserved
         entries = read_history(temp_data_dir)
-        assert entries[0].failure_reason == "Timed out after 60 minutes"
+        assert entries[0].failure_reason == "Already failed for another reason"
+        assert entries[0].completed_at == "2024-01-01T01:00:00"
 
     def test_mark_pending_preserves_other_entries(self, temp_data_dir: Path) -> None:
         """Test that marking one entry as failed preserves other entries."""
@@ -1045,3 +1046,57 @@ class TestMarkPendingTransactionFailed:
         conf = [e for e in entries if e.destination_address == "bc1qconfirmed11111"][0]
         assert conf.success is True
         assert conf.confirmations == 6
+
+    def test_mark_pending_with_txid_disambiguation(self, temp_data_dir: Path) -> None:
+        """Test that txid parameter disambiguates entries with same destination address."""
+        # Create multiple pending entries with the same destination address but different txids
+        # This can happen if the same address was reused (which shouldn't happen but could
+        # occur due to bugs or manual intervention)
+        entry1 = create_maker_history_entry(
+            taker_nick="J5taker1",
+            cj_amount=1_000_000,
+            fee_received=250,
+            txfee_contribution=50,
+            cj_address="bc1qsameaddress12345",
+            change_address="bc1qchange1...",
+            our_utxos=[("abc123", 0)],
+            txid="txid_first_entry_11",
+        )
+        append_history_entry(entry1, temp_data_dir)
+
+        entry2 = create_maker_history_entry(
+            taker_nick="J5taker2",
+            cj_amount=2_000_000,
+            fee_received=500,
+            txfee_contribution=100,
+            cj_address="bc1qsameaddress12345",  # Same address!
+            change_address="bc1qchange2...",
+            our_utxos=[("def456", 0)],
+            txid="txid_second_entry2",
+        )
+        append_history_entry(entry2, temp_data_dir)
+
+        # Mark only the second entry as failed using txid for disambiguation
+        result = mark_pending_transaction_failed(
+            destination_address="bc1qsameaddress12345",
+            failure_reason="Transaction not found",
+            data_dir=temp_data_dir,
+            txid="txid_second_entry2",
+        )
+        assert result is True
+
+        # Verify only the second entry was marked failed
+        entries = read_history(temp_data_dir)
+        assert len(entries) == 2
+
+        # First entry should still be pending
+        first = [e for e in entries if e.txid == "txid_first_entry_11"][0]
+        assert first.success is False
+        assert first.failure_reason == "Pending confirmation"
+        assert first.completed_at == ""
+
+        # Second entry should be marked failed
+        second = [e for e in entries if e.txid == "txid_second_entry2"][0]
+        assert second.success is False
+        assert second.failure_reason == "Transaction not found"
+        assert second.completed_at != ""

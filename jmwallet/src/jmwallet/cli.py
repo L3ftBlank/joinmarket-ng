@@ -19,6 +19,7 @@ from jmcore.cli_common import (
     setup_cli,
     setup_logging,
 )
+from jmcore.settings import JoinMarketSettings
 from loguru import logger
 
 if TYPE_CHECKING:
@@ -934,19 +935,22 @@ def _resolve_mnemonic(
 def _resolve_bip39_passphrase(
     bip39_passphrase: str | None = None,
     prompt_bip39_passphrase: bool = False,
+    settings: JoinMarketSettings | None = None,
 ) -> str:
     """
-    Resolve BIP39 passphrase from argument, environment variable, or prompt.
+    Resolve BIP39 passphrase from argument, environment variable, config, or prompt.
 
     Priority:
     1. --bip39-passphrase argument
     2. BIP39_PASSPHRASE environment variable
-    3. Interactive prompt (if --prompt-bip39-passphrase is set)
-    4. Empty string (default - no passphrase)
+    3. Config file wallet.bip39_passphrase setting
+    4. Interactive prompt (if --prompt-bip39-passphrase is set)
+    5. Empty string (default - no passphrase)
 
     Args:
         bip39_passphrase: BIP39 passphrase from command line argument
         prompt_bip39_passphrase: Whether to prompt for passphrase interactively
+        settings: JoinMarketSettings instance for config file lookup
 
     Returns:
         The resolved BIP39 passphrase (empty string if none provided)
@@ -959,6 +963,10 @@ def _resolve_bip39_passphrase(
     env_passphrase = os.environ.get("BIP39_PASSPHRASE")
     if env_passphrase is not None:
         return env_passphrase
+
+    # Check config file
+    if settings is not None and settings.wallet.bip39_passphrase is not None:
+        return settings.wallet.bip39_passphrase.get_secret_value()
 
     # Prompt if requested
     if prompt_bip39_passphrase:
@@ -1041,7 +1049,9 @@ def info(
         raise typer.Exit(1)
 
     # Resolve BIP39 passphrase
-    resolved_bip39_passphrase = _resolve_bip39_passphrase(bip39_passphrase, prompt_bip39_passphrase)
+    resolved_bip39_passphrase = _resolve_bip39_passphrase(
+        bip39_passphrase, prompt_bip39_passphrase, settings
+    )
 
     # Resolve backend settings with CLI overrides taking priority
     backend = resolve_backend_settings(
@@ -1420,7 +1430,9 @@ def list_bonds(
         raise typer.Exit(1)
 
     # Resolve BIP39 passphrase
-    resolved_bip39_passphrase = _resolve_bip39_passphrase(bip39_passphrase, prompt_bip39_passphrase)
+    resolved_bip39_passphrase = _resolve_bip39_passphrase(
+        bip39_passphrase, prompt_bip39_passphrase, settings
+    )
 
     # Resolve backend settings with CLI overrides taking priority
     backend = resolve_backend_settings(
@@ -1587,7 +1599,9 @@ def generate_bond_address(
         raise typer.Exit(1)
 
     # Resolve BIP39 passphrase
-    resolved_bip39_passphrase = _resolve_bip39_passphrase(bip39_passphrase, prompt_bip39_passphrase)
+    resolved_bip39_passphrase = _resolve_bip39_passphrase(
+        bip39_passphrase, prompt_bip39_passphrase, settings
+    )
 
     # Resolve network from config if not provided
     resolved_network = network if network is not None else settings.network_config.network.value
@@ -1796,7 +1810,9 @@ def send(
         raise typer.Exit(1)
 
     # Resolve BIP39 passphrase
-    resolved_bip39_passphrase = _resolve_bip39_passphrase(bip39_passphrase, prompt_bip39_passphrase)
+    resolved_bip39_passphrase = _resolve_bip39_passphrase(
+        bip39_passphrase, prompt_bip39_passphrase, settings
+    )
 
     # Resolve backend settings
     backend_settings = resolve_backend_settings(
@@ -2639,7 +2655,9 @@ def recover_bonds(
         raise typer.Exit(1)
 
     # Resolve BIP39 passphrase
-    resolved_bip39_passphrase = _resolve_bip39_passphrase(bip39_passphrase, prompt_bip39_passphrase)
+    resolved_bip39_passphrase = _resolve_bip39_passphrase(
+        bip39_passphrase, prompt_bip39_passphrase, settings
+    )
 
     # Resolve backend settings
     backend_settings = resolve_backend_settings(
@@ -2888,7 +2906,9 @@ def registry_sync(
         raise typer.Exit(1)
 
     # Resolve BIP39 passphrase
-    resolved_bip39_passphrase = _resolve_bip39_passphrase(bip39_passphrase, prompt_bip39_passphrase)
+    resolved_bip39_passphrase = _resolve_bip39_passphrase(
+        bip39_passphrase, prompt_bip39_passphrase, settings
+    )
 
     # Resolve backend settings
     backend_settings = resolve_backend_settings(

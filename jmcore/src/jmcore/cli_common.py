@@ -427,12 +427,19 @@ def resolve_mnemonic(
     """
     Resolve mnemonic from various sources with priority.
 
-    Priority:
+    Mnemonic priority:
     1. --mnemonic argument
     2. --mnemonic-file argument
     3. MNEMONIC_FILE environment variable
     4. MNEMONIC environment variable
     5. Config file wallet.mnemonic_file setting
+
+    BIP39 passphrase priority:
+    1. --bip39-passphrase argument
+    2. BIP39_PASSPHRASE environment variable
+    3. Config file wallet.bip39_passphrase setting
+    4. Interactive prompt (if --prompt-bip39-passphrase is set)
+    5. Empty string (default - no passphrase)
 
     If the mnemonic file is encrypted and no password is provided,
     the user will be prompted interactively.
@@ -495,9 +502,14 @@ def resolve_mnemonic(
         return None
 
     # Resolve BIP39 passphrase
+    # Priority: CLI arg > env var > config > prompt > empty
     resolved_passphrase = ""
     if bip39_passphrase:
         resolved_passphrase = bip39_passphrase
+    elif env_passphrase := os.environ.get("BIP39_PASSPHRASE"):
+        resolved_passphrase = env_passphrase
+    elif settings.wallet.bip39_passphrase is not None:
+        resolved_passphrase = settings.wallet.bip39_passphrase.get_secret_value()
     elif prompt_bip39_passphrase:
         # Lazy import typer only when needed for prompting
         try:

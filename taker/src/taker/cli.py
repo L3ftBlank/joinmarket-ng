@@ -695,8 +695,10 @@ def tumble(
             mnemonic_file=mnemonic_file,
             password=password,
             bip39_passphrase=bip39_passphrase,
+            prompt_bip39_passphrase=prompt_bip39_passphrase,
         )
         resolved_mnemonic = resolved.mnemonic if resolved else ""
+        resolved_bip39_passphrase = resolved.bip39_passphrase if resolved else ""
     except (ValueError, FileNotFoundError) as e:
         logger.error(str(e))
         raise typer.Exit(1)
@@ -723,7 +725,7 @@ def tumble(
         config = build_taker_config(
             settings=settings,
             mnemonic=resolved_mnemonic,
-            passphrase=bip39_passphrase or "",
+            passphrase=resolved_bip39_passphrase,
             network=network,
             backend_type=backend_type,
             rpc_url=rpc_url,

@@ -208,6 +208,10 @@ class WalletSettings(BaseModel):
         default=None,
         description="Password for encrypted mnemonic file",
     )
+    bip39_passphrase: SecretStr | None = Field(
+        default=None,
+        description="BIP39 passphrase (13th/25th word). For security, prefer BIP39_PASSPHRASE env var.",
+    )
 
 
 class NotificationSettings(BaseModel):

@@ -254,6 +254,26 @@ def build_maker_config(
             "Must be one of: default, gradual, greedy, random"
         )
 
+    # Log offer configuration for clarity
+    if offer_configs:
+        # Dual offers mode
+        logger.info(f"Dual offers mode: creating {len(offer_configs)} offers")
+        for i, oc in enumerate(offer_configs):
+            fee_str = (
+                f"rel={oc.cj_fee_relative}"
+                if oc.offer_type in (OfferType.SW0_RELATIVE, OfferType.SWA_RELATIVE)
+                else f"abs={oc.cj_fee_absolute} sats"
+            )
+            logger.info(f"  Offer {i}: type={oc.offer_type.value}, {fee_str}")
+    else:
+        # Single offer mode
+        fee_str = (
+            f"relative fee={actual_cj_fee_relative} ({float(actual_cj_fee_relative) * 100:.4f}%)"
+            if parsed_offer_type in (OfferType.SW0_RELATIVE, OfferType.SWA_RELATIVE)
+            else f"absolute fee={actual_cj_fee_absolute} sats"
+        )
+        logger.info(f"Offer config: type={parsed_offer_type.value}, {fee_str}")
+
     # Fidelity bond settings
     effective_locktimes = fidelity_bond_locktimes if fidelity_bond_locktimes else []
     effective_bond_index = fidelity_bond_index

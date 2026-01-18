@@ -351,6 +351,7 @@ def interactive_mnemonic_input(word_count: int = 24) -> str:
     console.print(
         f"[dim]Expected: {word_count} words | Tab to autocomplete | Ctrl+C to cancel[/dim]"
     )
+    console.print("[dim]Tip: You can paste all words at once[/dim]")
     if not has_readline:
         console.print(
             "[dim]Tip: Type prefix and press Enter - auto-completes if unique match[/dim]"
@@ -383,7 +384,31 @@ def interactive_mnemonic_input(word_count: int = 24) -> str:
             if not user_input:
                 continue
 
-            # Check for exact match
+            # Check if user pasted multiple words at once
+            input_parts = user_input.split()
+            if len(input_parts) > 1:
+                # Validate all pasted words
+                all_valid = all(part in wordlist for part in input_parts)
+                if all_valid:
+                    remaining_slots = word_count - len(words)
+                    if len(input_parts) <= remaining_slots:
+                        for part in input_parts:
+                            words.append(part)
+                            console.print(f"  [green]{part}[/green]", highlight=False)
+                        continue
+                    else:
+                        console.print(
+                            f"  [red]Too many words: got {len(input_parts)}, "
+                            f"only {remaining_slots} remaining[/red]"
+                        )
+                        continue
+                else:
+                    # Find which words are invalid
+                    invalid_words = [part for part in input_parts if part not in wordlist]
+                    console.print(f"  [red]Invalid BIP39 words: {', '.join(invalid_words)}[/red]")
+                    continue
+
+            # Check for exact match (single word)
             if user_input in wordlist:
                 words.append(user_input)
                 console.print(f"  [green]{user_input}[/green]", highlight=False)

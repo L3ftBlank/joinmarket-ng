@@ -774,6 +774,114 @@ def test_import_invalid_word_count():
 
 
 # ============================================================================
+# Interactive Mnemonic Input Tests
+# ============================================================================
+
+
+def test_interactive_mnemonic_input_paste_all_words():
+    """Test that pasting all words at once works correctly."""
+    from unittest.mock import patch
+
+    from jmwallet.cli import interactive_mnemonic_input
+
+    # 12-word valid mnemonic
+    mnemonic = (
+        "abandon abandon abandon abandon abandon abandon "
+        "abandon abandon abandon abandon abandon about"
+    )
+
+    # Mock input to paste all words at once
+    with patch("builtins.input", return_value=mnemonic):
+        result = interactive_mnemonic_input(word_count=12)
+
+    assert result == mnemonic
+
+
+def test_interactive_mnemonic_input_paste_partial_words():
+    """Test that pasting partial words works (e.g., first 6 words, then next 6)."""
+    from unittest.mock import patch
+
+    from jmwallet.cli import interactive_mnemonic_input
+
+    # 12-word valid mnemonic split into two parts
+    first_part = "abandon abandon abandon abandon abandon abandon"
+    second_part = "abandon abandon abandon abandon abandon about"
+    full_mnemonic = f"{first_part} {second_part}"
+
+    call_count = 0
+    responses = [first_part, second_part]
+
+    def mock_input(prompt: str) -> str:
+        nonlocal call_count
+        result = responses[call_count]
+        call_count += 1
+        return result
+
+    with patch("builtins.input", side_effect=mock_input):
+        result = interactive_mnemonic_input(word_count=12)
+
+    assert result == full_mnemonic
+
+
+def test_interactive_mnemonic_input_paste_invalid_words():
+    """Test that pasting invalid words shows an error."""
+    from unittest.mock import patch
+
+    from jmwallet.cli import interactive_mnemonic_input
+
+    # Mix of valid and invalid words
+    invalid_paste = "abandon invalid notaword abandon"
+    valid_mnemonic = (
+        "abandon abandon abandon abandon abandon abandon "
+        "abandon abandon abandon abandon abandon about"
+    )
+
+    call_count = 0
+    responses = [invalid_paste, valid_mnemonic]
+
+    def mock_input(prompt: str) -> str:
+        nonlocal call_count
+        result = responses[call_count]
+        call_count += 1
+        return result
+
+    with patch("builtins.input", side_effect=mock_input):
+        result = interactive_mnemonic_input(word_count=12)
+
+    # Should accept the valid mnemonic on second attempt
+    assert result == valid_mnemonic
+
+
+def test_interactive_mnemonic_input_paste_too_many_words():
+    """Test that pasting too many words shows an error."""
+    from unittest.mock import patch
+
+    from jmwallet.cli import interactive_mnemonic_input
+
+    # 24 valid words when only 12 expected
+    too_many = "abandon " * 24
+    valid_mnemonic = (
+        "abandon abandon abandon abandon abandon abandon "
+        "abandon abandon abandon abandon abandon about"
+    )
+
+    call_count = 0
+    responses = [too_many.strip(), valid_mnemonic]
+
+    def mock_input(prompt: str) -> str:
+        nonlocal call_count
+        result = responses[call_count]
+        call_count += 1
+        return result
+
+    with patch("builtins.input", side_effect=mock_input):
+        result = interactive_mnemonic_input(word_count=12)
+
+    # Should accept the valid mnemonic on second attempt
+    assert result == valid_mnemonic
+
+
+# ============================================================================
 # BIP39 Wordlist Helper Tests
 # ============================================================================
 

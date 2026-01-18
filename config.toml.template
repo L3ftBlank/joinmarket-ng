@@ -149,14 +149,23 @@
 # Minimum CoinJoin amount in satoshis
 # min_size = 100000
 
-# Offer type: determines which fee setting is used
-# "sw0reloffer" - relative fee (uses cj_fee_relative)
-# "sw0absoffer" - absolute fee (uses cj_fee_absolute)
+# IMPORTANT: offer_type determines which fee setting is used.
+# Simply changing cj_fee_absolute will NOT switch to absolute fees - you must set offer_type.
+#
+# Offer type options:
+#   "sw0reloffer" - relative fee (uses cj_fee_relative) [DEFAULT]
+#   "sw0absoffer" - absolute fee (uses cj_fee_absolute)
+#
+# Example: To use absolute fees, set BOTH:
+#   offer_type = "sw0absoffer"
+#   cj_fee_absolute = 500
+#
+# To run BOTH offer types simultaneously, use the CLI flag --dual-offers
 # offer_type = "sw0reloffer"
 
-# Fee settings
-# cj_fee_relative = "0.001"  # 0.001 = 0.1% relative fee (used with sw0reloffer)
-# cj_fee_absolute = 500      # Absolute fee in satoshis (used with sw0absoffer)
+# Fee settings (only one is used based on offer_type above)
+# cj_fee_relative = "0.001"  # 0.001 = 0.1% relative fee (for sw0reloffer)
+# cj_fee_absolute = 500      # Absolute fee in satoshis (for sw0absoffer)
 # tx_fee_contribution = 0    # Mining fee contribution in satoshis
 
 # Minimum confirmations for UTXOs

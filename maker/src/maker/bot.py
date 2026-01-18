@@ -684,6 +684,19 @@ class MakerBot:
                 )
                 return
 
+            # Log summary of created offers
+            logger.info(f"Created {len(self.current_offers)} offer(s) to announce:")
+            for offer in self.current_offers:
+                fee_display = (
+                    f"{float(offer.cjfee) * 100:.4f}%"
+                    if offer.ordertype.value.endswith("reloffer")
+                    else f"{offer.cjfee} sats"
+                )
+                logger.info(
+                    f"  oid={offer.oid}: {offer.ordertype.value}, "
+                    f"size={offer.minsize:,}-{offer.maxsize:,} sats, fee={fee_display}"
+                )
+
             # Set up ephemeral hidden service via Tor control port if enabled
             # This must happen before connecting to directory servers so we can
             # advertise the onion address

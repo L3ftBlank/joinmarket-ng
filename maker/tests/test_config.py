@@ -278,3 +278,109 @@ class TestCjFeeRelativeNormalization:
         )
         # Integer 1 should become "1"
         assert config.cj_fee_relative == "1"
+
+
+class TestBuildMakerConfig:
+    """Tests for build_maker_config function."""
+
+    def test_absolute_fee_cli_sets_offer_type(self) -> None:
+        """Test that --cj-fee-absolute on CLI sets offer_type to absolute."""
+        from jmcore.settings import JoinMarketSettings
+
+        from maker.cli import build_maker_config
+
+        settings = JoinMarketSettings()
+        config = build_maker_config(
+            settings=settings,
+            mnemonic=TEST_MNEMONIC,
+            passphrase="",
+            cj_fee_absolute=1000,  # CLI override
+        )
+        assert config.offer_type == OfferType.SW0_ABSOLUTE
+        assert config.cj_fee_absolute == 1000
+
+    def test_relative_fee_cli_sets_offer_type(self) -> None:
+        """Test that --cj-fee-relative on CLI sets offer_type to relative."""
+        from jmcore.settings import JoinMarketSettings
+
+        from maker.cli import build_maker_config
+
+        settings = JoinMarketSettings()
+        config = build_maker_config(
+            settings=settings,
+            mnemonic=TEST_MNEMONIC,
+            passphrase="",
+            cj_fee_relative="0.002",  # CLI override
+        )
+        assert config.offer_type == OfferType.SW0_RELATIVE
+        assert config.cj_fee_relative == "0.002"
+
+    def test_dual_offers_creates_two_configs(self) -> None:
+        """Test that --dual-offers creates both relative and absolute offer configs."""
+        from jmcore.settings import JoinMarketSettings
+
+        from maker.cli import build_maker_config
+
+        settings = JoinMarketSettings()
+        config = build_maker_config(
+            settings=settings,
+            mnemonic=TEST_MNEMONIC,
+            passphrase="",
+            dual_offers=True,
+        )
+        assert len(config.offer_configs) == 2
+        assert config.offer_configs[0].offer_type == OfferType.SW0_RELATIVE
+        assert config.offer_configs[1].offer_type == OfferType.SW0_ABSOLUTE
+
+    def test_dual_offers_with_custom_fees(self) -> None:
+        """Test that --dual-offers uses custom fee values from CLI."""
+        from jmcore.settings import JoinMarketSettings
+
+        from maker.cli import build_maker_config
+
+        settings = JoinMarketSettings()
+        config = build_maker_config(
+            settings=settings,
+            mnemonic=TEST_MNEMONIC,
+            passphrase="",
+            dual_offers=True,
+            cj_fee_relative="0.005",
+            cj_fee_absolute=2000,
+        )
+        assert len(config.offer_configs) == 2
+        # Both configs have both fee values, but offer_type determines which is used
+        assert config.offer_configs[0].cj_fee_relative == "0.005"
+        assert config.offer_configs[1].cj_fee_absolute == 2000
+
+    def test_both_fees_without_dual_offers_raises(self) -> None:
+        """Test that specifying both fees without --dual-offers raises error."""
+        from jmcore.settings import JoinMarketSettings
+
+        from maker.cli import build_maker_config
+
+        settings = JoinMarketSettings()
+        with pytest.raises(ValueError, match="Cannot specify both"):
+            build_maker_config(
+                settings=settings,
+                mnemonic=TEST_MNEMONIC,
+                passphrase="",
+                cj_fee_relative="0.001",
+                cj_fee_absolute=500,
+            )
+
+    def test_no_cli_overrides_uses_settings_offer_type(self) -> None:
+        """Test that without CLI overrides, settings.maker.offer_type is used."""
+        from jmcore.settings import JoinMarketSettings
+
+        settings = JoinMarketSettings()
+        # Default offer_type is sw0reloffer
+
+        from maker.cli import build_maker_config
+
+        config = build_maker_config(
+            settings=settings,
+            mnemonic=TEST_MNEMONIC,
+            passphrase="",
+        )
+        assert config.offer_type == OfferType.SW0_RELATIVE
+        assert config.cj_fee_relative == settings.maker.cj_fee_relative

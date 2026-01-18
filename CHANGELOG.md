@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Improved Offer Type Configuration Documentation and Logging**: Enhanced maker configuration to make the `offer_type` setting more intuitive:
+  - Updated `config.toml.template` with clearer documentation explaining that `offer_type` must be explicitly set to use absolute fees (simply setting `cj_fee_absolute` alone is not sufficient)
+  - Added startup logging that clearly shows the configured offer type and fee (e.g., "Offer config: type=sw0reloffer, relative fee=0.001 (0.1000%)")
+  - Added detailed startup logging when using `--dual-offers` showing both offer configurations
+  - Added summary log after offer creation showing all offers to be announced with their sizes and fees
+  - Addresses issue #86 where users expected commenting out `cj_fee_relative` would switch to absolute fees
+
 - **Real-Time Autocomplete for Mnemonic Input**: The `jm-wallet import` interactive mnemonic input now features real-time autocomplete suggestions as you type. When there are 10 or fewer matching BIP39 words, they are displayed inline in gray. When only one match remains (after typing 3+ characters), the word auto-completes automatically. Tab completion is also available for partial matches. The feature gracefully falls back to readline-based completion on terminals that don't support raw input mode. Additionally, you can now paste all words at once (or a subset), with validation and clear error messages for invalid words.
 
 - **Component Name in Notification Titles**: Notifications now include the component name in the title, making it easier to identify which component sent a notification when running multiple JoinMarket components (Maker, Taker, Directory, Orderbook). For example, instead of "JoinMarket NG: Fill Request Received", notifications now show "JoinMarket NG (Maker): Fill Request Received". This is especially useful when running multiple components simultaneously and receiving notifications through a single channel.

@@ -98,6 +98,9 @@ check_system_dependencies() {
         if ! dpkg -s pkg-config &> /dev/null 2>&1; then
             missing_deps+=("pkg-config")
         fi
+        if ! dpkg -s python3-dev &> /dev/null 2>&1; then
+            missing_deps+=("python3-dev")
+        fi
         if ! dpkg -s python3-venv &> /dev/null 2>&1; then
             missing_deps+=("python3-venv")
         fi
@@ -161,7 +164,7 @@ check_python_version() {
 
     if ! command -v python3 &> /dev/null; then
         print_error "Python 3 is not installed. Please install Python 3.11 or higher."
-        echo "  For Debian/Ubuntu: sudo apt install python3 python3-venv python3-pip"
+        echo "  For Debian/Ubuntu: sudo apt install python3 python3-dev python3-venv python3-pip"
         echo "  For macOS: brew install python3"
         exit 1
     fi

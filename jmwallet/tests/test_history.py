@@ -1219,3 +1219,201 @@ class TestCleanupStalePendingTransactions:
         # Verify failure reason unchanged
         entries = read_history(temp_data_dir)
         assert entries[0].failure_reason == "Original failure reason"
+
+
+class TestAddressHistoryTypesAfterConfirmation:
+    """Tests for get_address_history_types with confirmed maker entries.
+
+    This tests a specific bug where addresses from confirmed CoinJoin transactions
+    were showing as 'non-cj-change' instead of 'cj-out' because the history entry
+    was created with success=False and get_address_history_types only returns
+    'cj_out' for entries with success=True.
+    """
+
+    def test_maker_addresses_after_confirmation(self, temp_data_dir: Path) -> None:
+        """Test that get_address_history_types returns correct types after confirmation.
+
+        Bug scenario:
+        1. Maker creates history entry with success=False (pending)
+        2. Transaction gets confirmed, success=True is set
+        3. get_address_history_types should return 'cj_out' for destination_address
+           and 'change' for change_address
+        """
+        from jmwallet.history import get_address_history_types
+
+        cj_address = "bc1q0690ccmpdrhha3eqau3ejha5p7pdyss0kxptzg"
+        change_address = "bc1q8gkl5fg55zd4q3ff9jl2fkac287gks9akauaw6"
+
+        # Step 1: Create a pending maker entry (success=False)
+        entry = create_maker_history_entry(
+            taker_nick="J52rYHcxwx9CxVJ1",
+            cj_amount=98192,
+            fee_received=0,
+            txfee_contribution=0,
+            cj_address=cj_address,
+            change_address=change_address,
+            our_utxos=[("input1", 0), ("input2", 1)],
+            txid="81d70553942222a342b27d456475d3dc1b5212336366ab88bfd98cea5c1653e3",
+        )
+        append_history_entry(entry, temp_data_dir)
+
+        # Verify entry is pending
+        entries = read_history(temp_data_dir)
+        assert len(entries) == 1
+        assert entries[0].success is False
+        assert entries[0].failure_reason == "Pending confirmation"
+
+        # At this point, get_address_history_types should return 'flagged'
+        # because success=False
+        history_types = get_address_history_types(temp_data_dir)
+        assert history_types.get(cj_address) == "flagged"
+        assert history_types.get(change_address) == "flagged"
+
+        # Step 2: Confirm the transaction
+        result = update_transaction_confirmation(
+            txid="81d70553942222a342b27d456475d3dc1b5212336366ab88bfd98cea5c1653e3",
+            confirmations=1,
+            data_dir=temp_data_dir,
+        )
+        assert result is True
+
+        # Verify entry is now successful
+        entries = read_history(temp_data_dir)
+        assert len(entries) == 1
+        assert entries[0].success is True
+        assert entries[0].confirmations == 1
+
+        # Step 3: Now get_address_history_types should return correct types
+        history_types = get_address_history_types(temp_data_dir)
+        assert history_types.get(cj_address) == "cj_out", (
+            f"Expected 'cj_out' for CJ output address, got {history_types.get(cj_address)}"
+        )
+        assert history_types.get(change_address) == "change", (
+            f"Expected 'change' for change address, got {history_types.get(change_address)}"
+        )
+
+    def test_mixed_pending_and_confirmed_entries(self, temp_data_dir: Path) -> None:
+        """Test that pending entries are flagged while confirmed are typed correctly."""
+        from jmwallet.history import get_address_history_types
+
+        # Create a confirmed entry
+        confirmed_entry = TransactionHistoryEntry(
+            timestamp="2024-01-01T00:00:00",
+            role="maker",
+            success=True,
+            confirmations=6,
+            txid="confirmed_txid_123",
+            cj_amount=100000,
+            destination_address="bc1qconfirmed_cj_out",
+            change_address="bc1qconfirmed_change",
+        )
+        append_history_entry(confirmed_entry, temp_data_dir)
+
+        # Create a pending entry
+        pending_entry = create_maker_history_entry(
+            taker_nick="J5taker",
+            cj_amount=50000,
+            fee_received=0,
+            txfee_contribution=0,
+            cj_address="bc1qpending_cj_addr",
+            change_address="bc1qpending_change",
+            our_utxos=[("input", 0)],
+            txid="pending_txid_456",
+        )
+        append_history_entry(pending_entry, temp_data_dir)
+
+        history_types = get_address_history_types(temp_data_dir)
+
+        # Confirmed addresses should have correct types
+        assert history_types.get("bc1qconfirmed_cj_out") == "cj_out"
+        assert history_types.get("bc1qconfirmed_change") == "change"
+
+        # Pending addresses should be flagged (since tx not confirmed)
+        assert history_types.get("bc1qpending_cj_addr") == "flagged"
+        assert history_types.get("bc1qpending_change") == "flagged"
+
+    def test_successful_tx_not_overwritten_by_failed(self, temp_data_dir: Path) -> None:
+        """Test that successful tx type is not overwritten by later failed transactions.
+
+        Bug scenario (real-world):
+        1. Address bc1q069... used in successful CoinJoin (success=True)
+        2. Same address later shared in multiple failed transactions (success=False)
+        3. get_address_history_types was incorrectly returning 'flagged' because
+           the failed entries came after the successful one and overwrote the type
+
+        The fix ensures that once an address is used in a successful CoinJoin,
+        it remains 'cj_out' or 'change' regardless of later failed transactions.
+        """
+        from jmwallet.history import get_address_history_types
+
+        cj_address = "bc1q0690ccmpdrhha3eqau3ejha5p7pdyss0kxptzg"
+        change_address = "bc1q8gkl5fg55zd4q3ff9jl2fkac287gks9akauaw6"
+
+        # First: Create the SUCCESSFUL transaction (this should "win")
+        successful_entry = TransactionHistoryEntry(
+            timestamp="2026-01-18T05:47:41",
+            completed_at="2026-01-18T05:54:55",
+            role="maker",
+            success=True,
+            confirmations=1,
+            txid="81d70553942222a342b27d456475d3dc1b5212336366ab88bfd98cea5c1653e3",
+            cj_amount=98192,
+            peer_count=6,
+            destination_address=cj_address,
+            change_address=change_address,
+        )
+        append_history_entry(successful_entry, temp_data_dir)
+
+        # Then: Create multiple FAILED transactions using the same addresses
+        # (This can happen when takers retry with the same maker address)
+        for i, txid_prefix in enumerate(["2e01625d", "0d238e5e", "c3394222"]):
+            failed_entry = TransactionHistoryEntry(
+                timestamp=f"2026-01-17T{20 + i}:00:00",
+                completed_at=f"2026-01-18T17:59:0{i}",
+                role="maker",
+                success=False,
+                failure_reason="Timed out - taker never broadcast",
+                confirmations=0,
+                txid=txid_prefix + "00" * 28,
+                cj_amount=98192,
+                destination_address=cj_address,  # Same address!
+                change_address=change_address,  # Same address!
+            )
+            append_history_entry(failed_entry, temp_data_dir)
+
+        # Verify the address types - successful should take precedence
+        history_types = get_address_history_types(temp_data_dir)
+
+        assert history_types.get(cj_address) == "cj_out", (
+            f"Expected 'cj_out' for CJ output address used in successful tx, "
+            f"got '{history_types.get(cj_address)}'"
+        )
+        assert history_types.get(change_address) == "change", (
+            f"Expected 'change' for change address used in successful tx, "
+            f"got '{history_types.get(change_address)}'"
+        )
+
+    def test_failed_only_address_is_flagged(self, temp_data_dir: Path) -> None:
+        """Test that addresses ONLY used in failed transactions are flagged."""
+        from jmwallet.history import get_address_history_types
+
+        # Create only failed entries for this address
+        failed_entry = TransactionHistoryEntry(
+            timestamp="2026-01-17T20:00:00",
+            completed_at="2026-01-18T17:59:00",
+            role="maker",
+            success=False,
+            failure_reason="Timed out",
+            confirmations=0,
+            txid="failed_only_txid_123",
+            cj_amount=50000,
+            destination_address="bc1qfailed_only_addr",
+            change_address="bc1qfailed_only_chg",
+        )
+        append_history_entry(failed_entry, temp_data_dir)
+
+        history_types = get_address_history_types(temp_data_dir)
+
+        # These should be flagged since they were never used successfully
+        assert history_types.get("bc1qfailed_only_addr") == "flagged"
+        assert history_types.get("bc1qfailed_only_chg") == "flagged"

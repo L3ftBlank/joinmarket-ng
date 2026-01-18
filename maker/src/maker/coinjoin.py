@@ -558,6 +558,11 @@ class CoinJoinSession:
             change_index = self.wallet.get_next_address_index(max_mixdepth, 1)
             change_address = self.wallet.get_change_address(max_mixdepth, change_index)
 
+            # Reserve addresses immediately after selection to prevent reuse
+            # in concurrent CoinJoin sessions. Once shared with a taker, addresses
+            # must never be reused even if the CoinJoin fails.
+            self.wallet.reserve_addresses({cj_address, change_address})
+
             logger.info(
                 f"Selected {len(selected)} UTXOs from mixdepth {max_mixdepth} "
                 f"(merge_algorithm={self.merge_algorithm}), "

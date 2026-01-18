@@ -757,9 +757,13 @@ def get_address_history_types(data_dir: Path | None = None) -> dict[str, str]:
     Get the history type for each address used in CoinJoin history.
 
     This maps addresses to their role in CoinJoin transactions:
-    - "cj_out": CoinJoin output address (destination)
-    - "change": Change address
-    - "flagged": Address was shared but transaction failed
+    - "cj_out": CoinJoin output address (destination) - from successful CJ
+    - "change": Change address - from successful CJ
+    - "flagged": Address was shared but ALL transactions using it failed
+
+    Priority: successful transactions take precedence over failed ones.
+    Once an address is used in a successful CoinJoin, it remains cj_out/change
+    even if later transactions using the same address failed.
 
     Args:
         data_dir: Optional data directory (defaults to get_default_data_dir())
@@ -774,19 +778,22 @@ def get_address_history_types(data_dir: Path | None = None) -> dict[str, str]:
         if entry.destination_address:
             # CoinJoin output address
             if entry.success:
+                # Successful transaction - mark as cj_out (overrides any previous flagged)
                 address_types[entry.destination_address] = "cj_out"
             else:
-                # Transaction failed - address was shared but not used
-                # Still mark as flagged to prevent reuse
-                address_types[entry.destination_address] = "flagged"
+                # Transaction failed - only mark as flagged if not already used successfully
+                if entry.destination_address not in address_types:
+                    address_types[entry.destination_address] = "flagged"
 
         if entry.change_address:
             # Change address
             if entry.success:
+                # Successful transaction - mark as change (overrides any previous flagged)
                 address_types[entry.change_address] = "change"
             else:
-                # Transaction failed but address was shared
-                address_types[entry.change_address] = "flagged"
+                # Transaction failed - only mark as flagged if not already used successfully
+                if entry.change_address not in address_types:
+                    address_types[entry.change_address] = "flagged"
 
     return address_types
 

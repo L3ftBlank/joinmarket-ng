@@ -890,3 +890,148 @@ class TestAccountZpub:
         assert zpub != xpub
         assert zpub.startswith("zpub") or zpub.startswith("vpub")
         assert xpub.startswith("xpub") or xpub.startswith("tpub")
+
+
+class TestAddressReservation:
+    """Tests for address reservation during CoinJoin sessions.
+
+    Address reservation prevents reuse of addresses that have been shared with
+    takers but where the CoinJoin hasn't completed yet (concurrent sessions).
+    """
+
+    @pytest.fixture
+    def mock_backend(self):
+        """Create a mock backend."""
+        backend = Mock()
+        backend.get_utxos = AsyncMock(return_value=[])
+        backend.close = AsyncMock()
+        return backend
+
+    @pytest.fixture
+    def wallet(self, mock_backend, test_mnemonic, test_network):
+        """Create a wallet for testing."""
+        wallet = WalletService(
+            mnemonic=test_mnemonic,
+            backend=mock_backend,
+            network=test_network,
+            mixdepth_count=5,
+        )
+        wallet.utxo_cache = {i: [] for i in range(5)}
+        return wallet
+
+    def test_reserve_addresses_adds_to_set(self, wallet):
+        """Test that reserve_addresses adds addresses to reserved_addresses."""
+        addr1 = wallet.get_change_address(0, 0)
+        addr2 = wallet.get_change_address(1, 0)
+
+        wallet.reserve_addresses({addr1, addr2})
+
+        assert addr1 in wallet.reserved_addresses
+        assert addr2 in wallet.reserved_addresses
+
+    def test_reserved_addresses_skipped_by_get_next_address_index(self, wallet):
+        """Test that reserved addresses cause get_next_address_index to skip past them."""
+        # Reserve address at index 0 for change in mixdepth 0
+        addr_0 = wallet.get_change_address(0, 0)
+        wallet.reserve_addresses({addr_0})
+
+        # Next address should be index 1
+        index = wallet.get_next_address_index(mixdepth=0, change=1)
+        assert index == 1
+
+    def test_multiple_reserved_addresses_skipped(self, wallet):
+        """Test that multiple reserved addresses are all skipped."""
+        # Reserve addresses at indices 0, 1, 2
+        addrs = {
+            wallet.get_change_address(0, 0),
+            wallet.get_change_address(0, 1),
+            wallet.get_change_address(0, 2),
+        }
+        wallet.reserve_addresses(addrs)
+
+        # Next address should be index 3
+        index = wallet.get_next_address_index(mixdepth=0, change=1)
+        assert index == 3
+
+    def test_reserved_addresses_respect_mixdepth(self, wallet):
+        """Test that reserved addresses only affect their own mixdepth."""
+        # Reserve address at index 5 in mixdepth 0
+        addr_m0 = wallet.get_change_address(0, 5)
+        wallet.reserve_addresses({addr_m0})
+
+        # Mixdepth 0 change should be 6
+        index_m0 = wallet.get_next_address_index(mixdepth=0, change=1)
+        assert index_m0 == 6
+
+        # Mixdepth 1 change should still be 0
+        index_m1 = wallet.get_next_address_index(mixdepth=1, change=1)
+        assert index_m1 == 0
+
+    def test_reserved_addresses_combined_with_history(self, wallet):
+        """Test that reserved addresses work alongside addresses_with_history."""
+        # Address 0 had blockchain history
+        addr_0 = wallet.get_change_address(0, 0)
+        wallet.addresses_with_history.add(addr_0)
+
+        # Address 1 is reserved (shared in current session)
+        addr_1 = wallet.get_change_address(0, 1)
+        wallet.reserve_addresses({addr_1})
+
+        # Next should be index 2
+        index = wallet.get_next_address_index(mixdepth=0, change=1)
+        assert index == 2
+
+    def test_reserved_addresses_combined_with_utxos(self, wallet):
+        """Test reserved addresses work with UTXOs."""
+        # UTXO at index 3
+        addr_3 = wallet.get_change_address(0, 3)
+        utxo = UTXOInfo(
+            txid="0" * 64,
+            vout=0,
+            value=100000,
+            address=addr_3,
+            confirmations=6,
+            scriptpubkey="0014" + "00" * 20,
+            path=f"{wallet.root_path}/0'/1/3",
+            mixdepth=0,
+        )
+        wallet.utxo_cache[0] = [utxo]
+
+        # Reserved at index 5
+        addr_5 = wallet.get_change_address(0, 5)
+        wallet.reserve_addresses({addr_5})
+
+        # Next should be 6 (past reserved)
+        index = wallet.get_next_address_index(mixdepth=0, change=1)
+        assert index == 6
+
+    def test_concurrent_sessions_get_different_addresses(self, wallet):
+        """Test that concurrent CoinJoin sessions get different addresses.
+
+        This is the key bug scenario: two concurrent !fill requests should
+        result in different CJ output addresses, not the same one.
+        """
+        # First session gets addresses
+        cj_addr_1 = wallet.get_change_address(1, wallet.get_next_address_index(1, 1))
+        change_addr_1 = wallet.get_change_address(0, wallet.get_next_address_index(0, 1))
+
+        # Reserve them (this happens when !ioauth is sent)
+        wallet.reserve_addresses({cj_addr_1, change_addr_1})
+
+        # Second session should get different addresses
+        cj_addr_2 = wallet.get_change_address(1, wallet.get_next_address_index(1, 1))
+        change_addr_2 = wallet.get_change_address(0, wallet.get_next_address_index(0, 1))
+
+        # They should be different
+        assert cj_addr_1 != cj_addr_2
+        assert change_addr_1 != change_addr_2
+
+    def test_external_addresses_can_be_reserved(self, wallet):
+        """Test that external (receive) addresses can also be reserved."""
+        # Reserve external address at index 0
+        addr_0 = wallet.get_receive_address(0, 0)
+        wallet.reserve_addresses({addr_0})
+
+        # Next external should be 1
+        index = wallet.get_next_address_index(mixdepth=0, change=0)
+        assert index == 1

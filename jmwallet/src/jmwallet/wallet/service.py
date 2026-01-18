@@ -72,6 +72,10 @@ class WalletService:
         # Track addresses that have ever had UTXOs (including spent ones)
         # This is used to correctly label addresses as "used-empty" vs "new"
         self.addresses_with_history: set[str] = set()
+        # Track addresses currently reserved for in-progress CoinJoin sessions
+        # These addresses have been shared with a taker but the CoinJoin hasn't
+        # completed yet. They must not be reused until the session ends.
+        self.reserved_addresses: set[str] = set()
 
     def get_address(self, mixdepth: int, change: int, index: int) -> str:
         """Get address for given path"""
@@ -1404,7 +1408,33 @@ class WalletService:
                     if md == mixdepth and ch == change and idx > max_index:
                         max_index = idx
 
+        # Check addresses reserved for in-progress CoinJoin sessions
+        # These have been shared with takers but the session hasn't completed yet
+        for address in self.reserved_addresses:
+            if address in self.address_cache:
+                md, ch, idx = self.address_cache[address]
+                if md == mixdepth and ch == change and idx > max_index:
+                    max_index = idx
+
         return max_index + 1
+
+    def reserve_addresses(self, addresses: set[str]) -> None:
+        """
+        Reserve addresses for an in-progress CoinJoin session.
+
+        Once addresses are shared with a taker (in !ioauth message), they must not
+        be reused even if the CoinJoin fails. This method marks addresses as reserved
+        so get_next_address_index() will skip past them.
+
+        Note: Addresses stay reserved until the wallet is restarted, since they may
+        have been logged by counterparties. The CoinJoin history file provides
+        persistent tracking across restarts.
+
+        Args:
+            addresses: Set of addresses to reserve (typically cj_address + change_address)
+        """
+        self.reserved_addresses.update(addresses)
+        logger.debug(f"Reserved {len(addresses)} addresses: {addresses}")
 
     async def sync(self) -> dict[int, list[UTXOInfo]]:
         """Sync wallet (alias for sync_all for backward compatibility)."""

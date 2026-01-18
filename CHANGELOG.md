@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Component Name in Notification Titles**: Notifications now include the component name in the title, making it easier to identify which component sent a notification when running multiple JoinMarket components (Maker, Taker, Directory, Orderbook). For example, instead of "JoinMarket NG: Fill Request Received", notifications now show "JoinMarket NG (Maker): Fill Request Received". This is especially useful when running multiple components simultaneously and receiving notifications through a single channel.
+
 - **Fix Scientific Notation in Maker Fee Offers**: Fixed an issue where small relative fee values (like `0.00001`) were being sent in scientific notation (e.g., `1e-05`) instead of decimal notation. This happened when the fee was configured as a float in TOML config or environment variables, and Python's default float-to-string conversion produced scientific notation. The JoinMarket protocol expects decimal notation, which could cause compatibility issues with reference implementations. Added field validators to normalize all `cj_fee_relative` values to proper decimal strings.
 
 - **Improved Wallet Info Display**: Redesigned the `jm-wallet info` output to be clearer and less misleading:

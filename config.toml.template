@@ -120,6 +120,7 @@
 
 # Notification preferences
 # title_prefix = "JoinMarket NG"
+# component_name is set automatically by each component (Maker, Taker, etc.)
 # include_amounts = true
 # include_txids = false
 # include_nick = true

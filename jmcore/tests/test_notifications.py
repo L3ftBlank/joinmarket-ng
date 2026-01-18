@@ -30,6 +30,7 @@ class TestNotificationConfig:
         assert config.enabled is False
         assert config.urls == []
         assert config.title_prefix == "JoinMarket NG"
+        assert config.component_name == ""
         assert config.include_amounts is True
         assert config.include_txids is False
         assert config.include_nick is True
@@ -43,12 +44,14 @@ class TestNotificationConfig:
             enabled=True,
             urls=["gotify://host/token"],
             title_prefix="Test",
+            component_name="Maker",
             include_amounts=False,
         )
 
         assert config.enabled is True
         assert [url.get_secret_value() for url in config.urls] == ["gotify://host/token"]
         assert config.title_prefix == "Test"
+        assert config.component_name == "Maker"
         assert config.include_amounts is False
 
     def test_tor_config_defaults(self) -> None:
@@ -350,6 +353,72 @@ class TestNotifier:
         mock_apprise_instance.async_notify.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_notification_title_with_component_name(self) -> None:
+        """Test that notification title includes component name when set."""
+        config = NotificationConfig(
+            enabled=True,
+            urls=["gotify://host/token"],
+            title_prefix="JoinMarket NG",
+            component_name="Maker",
+        )
+        notifier = Notifier(config)
+
+        # Mock the apprise module
+        mock_apprise_instance = MagicMock()
+        mock_apprise_instance.add.return_value = True
+        mock_apprise_instance.__len__ = lambda self: 1
+        mock_apprise_instance.async_notify = AsyncMock(return_value=True)
+
+        mock_apprise_module = MagicMock()
+        mock_apprise_module.Apprise.return_value = mock_apprise_instance
+        mock_apprise_module.NotifyType.INFO = "info"
+
+        with patch.dict("sys.modules", {"apprise": mock_apprise_module}):
+            # Force re-initialization
+            notifier._initialized = False
+            notifier._apprise = None
+
+            await notifier._send("Test Event", "Test body")
+
+        # Verify the title includes component name
+        mock_apprise_instance.async_notify.assert_called_once()
+        call_kwargs = mock_apprise_instance.async_notify.call_args[1]
+        assert call_kwargs["title"] == "JoinMarket NG (Maker): Test Event"
+
+    @pytest.mark.asyncio
+    async def test_notification_title_without_component_name(self) -> None:
+        """Test that notification title works without component name."""
+        config = NotificationConfig(
+            enabled=True,
+            urls=["gotify://host/token"],
+            title_prefix="JoinMarket NG",
+            component_name="",  # Empty component name
+        )
+        notifier = Notifier(config)
+
+        # Mock the apprise module
+        mock_apprise_instance = MagicMock()
+        mock_apprise_instance.add.return_value = True
+        mock_apprise_instance.__len__ = lambda self: 1
+        mock_apprise_instance.async_notify = AsyncMock(return_value=True)
+
+        mock_apprise_module = MagicMock()
+        mock_apprise_module.Apprise.return_value = mock_apprise_instance
+        mock_apprise_module.NotifyType.INFO = "info"
+
+        with patch.dict("sys.modules", {"apprise": mock_apprise_module}):
+            # Force re-initialization
+            notifier._initialized = False
+            notifier._apprise = None
+
+            await notifier._send("Test Event", "Test body")
+
+        # Verify the title does not have parentheses when no component
+        mock_apprise_instance.async_notify.assert_called_once()
+        call_kwargs = mock_apprise_instance.async_notify.call_args[1]
+        assert call_kwargs["title"] == "JoinMarket NG: Test Event"
+
+    @pytest.mark.asyncio
     async def test_tor_proxy_configuration(self) -> None:
         """Test that Tor proxy environment variables are set correctly from config."""
         config = NotificationConfig(
@@ -436,6 +505,30 @@ class TestGlobalNotifier:
         n2 = get_notifier()
 
         assert n1 is not n2
+
+    def test_get_notifier_with_component_name(self) -> None:
+        """Test that get_notifier sets component_name in config."""
+        reset_notifier()
+
+        notifier = get_notifier(component_name="Taker")
+
+        assert notifier.config.component_name == "Taker"
+
+    def test_get_notifier_with_settings_and_component_name(self) -> None:
+        """Test that get_notifier with settings uses component_name parameter."""
+        from jmcore.settings import JoinMarketSettings, NotificationSettings
+
+        reset_notifier()
+
+        settings = JoinMarketSettings(
+            notifications=NotificationSettings(
+                urls=["gotify://host/token"],
+            )
+        )
+
+        notifier = get_notifier(settings, component_name="Maker")
+
+        assert notifier.config.component_name == "Maker"
 
 
 class TestNotificationPriority:
@@ -704,3 +797,49 @@ class TestConvertSettingsToNotificationConfig:
         assert config.use_tor is True
         assert config.tor_socks_host == "tor.example.com"
         assert config.tor_socks_port == 9999
+
+    def test_convert_component_name_from_parameter(self) -> None:
+        """Test that component_name parameter overrides settings."""
+        from jmcore.settings import JoinMarketSettings, NotificationSettings
+
+        settings = JoinMarketSettings(
+            notifications=NotificationSettings(
+                urls=["gotify://host/token"],
+                component_name="Settings Component",
+            )
+        )
+
+        config = convert_settings_to_notification_config(settings, component_name="Maker")
+
+        # Parameter should override settings
+        assert config.component_name == "Maker"
+
+    def test_convert_component_name_from_settings(self) -> None:
+        """Test that component_name falls back to settings when parameter is empty."""
+        from jmcore.settings import JoinMarketSettings, NotificationSettings
+
+        settings = JoinMarketSettings(
+            notifications=NotificationSettings(
+                urls=["gotify://host/token"],
+                component_name="Directory",
+            )
+        )
+
+        config = convert_settings_to_notification_config(settings, component_name="")
+
+        # Should use settings value
+        assert config.component_name == "Directory"
+
+    def test_convert_component_name_default(self) -> None:
+        """Test that component_name defaults to empty string."""
+        from jmcore.settings import JoinMarketSettings, NotificationSettings
+
+        settings = JoinMarketSettings(
+            notifications=NotificationSettings(
+                urls=["gotify://host/token"],
+            )
+        )
+
+        config = convert_settings_to_notification_config(settings)
+
+        assert config.component_name == ""

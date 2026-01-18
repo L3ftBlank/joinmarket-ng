@@ -30,7 +30,7 @@ async def run_server() -> None:
 
     # Initialize notifier with settings before creating server
     # This ensures DirectoryServer can use get_notifier() with config file settings
-    get_notifier(settings)
+    get_notifier(settings, component_name="Directory")
 
     network = settings.network_config.network
     server_nick = f"directory-{network.value}"

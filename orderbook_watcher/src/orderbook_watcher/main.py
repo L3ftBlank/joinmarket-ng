@@ -90,7 +90,7 @@ async def run_watcher(log_level: str | None = None) -> None:
 
     try:
         # Send startup notification immediately
-        notifier = get_notifier(settings)
+        notifier = get_notifier(settings, component_name="Orderbook")
         await notifier.notify_startup(
             component="Orderbook Watcher",
             network=network.value,

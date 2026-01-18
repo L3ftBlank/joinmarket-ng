@@ -76,6 +76,10 @@ class NotificationConfig(BaseModel):
         default="JoinMarket NG",
         description="Prefix for all notification titles",
     )
+    component_name: str = Field(
+        default="",
+        description="Component name to include in notification titles (e.g., 'Maker', 'Taker')",
+    )
 
     # Privacy settings - exclude sensitive data from notifications
     include_amounts: bool = Field(
@@ -150,7 +154,10 @@ def load_notification_config() -> NotificationConfig:
     return config
 
 
-def convert_settings_to_notification_config(settings: JoinMarketSettings) -> NotificationConfig:
+def convert_settings_to_notification_config(
+    settings: JoinMarketSettings,
+    component_name: str = "",
+) -> NotificationConfig:
     """
     Convert NotificationSettings from JoinMarketSettings to NotificationConfig.
 
@@ -159,6 +166,9 @@ def convert_settings_to_notification_config(settings: JoinMarketSettings) -> Not
 
     Args:
         settings: JoinMarketSettings instance with notification configuration
+        component_name: Optional component name to include in notification titles.
+            If provided, overrides settings.notifications.component_name.
+            Examples: "Maker", "Taker", "Directory", "Orderbook Watcher"
 
     Returns:
         NotificationConfig suitable for use with Notifier
@@ -172,10 +182,14 @@ def convert_settings_to_notification_config(settings: JoinMarketSettings) -> Not
     # The enabled flag is primarily for explicit control when URLs are managed elsewhere
     enabled = bool(ns.urls) or ns.enabled
 
+    # Use provided component_name or fall back to settings
+    effective_component_name = component_name or ns.component_name
+
     return NotificationConfig(
         enabled=enabled,
         urls=urls,
         title_prefix=ns.title_prefix,
+        component_name=effective_component_name,
         include_amounts=ns.include_amounts,
         include_txids=ns.include_txids,
         include_nick=ns.include_nick,
@@ -322,7 +336,11 @@ class Notifier:
                 NotificationPriority.FAILURE: apprise.NotifyType.FAILURE,
             }.get(priority, apprise.NotifyType.INFO)
 
-            full_title = f"{self.config.title_prefix}: {title}"
+            # Build title: "JoinMarket NG (Maker): Title" or "JoinMarket NG: Title" if no component
+            if self.config.component_name:
+                full_title = f"{self.config.title_prefix} ({self.config.component_name}): {title}"
+            else:
+                full_title = f"{self.config.title_prefix}: {title}"
 
             # Send asynchronously if apprise supports it, otherwise in executor
             if hasattr(apprise_instance, "async_notify"):
@@ -753,7 +771,10 @@ class Notifier:
 _notifier: Notifier | None = None
 
 
-def get_notifier(settings: JoinMarketSettings | None = None) -> Notifier:
+def get_notifier(
+    settings: JoinMarketSettings | None = None,
+    component_name: str = "",
+) -> Notifier:
     """
     Get the global Notifier instance.
 
@@ -765,6 +786,10 @@ def get_notifier(settings: JoinMarketSettings | None = None) -> Notifier:
                   configuration will be taken from settings.notifications
                   (which supports config file + env vars + CLI args).
                   If None, falls back to environment variables only (legacy).
+        component_name: Component name to include in notification titles.
+            Examples: "Maker", "Taker", "Directory", "Orderbook Watcher".
+            This makes it easier to identify which component sent a notification
+            when running multiple JoinMarket components.
 
     Returns:
         Notifier instance
@@ -772,9 +797,14 @@ def get_notifier(settings: JoinMarketSettings | None = None) -> Notifier:
     global _notifier
     if _notifier is None:
         if settings is not None:
-            config = convert_settings_to_notification_config(settings)
+            config = convert_settings_to_notification_config(settings, component_name)
         else:
             config = load_notification_config()
+            # If component_name provided but no settings, update the config
+            if component_name:
+                config = NotificationConfig(
+                    **{**config.model_dump(), "component_name": component_name}
+                )
         _notifier = Notifier(config)
     return _notifier
 

@@ -566,7 +566,7 @@ async def _run_coinjoin(
 
     try:
         # Send startup notification
-        notifier = get_notifier(settings)
+        notifier = get_notifier(settings, component_name="Taker")
         await notifier.notify_startup(
             component="Taker (CoinJoin)",
             network=config.network.value,
@@ -803,7 +803,7 @@ async def _run_tumble(
 
     try:
         # Send startup notification
-        notifier = get_notifier(settings)
+        notifier = get_notifier(settings, component_name="Taker")
         await notifier.notify_startup(
             component="Taker (Tumble)",
             network=config.network.value,

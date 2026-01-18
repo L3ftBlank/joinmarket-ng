@@ -225,6 +225,11 @@ class NotificationSettings(BaseModel):
         default="JoinMarket NG",
         description="Prefix for notification titles",
     )
+    component_name: str = Field(
+        default="",
+        description="Component name in notification titles (e.g., 'Maker', 'Taker'). "
+        "Usually set programmatically by each component.",
+    )
     include_amounts: bool = Field(
         default=True,
         description="Include amounts in notifications",

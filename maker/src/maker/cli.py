@@ -548,7 +548,10 @@ def start(
             ),
         ),
     ] = False,
-    log_level: Annotated[str, typer.Option("--log-level", "-l", help="Log level")] = "INFO",
+    log_level: Annotated[
+        str | None,
+        typer.Option("--log-level", "-l", help="Log level"),
+    ] = None,
 ) -> None:
     """
     Start the maker bot.
@@ -556,7 +559,7 @@ def start(
     Configuration is loaded from ~/.joinmarket-ng/config.toml (or $JOINMARKET_DATA_DIR/config.toml),
     environment variables, and CLI arguments. CLI arguments have the highest priority.
     """
-    # Load settings
+    # Load settings (log_level=None means use settings.logging.level)
     settings = setup_cli(log_level)
 
     # Ensure config file exists (creates template if not)
@@ -695,10 +698,13 @@ def generate_address(
         ),
     ] = None,
     backend_type: Annotated[str | None, typer.Option(help="Backend type")] = None,
-    log_level: Annotated[str, typer.Option("--log-level", "-l", help="Log level")] = "INFO",
+    log_level: Annotated[
+        str | None,
+        typer.Option("--log-level", "-l", help="Log level"),
+    ] = None,
 ) -> None:
     """Generate a new receive address."""
-    # Load settings
+    # Load settings (log_level=None means use settings.logging.level)
     settings = setup_cli(log_level)
 
     # Load mnemonic using unified resolver

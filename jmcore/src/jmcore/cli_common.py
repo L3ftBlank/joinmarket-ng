@@ -117,19 +117,26 @@ def setup_logging(level: str = "INFO") -> None:
     )
 
 
-def setup_cli(log_level: str = "INFO") -> JoinMarketSettings:
+def setup_cli(log_level: str | None = None) -> JoinMarketSettings:
     """
     Common CLI setup: reset settings cache, configure logging, return settings.
 
+    Log level priority: CLI argument > settings (env/config) > default "INFO"
+
     Args:
-        log_level: Log level for the session
+        log_level: Log level override from CLI (None means use settings)
 
     Returns:
         JoinMarketSettings instance with all sources loaded
     """
     reset_settings()
-    setup_logging(log_level)
-    return get_settings()
+    settings = get_settings()
+
+    # Resolve log level: CLI > settings > default
+    effective_log_level = log_level if log_level is not None else settings.logging.level
+    setup_logging(effective_log_level)
+
+    return settings
 
 
 # =============================================================================

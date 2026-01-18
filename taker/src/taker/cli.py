@@ -399,7 +399,10 @@ def coinjoin(
         ),
     ] = False,
     yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip confirmation prompt")] = False,
-    log_level: Annotated[str, typer.Option("--log-level", "-l", help="Log level")] = "INFO",
+    log_level: Annotated[
+        str | None,
+        typer.Option("--log-level", "-l", help="Log level"),
+    ] = None,
 ) -> None:
     """
     Execute a single CoinJoin transaction.
@@ -407,7 +410,7 @@ def coinjoin(
     Configuration is loaded from ~/.joinmarket-ng/config.toml (or $JOINMARKET_DATA_DIR/config.toml),
     environment variables, and CLI arguments. CLI arguments have the highest priority.
     """
-    # Load settings
+    # Load settings (log_level=None means use settings.logging.level)
     settings = setup_cli(log_level)
 
     # Ensure config file exists
@@ -667,7 +670,10 @@ def tumble(
     tor_socks_port: Annotated[
         int | None, typer.Option(help="Tor SOCKS proxy port (overrides TOR__SOCKS_PORT)")
     ] = None,
-    log_level: Annotated[str, typer.Option("--log-level", "-l", help="Log level")] = "INFO",
+    log_level: Annotated[
+        str | None,
+        typer.Option("--log-level", "-l", help="Log level"),
+    ] = None,
 ) -> None:
     """
     Run a tumbler schedule of CoinJoins.
@@ -675,7 +681,7 @@ def tumble(
     Configuration is loaded from ~/.joinmarket-ng/config.toml, environment variables,
     and CLI arguments. CLI arguments have the highest priority.
     """
-    # Load settings
+    # Load settings (log_level=None means use settings.logging.level)
     settings = setup_cli(log_level)
 
     # Ensure config file exists

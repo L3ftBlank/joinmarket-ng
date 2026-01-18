@@ -816,7 +816,10 @@ def info(
             help="Data directory (default: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR)",
         ),
     ] = None,
-    log_level: Annotated[str, typer.Option("--log-level", "-l")] = "INFO",
+    log_level: Annotated[
+        str | None,
+        typer.Option("--log-level", "-l", help="Log level"),
+    ] = None,
 ) -> None:
     """Display wallet information and balances by mixdepth."""
     settings = setup_cli(log_level)
@@ -1173,7 +1176,10 @@ def list_bonds(
     locktimes: Annotated[
         list[int] | None, typer.Option("--locktime", "-L", help="Locktime(s) to scan for")
     ] = None,
-    log_level: Annotated[str, typer.Option("--log-level", "-l")] = "INFO",
+    log_level: Annotated[
+        str | None,
+        typer.Option("--log-level", "-l", help="Log level"),
+    ] = None,
 ) -> None:
     """List all fidelity bonds in the wallet."""
     settings = setup_cli(log_level)
@@ -1337,7 +1343,10 @@ def generate_bond_address(
         bool,
         typer.Option("--no-save", help="Do not save the bond to the registry"),
     ] = False,
-    log_level: Annotated[str, typer.Option("--log-level", "-l")] = "INFO",
+    log_level: Annotated[
+        str | None,
+        typer.Option("--log-level", "-l", help="Log level"),
+    ] = None,
 ) -> None:
     """Generate a fidelity bond (timelocked P2WSH) address."""
     settings = setup_cli(log_level)
@@ -1537,7 +1546,10 @@ def send(
             help="Data directory (default: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR)",
         ),
     ] = None,
-    log_level: Annotated[str, typer.Option("--log-level", "-l")] = "INFO",
+    log_level: Annotated[
+        str | None,
+        typer.Option("--log-level", "-l", help="Log level"),
+    ] = None,
 ) -> None:
     """Send a simple transaction from wallet to an address."""
     settings = setup_cli(log_level)
@@ -2373,7 +2385,10 @@ def recover_bonds(
             help="Data directory (default: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR)",
         ),
     ] = None,
-    log_level: Annotated[str, typer.Option("--log-level", "-l")] = "INFO",
+    log_level: Annotated[
+        str | None,
+        typer.Option("--log-level", "-l", help="Log level"),
+    ] = None,
 ) -> None:
     """
     Recover fidelity bonds by scanning all 960 possible timelocks.
@@ -2629,7 +2644,10 @@ def registry_sync(
             help="Data directory (default: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR)",
         ),
     ] = None,
-    log_level: Annotated[str, typer.Option("--log-level", "-l")] = "INFO",
+    log_level: Annotated[
+        str | None,
+        typer.Option("--log-level", "-l", help="Log level"),
+    ] = None,
 ) -> None:
     """Sync fidelity bond funding status from the blockchain."""
     settings = setup_cli(log_level)

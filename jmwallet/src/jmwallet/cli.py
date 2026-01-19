@@ -3228,13 +3228,20 @@ def create_bond_address(
             save_registry(registry, resolved_data_dir)
             saved = True
 
+    # Compute the underlying P2WPKH address for the pubkey (for user confirmation)
+    from jmwallet.wallet.address import pubkey_to_p2wpkh_address
+
+    p2wpkh_address = pubkey_to_p2wpkh_address(bytes.fromhex(pubkey), network)
+
     print("\n" + "=" * 80)
     print("FIDELITY BOND ADDRESS (created from public key)")
     print("=" * 80)
-    print(f"\nAddress:      {address}")
-    print(f"Locktime:     {locktime} ({locktime_dt.strftime('%Y-%m-%d %H:%M:%S')})")
-    print(f"Network:      {network}")
-    print(f"Public Key:   {pubkey}")
+    print(f"\nBond Address (P2WSH):  {address}")
+    print(f"Signing Address:       {p2wpkh_address}")
+    print("  (Use this address in Sparrow to sign messages)")
+    print(f"Locktime:              {locktime} ({locktime_dt.strftime('%Y-%m-%d %H:%M:%S')})")
+    print(f"Network:               {network}")
+    print(f"Public Key:            {pubkey}")
     print()
     print("-" * 80)
     print("WITNESS SCRIPT (redeemScript)")
@@ -3251,22 +3258,39 @@ def create_bond_address(
     print("\n" + "=" * 80)
     print("HOW TO GET PUBLIC KEY FROM SPARROW WALLET:")
     print("=" * 80)
-    print("  1. Open Sparrow Wallet with your hardware wallet")
+    print("  1. Open Sparrow Wallet and connect your hardware wallet")
     print("  2. Go to Addresses tab")
-    print("  3. Navigate to the fidelity bond path: m/84'/0'/0'/2/0")
-    print("     (Or use the address you want for the bond)")
+    print("  3. Choose any address from the Deposit (m/84'/0'/0'/0/x) or")
+    print("     Change (m/84'/0'/0'/1/x) account - use index 0 for simplicity")
     print("  4. Right-click the address and select 'Copy Public Key'")
     print("  5. Use the copied public key with this command")
     print()
+    print("NOTE: The /2 fidelity bond derivation path is NOT available in Sparrow.")
+    print("      Using /0 (deposit) or /1 (change) addresses works fine.")
+    print()
     print("IMPORTANT:")
-    print("  - Funds sent to this address are LOCKED until the locktime!")
-    print("  - Make sure you can sign with this key in your hardware wallet")
+    print("  - Funds sent to the Bond Address are LOCKED until the locktime!")
+    print("  - Remember which address you used for the bond's public key")
     print("  - Your private keys never leave the hardware wallet")
     print("=" * 80 + "\n")
 
 
 @app.command("generate-hot-keypair")
 def generate_hot_keypair(
+    bond_address: Annotated[
+        str | None,
+        typer.Option(
+            "--bond-address",
+            help="Bond address to associate keypair with (saves to registry)",
+        ),
+    ] = None,
+    data_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--data-dir",
+            help="Data directory (default: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR)",
+        ),
+    ] = None,
     log_level: Annotated[str, typer.Option("--log-level")] = "INFO",
 ) -> None:
     """
@@ -3279,6 +3303,9 @@ def generate_hot_keypair(
     The certificate chain is:
       UTXO keypair (cold) -> signs -> certificate (hot) -> signs -> nick proofs
 
+    If --bond-address is provided, the keypair is saved to the bond registry
+    and will be automatically used when importing the certificate.
+
     SECURITY:
     - The hot wallet private key should be stored securely
     - If compromised, an attacker can impersonate your bond until cert expires
@@ -3287,22 +3314,46 @@ def generate_hot_keypair(
     setup_logging(log_level)
 
     from coincurve import PrivateKey
+    from jmcore.paths import get_default_data_dir
 
     # Generate a random private key
     privkey = PrivateKey()
     pubkey = privkey.public_key.format(compressed=True)
+
+    # Optionally save to registry
+    saved_to_registry = False
+    if bond_address:
+        from jmwallet.wallet.bond_registry import load_registry, save_registry
+
+        resolved_data_dir = data_dir if data_dir else get_default_data_dir()
+        registry = load_registry(resolved_data_dir)
+        bond = registry.get_bond_by_address(bond_address)
+
+        if bond:
+            bond.cert_pubkey = pubkey.hex()
+            bond.cert_privkey = privkey.secret.hex()
+            save_registry(registry, resolved_data_dir)
+            saved_to_registry = True
+            logger.info(f"Saved hot keypair to bond registry for {bond_address}")
+        else:
+            logger.warning(f"Bond not found for address: {bond_address}")
+            logger.info("Keypair will be displayed but NOT saved to registry")
 
     print("\n" + "=" * 80)
     print("HOT WALLET KEYPAIR FOR FIDELITY BOND CERTIFICATE")
     print("=" * 80)
     print(f"\nPrivate Key (hex): {privkey.secret.hex()}")
     print(f"Public Key (hex):  {pubkey.hex()}")
+    if saved_to_registry:
+        print(f"\nSaved to bond registry for: {bond_address}")
+        print("  (The keypair will be used automatically with import-certificate)")
     print("\n" + "=" * 80)
     print("NEXT STEPS:")
-    print("  1. Store the private key securely (you will need it for import-certificate)")
-    print("  2. Use the public key with 'prepare-certificate-message'")
-    print("  3. Sign the certificate message with your hardware wallet")
-    print("  4. Import the certificate with 'import-certificate'")
+    print("  1. Use the public key with 'prepare-certificate-message'")
+    print("  2. Sign the certificate message with your hardware wallet (Sparrow)")
+    print("  3. Import the certificate with 'import-certificate'")
+    if not saved_to_registry:
+        print("\nNOTE: Store the private key securely! You will need it for import-certificate.")
     print("\nSECURITY:")
     print("  - This is the HOT wallet key - it will be used to sign nick proofs")
     print("  - If this key is compromised, attacker can impersonate your bond")
@@ -3314,12 +3365,15 @@ def generate_hot_keypair(
 def prepare_certificate_message(
     bond_address: Annotated[str, typer.Argument(help="Bond P2WSH address")],
     cert_pubkey: Annotated[
-        str,
+        str | None,
         typer.Option("--cert-pubkey", help="Certificate public key (hex)"),
-    ],
+    ] = None,
     cert_expiry_blocks: Annotated[
         int,
-        typer.Option("--cert-expiry-blocks", help="Certificate expiry in blocks"),
+        typer.Option(
+            "--cert-expiry-blocks",
+            help="Certificate expiry in blocks (default ~2 years, range: 2016-131M)",
+        ),
     ] = 104832,  # ~2 years (52 * 2016)
     data_dir_opt: Annotated[
         Path | None,
@@ -3339,16 +3393,41 @@ def prepare_certificate_message(
     IMPORTANT: This command does NOT require your mnemonic or private keys.
     It only prepares the message that you will sign with your hardware wallet.
 
-    The certificate message format is:
-      "fidelity-bond-cert|<cert_pubkey>|<cert_expiry>"
+    If --cert-pubkey is not provided and the bond already has a hot keypair saved
+    in the registry (from generate-hot-keypair --bond-address), it will be used.
+
+    The certificate message format for Sparrow is plain ASCII text:
+      "fidelity-bond-cert|<cert_pubkey_hex>|<cert_expiry>"
 
     Where cert_expiry is the number of 2016-block periods (difficulty adjustment periods).
     """
     setup_logging(log_level)
 
-    if not cert_pubkey:
-        logger.error("--cert-pubkey is required")
+    from jmcore.paths import get_default_data_dir
+
+    from jmwallet.wallet.bond_registry import load_registry
+
+    # Resolve data directory
+    data_dir = data_dir_opt if data_dir_opt else get_default_data_dir()
+    registry = load_registry(data_dir)
+    bond = registry.get_bond_by_address(bond_address)
+
+    if not bond:
+        logger.error(f"Bond not found for address: {bond_address}")
+        logger.info("Make sure you have created the bond with 'create-bond-address' first")
         raise typer.Exit(1)
+
+    # Get cert_pubkey from argument or registry
+    if not cert_pubkey:
+        if bond.cert_pubkey:
+            cert_pubkey = bond.cert_pubkey
+            logger.info("Using certificate pubkey from bond registry")
+        else:
+            logger.error("--cert-pubkey is required")
+            logger.info(
+                "Run 'generate-hot-keypair --bond-address <addr>' first, or provide --cert-pubkey"
+            )
+            raise typer.Exit(1)
 
     # Validate cert_pubkey
     try:
@@ -3364,67 +3443,225 @@ def prepare_certificate_message(
     # Calculate cert_expiry as 2016-block periods
     cert_expiry = cert_expiry_blocks // 2016
 
-    # Create certificate message (binary format - matches reference implementation)
-    cert_msg = b"fidelity-bond-cert|" + cert_pubkey_bytes + b"|" + str(cert_expiry).encode("ascii")
-
-    # Also create the human-readable hex version for display
-    cert_msg_hex = cert_msg.hex()
+    # Create ASCII certificate message (hex pubkey - compatible with Sparrow text input)
+    # This format allows users to paste directly into Sparrow's message field
+    cert_msg_ascii = f"fidelity-bond-cert|{cert_pubkey}|{cert_expiry}"
 
     # Save message to file for easier signing workflows
-    from jmcore.paths import get_default_data_dir
-
-    data_dir = data_dir_opt if data_dir_opt else get_default_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
     message_file = data_dir / "certificate_message.txt"
-    message_file.write_text(cert_msg_hex)
+    message_file.write_text(cert_msg_ascii)
+
+    # Get the signing address (P2WPKH address for the bond's pubkey)
+    from jmwallet.wallet.address import pubkey_to_p2wpkh_address
+
+    bond_pubkey = bytes.fromhex(bond.pubkey)
+    # Determine network from bond
+    signing_address = pubkey_to_p2wpkh_address(bond_pubkey, bond.network)
 
     print("\n" + "=" * 80)
     print("FIDELITY BOND CERTIFICATE MESSAGE")
     print("=" * 80)
-    print(f"\nBond Address:          {bond_address}")
+    print(f"\nBond Address (P2WSH):  {bond_address}")
+    print(f"Signing Address:       {signing_address}")
+    print("  (Select this address in Sparrow to sign)")
     print(f"Certificate Pubkey:    {cert_pubkey}")
     weeks = cert_expiry_blocks // 2016 * 2
     print(f"Cert Expiry:           {cert_expiry} periods ({cert_expiry_blocks} blks, ~{weeks} wk)")
     print("\n" + "-" * 80)
-    print("MESSAGE TO SIGN (hex format):")
+    print("MESSAGE TO SIGN (copy this EXACTLY into Sparrow):")
     print("-" * 80)
-    print(cert_msg_hex)
+    print(cert_msg_ascii)
     print("-" * 80)
     print(f"\nMessage saved to: {message_file}")
     print("\n" + "=" * 80)
     print("HOW TO SIGN THIS MESSAGE:")
     print("=" * 80)
     print()
-    print("This certificate message needs to be signed by the bond UTXO's private key")
-    print("using Bitcoin message signing format.")
-    print()
-    print("OPTION 1: Sparrow Wallet with Hardware Wallet (Recommended)")
+    print("Sparrow Wallet with Hardware Wallet:")
     print("  1. Open Sparrow Wallet and connect your hardware wallet")
     print("  2. Go to Tools -> Sign/Verify Message")
-    print("  3. Select the address that corresponds to your bond's public key")
-    print("     (NOT the bond P2WSH address - the underlying P2WPKH address)")
-    print("  4. Paste the hex message above into the 'Message' field")
-    print("  5. Click 'Sign Message' - hardware wallet will prompt for confirmation")
-    print("  6. Copy the resulting signature")
-    print()
-    print("OPTION 2: Command-line with bitcoin-cli (if you have the private key)")
-    print("  bitcoin-cli signmessagewithprivkey '<privkey_wif>' '<message_hex>'")
+    print(f"  3. Select the Signing Address shown above: {signing_address}")
+    print("  4. Copy the entire message above (fidelity-bond-cert|...) and")
+    print("     paste it into the 'Message' field in Sparrow")
+    print("  5. Select 'Standard (Electrum)' format (NOT BIP322)")
+    print("  6. Click 'Sign Message' - hardware wallet will prompt for confirmation")
+    print("  7. Copy the resulting base64 signature")
     print()
     print("After signing, use 'jm-wallet import-certificate' with the signature.")
     print("=" * 80 + "\n")
 
 
+def _verify_recoverable_signature(
+    sig_bytes: bytes, cert_pubkey_hex: str, cert_expiry: int, expected_pubkey: bytes
+) -> bool:
+    """
+    Verify a 65-byte recoverable signature (Sparrow/Electrum format).
+
+    Electrum format: 1 byte header + 32 bytes R + 32 bytes S
+    Header encodes recovery ID: 27-30 for uncompressed, 31-34 for compressed.
+
+    coincurve format: 32 bytes R + 32 bytes S + 1 byte recovery_id
+
+    Returns True if the recovered pubkey matches expected_pubkey.
+    """
+    from coincurve import PublicKey
+    from jmcore.crypto import bitcoin_message_hash_bytes
+
+    if len(sig_bytes) != 65:
+        return False
+
+    header = sig_bytes[0]
+    r = sig_bytes[1:33]
+    s = sig_bytes[33:65]
+
+    # Determine recovery ID from header
+    # 27-30: uncompressed pubkey recovery
+    # 31-34: compressed pubkey recovery (Electrum/Sparrow default)
+    if 31 <= header <= 34:
+        recovery_id = header - 31
+        compressed = True
+    elif 27 <= header <= 30:
+        recovery_id = header - 27
+        compressed = False
+    else:
+        logger.warning(f"Unknown signature header byte: {header}")
+        return False
+
+    # coincurve expects: r (32) + s (32) + recovery_id (1)
+    coincurve_sig = r + s + bytes([recovery_id])
+
+    # Try ASCII message format (what Sparrow signed with our new CLI)
+    ascii_msg = f"fidelity-bond-cert|{cert_pubkey_hex}|{cert_expiry}".encode()
+    msg_hash = bitcoin_message_hash_bytes(ascii_msg)
+
+    try:
+        recovered_pk = PublicKey.from_signature_and_message(coincurve_sig, msg_hash, hasher=None)
+        recovered_pubkey = recovered_pk.format(compressed=compressed)
+
+        if recovered_pubkey == expected_pubkey:
+            logger.debug("Signature verified with ASCII message format")
+            return True
+    except Exception as e:
+        logger.debug(f"Recovery failed with ASCII format: {e}")
+
+    # Try binary format (raw pubkey bytes) as fallback
+    cert_pubkey_bytes = bytes.fromhex(cert_pubkey_hex)
+    binary_msg = (
+        b"fidelity-bond-cert|" + cert_pubkey_bytes + b"|" + str(cert_expiry).encode("ascii")
+    )
+    msg_hash = bitcoin_message_hash_bytes(binary_msg)
+
+    try:
+        recovered_pk = PublicKey.from_signature_and_message(coincurve_sig, msg_hash, hasher=None)
+        recovered_pubkey = recovered_pk.format(compressed=compressed)
+
+        if recovered_pubkey == expected_pubkey:
+            logger.debug("Signature verified with binary message format")
+            return True
+    except Exception as e:
+        logger.debug(f"Recovery failed with binary format: {e}")
+
+    # Try hex-as-text format (user pasted hex into Sparrow's message field)
+    # This handles the case where user pasted the old CLI's hex output
+    hex_msg = (
+        b"fidelity-bond-cert|" + cert_pubkey_bytes + b"|" + str(cert_expiry).encode("ascii")
+    ).hex()
+    hex_as_text_msg = hex_msg.encode("utf-8")
+    msg_hash = bitcoin_message_hash_bytes(hex_as_text_msg)
+
+    try:
+        recovered_pk = PublicKey.from_signature_and_message(coincurve_sig, msg_hash, hasher=None)
+        recovered_pubkey = recovered_pk.format(compressed=compressed)
+
+        if recovered_pubkey == expected_pubkey:
+            logger.debug("Signature verified with hex-as-text message format")
+            return True
+    except Exception as e:
+        logger.debug(f"Recovery failed with hex-as-text format: {e}")
+
+    return False
+
+
+def _verify_der_signature(
+    sig_bytes: bytes, cert_pubkey_hex: str, cert_expiry: int, expected_pubkey: bytes
+) -> bool:
+    """
+    Verify a DER-encoded signature.
+
+    Tries both ASCII and binary message formats.
+    """
+    from jmcore.crypto import bitcoin_message_hash_bytes, verify_raw_ecdsa
+
+    cert_pubkey_bytes = bytes.fromhex(cert_pubkey_hex)
+
+    # Try ASCII format first
+    ascii_msg = f"fidelity-bond-cert|{cert_pubkey_hex}|{cert_expiry}".encode()
+    msg_hash = bitcoin_message_hash_bytes(ascii_msg)
+
+    if verify_raw_ecdsa(msg_hash, sig_bytes, expected_pubkey):
+        logger.debug("DER signature verified with ASCII format")
+        return True
+
+    # Try binary format
+    binary_msg = (
+        b"fidelity-bond-cert|" + cert_pubkey_bytes + b"|" + str(cert_expiry).encode("ascii")
+    )
+    msg_hash = bitcoin_message_hash_bytes(binary_msg)
+
+    if verify_raw_ecdsa(msg_hash, sig_bytes, expected_pubkey):
+        logger.debug("DER signature verified with binary format")
+        return True
+
+    return False
+
+
+def _recoverable_to_der(sig_bytes: bytes) -> bytes:
+    """
+    Convert a 65-byte recoverable signature to DER format.
+
+    Format in: 1 byte header + 32 bytes R + 32 bytes S
+    Format out: DER-encoded signature
+    """
+    if len(sig_bytes) != 65:
+        return sig_bytes
+
+    r = sig_bytes[1:33]
+    s = sig_bytes[33:65]
+
+    def encode_int(val: bytes) -> bytes:
+        # Remove leading zeros but keep one if MSB is set
+        val = val.lstrip(b"\x00") or b"\x00"
+        if val[0] & 0x80:
+            val = b"\x00" + val
+        return bytes([len(val)]) + val
+
+    r_enc = encode_int(r)
+    s_enc = encode_int(s)
+
+    sig_body = b"\x02" + r_enc + b"\x02" + s_enc
+    return b"\x30" + bytes([len(sig_body)]) + sig_body
+
+
 @app.command("import-certificate")
 def import_certificate(
     address: Annotated[str, typer.Argument(help="Bond address")],
-    cert_pubkey: Annotated[str, typer.Option("--cert-pubkey", help="Certificate pubkey (hex)")],
+    cert_pubkey: Annotated[
+        str | None, typer.Option("--cert-pubkey", help="Certificate pubkey (hex)")
+    ] = None,
     cert_privkey: Annotated[
-        str, typer.Option("--cert-privkey", help="Certificate private key (hex)")
-    ],
+        str | None, typer.Option("--cert-privkey", help="Certificate private key (hex)")
+    ] = None,
     cert_signature: Annotated[
-        str, typer.Option("--cert-signature", help="Certificate signature (base64 or hex)")
-    ],
-    cert_expiry: Annotated[int, typer.Option("--cert-expiry", help="Certificate expiry (periods)")],
+        str, typer.Option("--cert-signature", help="Certificate signature (base64)")
+    ] = "",
+    cert_expiry: Annotated[
+        int,
+        typer.Option(
+            "--cert-expiry",
+            help="Certificate expiry in 2016-block periods (1=~2wk, 52=~2yr, max 65535)",
+        ),
+    ] = 52,
     data_dir: Annotated[
         Path | None,
         typer.Option(
@@ -3444,22 +3681,52 @@ def import_certificate(
     This imports a certificate generated with 'prepare-certificate-message' into the
     bond registry, allowing the hot wallet to use it for making offers.
 
-    You need to provide:
-    - cert_pubkey: Hot wallet public key (from generate-hot-keypair)
-    - cert_privkey: Hot wallet private key (from generate-hot-keypair)
-    - cert_signature: Certificate signature from hardware wallet (base64 or hex)
-    - cert_expiry: Certificate expiry in periods (from prepare-certificate-message)
+    If --cert-pubkey and --cert-privkey are not provided, they will be loaded from
+    the bond registry (from a previous 'generate-hot-keypair --bond-address' call).
 
-    The signature must have been created by signing the certificate message with
-    the bond UTXO's private key (in your hardware wallet).
+    The signature should be the base64 output from Sparrow's message signing tool,
+    using the 'Standard (Electrum)' format.
     """
     setup_logging(log_level)
 
     from coincurve import PrivateKey
-    from jmcore.crypto import bitcoin_message_hash_bytes, verify_raw_ecdsa
     from jmcore.paths import get_default_data_dir
 
     from jmwallet.wallet.bond_registry import load_registry, save_registry
+
+    # Load registry first to get bond info
+    resolved_data_dir = data_dir if data_dir else get_default_data_dir()
+    registry = load_registry(resolved_data_dir)
+
+    # Find bond by address
+    bond = registry.get_bond_by_address(address)
+    if not bond:
+        logger.error(f"Bond not found for address: {address}")
+        logger.info("Make sure you have created the bond with 'create-bond-address' first")
+        raise typer.Exit(1)
+
+    # Get cert_pubkey and cert_privkey from arguments or registry
+    if not cert_pubkey:
+        if bond.cert_pubkey:
+            cert_pubkey = bond.cert_pubkey
+            logger.info("Using certificate pubkey from bond registry")
+        else:
+            logger.error("--cert-pubkey is required")
+            logger.info("Run 'generate-hot-keypair --bond-address <addr>' first")
+            raise typer.Exit(1)
+
+    if not cert_privkey:
+        if bond.cert_privkey:
+            cert_privkey = bond.cert_privkey
+            logger.info("Using certificate privkey from bond registry")
+        else:
+            logger.error("--cert-privkey is required")
+            logger.info("Run 'generate-hot-keypair --bond-address <addr>' first")
+            raise typer.Exit(1)
+
+    if not cert_signature:
+        logger.error("--cert-signature is required")
+        raise typer.Exit(1)
 
     # Validate inputs
     try:
@@ -3473,11 +3740,15 @@ def import_certificate(
         if len(cert_privkey_bytes) != 32:
             raise ValueError("Certificate privkey must be 32 bytes")
 
-        # Try to decode signature - accept both base64 and hex
+        # Decode signature from base64 (Sparrow output)
         try:
             cert_sig_bytes = base64.b64decode(cert_signature)
         except Exception:
-            cert_sig_bytes = bytes.fromhex(cert_signature)
+            # Try hex format as fallback
+            try:
+                cert_sig_bytes = bytes.fromhex(cert_signature)
+            except Exception:
+                raise ValueError("Signature must be base64 (from Sparrow) or hex encoded")
 
         # Verify that privkey matches pubkey
         privkey = PrivateKey(cert_privkey_bytes)
@@ -3489,48 +3760,47 @@ def import_certificate(
         logger.error(f"Invalid input: {e}")
         raise typer.Exit(1)
 
-    # Load registry
-    resolved_data_dir = data_dir if data_dir else get_default_data_dir()
-    registry = load_registry(resolved_data_dir)
-
-    # Find bond by address
-    bond = registry.get_bond_by_address(address)
-    if not bond:
-        logger.error(f"Bond not found for address: {address}")
-        logger.info("Make sure you have created the bond with 'create-bond-address' first")
-        raise typer.Exit(1)
+    # Get the bond's utxo pubkey
+    utxo_pubkey = bytes.fromhex(bond.pubkey)
 
     # Verify certificate signature (unless skipped)
     if not skip_verification:
-        try:
-            # Reconstruct the certificate message
-            cert_msg = (
-                b"fidelity-bond-cert|" + cert_pubkey_bytes + b"|" + str(cert_expiry).encode("ascii")
+        # The signature from Sparrow is a 65-byte recoverable signature:
+        # 1 byte header (recovery ID + 27 for compressed) + 32 bytes R + 32 bytes S
+        if len(cert_sig_bytes) == 65:
+            logger.info("Detected 65-byte recoverable signature (Sparrow/Electrum format)")
+            verified = _verify_recoverable_signature(
+                cert_sig_bytes, cert_pubkey, cert_expiry, utxo_pubkey
             )
-            msg_hash = bitcoin_message_hash_bytes(cert_msg)
+        else:
+            # Try DER format
+            logger.info(f"Signature is {len(cert_sig_bytes)} bytes, trying DER format")
+            verified = _verify_der_signature(cert_sig_bytes, cert_pubkey, cert_expiry, utxo_pubkey)
 
-            # Get the bond's utxo pubkey to verify
-            utxo_pubkey = bytes.fromhex(bond.pubkey)
-
-            # Verify signature
-            if not verify_raw_ecdsa(msg_hash, cert_sig_bytes, utxo_pubkey):
-                logger.error("Certificate signature verification failed!")
-                logger.error("The signature does not match the bond's public key.")
-                logger.info("Make sure you signed the message with the correct key.")
-                raise typer.Exit(1)
-
-            logger.info("Certificate signature verified successfully")
-
-        except Exception as e:
-            logger.error(f"Failed to verify certificate: {e}")
+        if not verified:
+            logger.error("Certificate signature verification failed!")
+            logger.error("The signature does not match the bond's public key.")
+            logger.info("Make sure you:")
+            logger.info("  1. Selected the correct signing address in Sparrow")
+            logger.info("  2. Copied the message EXACTLY as shown by prepare-certificate-message")
+            logger.info("  3. Used 'Standard (Electrum)' format in Sparrow")
             raise typer.Exit(1)
+
+        logger.info("Certificate signature verified successfully")
     else:
         logger.warning("Skipping signature verification - use at your own risk!")
+
+    # Convert recoverable signature to DER format for storage
+    # The maker code expects DER signatures
+    if len(cert_sig_bytes) == 65:
+        der_sig = _recoverable_to_der(cert_sig_bytes)
+    else:
+        der_sig = cert_sig_bytes
 
     # Update bond with certificate
     bond.cert_pubkey = cert_pubkey
     bond.cert_privkey = cert_privkey
-    bond.cert_signature = cert_sig_bytes.hex()  # Store as hex for consistency
+    bond.cert_signature = der_sig.hex()  # Store as hex DER
     bond.cert_expiry = cert_expiry
 
     save_registry(registry, resolved_data_dir)

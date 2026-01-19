@@ -1676,8 +1676,10 @@ For maximum security, fidelity bonds can use a certificate chain that keeps the 
 1. **Get public key from hardware wallet** (using Sparrow Wallet):
    - Open Sparrow Wallet and connect your hardware wallet
    - Navigate to the Addresses tab
-   - Find or create an address at the fidelity bond derivation path: `m/84'/0'/0'/2/0`
-   - Right-click the address and select "Copy Public Key"
+   - Select any address from the **Deposit** (`m/84'/0'/0'/0/x`) or **Change** (`m/84'/0'/0'/1/x`) account
+   - **Note on derivation paths**: JoinMarket convention uses `/2` for fidelity bonds (e.g., `m/84'/0'/0'/2/x`), which would make recovery consistent with hot wallet bonds. However, most standard wallet software (including Sparrow) doesn't support `/2`. Using `/0` or `/1` works equally well for security - just remember which path you used for recovery purposes.
+   - Right-click the address and select "Copy Public Key" (or "Sign/Verify Message" for later steps)
+   - Note the address index you used (e.g., `/0/0` for the first deposit address)
    - Save this public key (33-byte compressed format, starts with 02 or 03)
 
 2. **Create bond address from public key** (on online machine - NO private keys needed):
@@ -1686,45 +1688,45 @@ For maximum security, fidelity bonds can use a certificate chain that keeps the 
      --locktime-date "2026-01" \
      --network mainnet
    ```
-   This creates the bond address WITHOUT requiring your mnemonic. Note the address.
+   This creates the bond P2WSH address and shows the corresponding signing address (P2WPKH).
+   **Important**: The CLI shows both addresses - verify the signing address matches what you see in Sparrow.
 
-3. **Fund the bond address**: Send Bitcoin to the address from step 2.
+3. **Fund the bond address**: Send Bitcoin to the **Bond Address (P2WSH)** shown in step 2. Wait for confirmations.
 
 4. **Generate hot wallet keypair** (on online machine):
    ```bash
-   jm-wallet generate-hot-keypair
+   jm-wallet generate-hot-keypair --bond-address <bond_p2wsh_address>
    ```
-   This creates a random keypair. Store both the private and public keys securely.
+   This creates a random keypair and saves it to the bond registry automatically.
 
-5. **Prepare certificate message** (on online machine - NO private keys needed):
+5. **Prepare certificate message** (on online machine):
    ```bash
    jm-wallet prepare-certificate-message <bond_address> \
-     --cert-pubkey <hot_wallet_pubkey> \
      --cert-expiry-blocks 104832  # ~2 years
    ```
-   This outputs the message that needs to be signed.
+   This outputs a plain-text ASCII message to sign. The `--cert-pubkey` is loaded from the registry.
 
-6. **Sign the message** (using hardware wallet with Sparrow or similar):
+6. **Sign the message in Sparrow**:
    - Open Sparrow Wallet and connect your hardware wallet
-   - Go to Tools -> Sign/Verify Message
-   - Select the address that matches your bond's public key
-   - Paste the hex message from step 5
-   - Sign with your hardware wallet
-   - Copy the resulting signature
+   - **Option A**: Right-click the address in the Addresses tab and select "Sign/Verify Message"
+   - **Option B**: Go to **Tools -> Sign/Verify Message** and select the address
+   - Select the **Signing Address** shown in step 2 (the P2WPKH address, NOT the bond P2WSH)
+   - Copy the **entire message** from step 5 (e.g., `fidelity-bond-cert|02abc...|52`) and paste it into the 'Message' field
+   - **Important**: Select **'Standard (Electrum)'** format, NOT BIP322
+   - Click 'Sign Message' - your hardware wallet will prompt for confirmation
+   - Copy the resulting base64 signature
 
 7. **Import certificate** (on online machine):
    ```bash
    jm-wallet import-certificate <bond_address> \
-     --cert-pubkey <hot_wallet_pubkey> \
-     --cert-privkey <hot_wallet_privkey> \
-     --cert-signature <signature_from_hardware_wallet> \
-     --cert-expiry 52  # Periods (104832 blocks / 2016)
+     --cert-signature '<base64_signature_from_sparrow>' \
+     --cert-expiry 52
    ```
-   This imports the certificate into the bond registry.
+   The certificate pubkey and private key are loaded from the registry automatically.
 
 8. **Run maker**: The maker will automatically detect certificates and use them.
    ```bash
-   jm-maker start --mnemonic-file hot-wallet.enc
+   jm-maker start
    ```
 
 **Security benefits:**
@@ -1734,7 +1736,12 @@ For maximum security, fidelity bonds can use a certificate chain that keeps the 
 - If hot wallet is compromised, attacker can only impersonate bond until expiry
 - Bond funds remain safe in cold storage
 
-**Certificate expiry:** Specified in 2016-block periods (Bitcoin difficulty adjustment period). Example: `cert_expiry=52` means 52 x 2016 = 104,832 blocks (approximately 2 years). After expiry, sign a new certificate message to continue using the bond.
+**Certificate expiry:** Specified in 2016-block periods (Bitcoin difficulty adjustment intervals). The reference implementation uses a default of 1 period (~2 weeks) for hot wallet bonds, but cold storage setups typically use longer validity (e.g., 52 periods = ~2 years) to reduce signing frequency.
+
+- **Protocol limits**: The cert_expiry field is an unsigned 16-bit integer, allowing values from 0 to 65535 (0 to ~2500 years in blocks)
+- **Practical range**: 1 to 52 periods (2 weeks to 2 years) is recommended. Shorter expiry = more security (limits exposure if hot keypair is compromised), but requires more frequent re-signing
+- **Example**: `cert_expiry=52` means 52 x 2016 = 104,832 blocks (~2 years)
+- **After expiry**: Sign a new certificate message to continue using the bond (bond funds are unaffected)
 
 ### Protocol: Bond Announcement
 

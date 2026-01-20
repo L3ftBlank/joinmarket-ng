@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-01-20
+
 ### Fixed
 
 - **Descriptor Wallet Gap Limit Bug**: Fixed a critical bug where wallets with more than 1000 addresses would show 0 balance in `jm-wallet info` despite having funds. The issue was threefold:
@@ -613,6 +615,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tor configuration instructions.
 
 [Unreleased]: https://github.com/m0wer/joinmarket-ng/compare/0.9.0...HEAD
+[0.11.1]: https://github.com/m0wer/joinmarket-ng/compare/0.11.0...0.11.1
 [0.11.0]: https://github.com/m0wer/joinmarket-ng/compare/0.10.0...0.11.0
 [0.10.0]: https://github.com/m0wer/joinmarket-ng/compare/0.9.0...0.10.0
 [0.9.0]: https://github.com/m0wer/joinmarket-ng/compare/0.8.0...0.9.0

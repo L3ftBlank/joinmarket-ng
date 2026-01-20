@@ -194,11 +194,18 @@ jm-wallet generate-bond-address \
   --mnemonic-file ~/.joinmarket-ng/wallets/maker.mnemonic \
   --locktime 1735689600
 
-# List existing bonds
+# List existing bonds (also updates registry with UTXO info)
 jm-wallet list-bonds --mnemonic-file ~/.joinmarket-ng/wallets/maker.mnemonic
+
+# Discover bonds by scanning specific locktimes (updates registry)
+jm-wallet list-bonds --mnemonic-file ~/.joinmarket-ng/wallets/maker.mnemonic \
+  --locktime 1735689600
 
 # View registry entries
 jm-wallet registry-list
+
+# Sync registry with blockchain (check funding status)
+jm-wallet registry-sync --mnemonic-file ~/.joinmarket-ng/wallets/maker.mnemonic
 ```
 
 **Auto-discovery**: Bonds created with `generate-bond-address` are saved to the bond registry (`~/.joinmarket-ng/fidelity_bonds.json`). The maker bot **automatically discovers** these bonds at startup - no need to specify locktimes manually.
@@ -244,15 +251,38 @@ That's it! The maker will:
 - **Automatically discover any existing fidelity bonds** by scanning the blockchain
 - Start serving offers with your existing balance
 
-### Fidelity Bond Auto-Discovery
+### Fidelity Bond Recovery
 
-JoinMarket-NG automatically scans all 960 possible fidelity bond timelocks (Jan 2020 - Dec 2099) to find your existing bonds. No need to manually register locktimes or indexes.
+JoinMarket-NG can scan all 960 possible fidelity bond timelocks (Jan 2020 - Dec 2099) to find your existing bonds. This is useful when migrating from another wallet or recovering from backup.
 
-To manually trigger bond discovery:
+**Full bond recovery** (scans all timelocks, may take time on mainnet):
 
 ```bash
 jm-wallet recover-bonds --mnemonic-file ~/.joinmarket-ng/wallets/maker.mnemonic
 ```
+
+**Quick discovery** (if you know the locktime):
+
+```bash
+jm-wallet list-bonds --mnemonic-file ~/.joinmarket-ng/wallets/maker.mnemonic \
+  --locktime 1735689600
+```
+
+Both commands update the bond registry (`fidelity_bonds.json`) with discovered bonds and their UTXO information.
+
+**BIP39 Passphrase**: If your wallet uses a BIP39 passphrase (13th/25th word), you must provide it via CLI or environment variable:
+
+```bash
+# Via CLI argument
+jm-wallet recover-bonds --mnemonic-file ~/.joinmarket-ng/wallets/maker.mnemonic \
+  --bip39-passphrase "your passphrase"
+
+# Via environment variable
+BIP39_PASSPHRASE="your passphrase" jm-wallet recover-bonds \
+  --mnemonic-file ~/.joinmarket-ng/wallets/maker.mnemonic
+```
+
+Note: The BIP39 passphrase is intentionally NOT read from config.toml for security reasons.
 
 ## Docker Deployment
 

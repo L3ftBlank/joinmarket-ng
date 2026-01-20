@@ -416,6 +416,7 @@ BIP39_PASSPHRASE="my phrase" jm-wallet info    # Environment variable
 - Passphrase is case-sensitive and whitespace-sensitive
 - Lost passphrase = lost access to that wallet derivation
 - For fidelity bonds: Same passphrase must be used for bond creation and redemption
+- **Config file protection**: The BIP39 passphrase is intentionally NOT read from `config.toml` to prevent accidental exposure. Use CLI argument (`--bip39-passphrase`) or environment variable (`BIP39_PASSPHRASE`) instead.
 
 ### No BerkeleyDB Requirement
 

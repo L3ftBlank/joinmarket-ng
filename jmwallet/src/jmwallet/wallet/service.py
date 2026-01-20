@@ -485,6 +485,14 @@ class WalletService:
                         fidelity_bond_addresses=fidelity_bond_addresses,
                         rescan=True,
                     )
+                    # Wait for rescan to complete before querying UTXOs
+                    # This ensures the wallet has indexed all transactions for these addresses
+                    if hasattr(self.backend, "wait_for_rescan_complete"):
+                        logger.info("Waiting for wallet rescan to complete...")
+                        await self.backend.wait_for_rescan_complete(
+                            poll_interval=5.0,
+                            progress_callback=lambda p: logger.debug(f"Rescan progress: {p:.1%}"),
+                        )
                 except Exception as e:
                     logger.error(f"Failed to import batch {batch_start}-{batch_end}: {e}")
                     continue

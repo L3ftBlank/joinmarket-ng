@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import httpx
@@ -575,6 +575,49 @@ class DescriptorWalletBackend(BlockchainBackend):
     def is_background_rescan_pending(self) -> bool:
         """Check if a background rescan was started and may still be running."""
         return self._background_rescan_height is not None
+
+    async def wait_for_rescan_complete(
+        self,
+        poll_interval: float = 5.0,
+        timeout: float | None = None,
+        progress_callback: Callable[[float], None] | None = None,
+    ) -> bool:
+        """
+        Wait for any ongoing wallet rescan to complete.
+
+        This is useful after importing descriptors with rescan=True to ensure
+        the wallet is fully synced before querying UTXOs.
+
+        Args:
+            poll_interval: How often to check rescan status (seconds)
+            timeout: Maximum time to wait (seconds). None = wait indefinitely.
+            progress_callback: Optional callback(progress) called with progress 0.0-1.0
+
+        Returns:
+            True if rescan completed, False if timed out
+        """
+        import time
+
+        start_time = time.time()
+
+        while True:
+            status = await self.get_rescan_status()
+
+            if status is None or not status.get("in_progress", False):
+                # No rescan in progress, we're done
+                return True
+
+            progress = status.get("progress", 0)
+            if progress_callback:
+                progress_callback(progress)
+
+            logger.debug(f"Rescan in progress: {progress:.1%}")
+
+            if timeout is not None and (time.time() - start_time) > timeout:
+                logger.warning(f"Rescan wait timed out after {timeout}s")
+                return False
+
+            await asyncio.sleep(poll_interval)
 
     async def setup_wallet(
         self,

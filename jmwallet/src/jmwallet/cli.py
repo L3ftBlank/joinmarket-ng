@@ -10,7 +10,7 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import typer
 from jmcore.cli_common import (
@@ -1462,8 +1462,14 @@ async def _list_fidelity_bonds(
 ) -> None:
     """List fidelity bonds implementation."""
     from jmwallet.backends.bitcoin_core import BitcoinCoreBackend
-    from jmwallet.wallet.bond_registry import load_registry
-    from jmwallet.wallet.service import WalletService
+    from jmwallet.wallet.bond_registry import (
+        FidelityBondInfo as RegistryBondInfo,
+    )
+    from jmwallet.wallet.bond_registry import (
+        load_registry,
+        save_registry,
+    )
+    from jmwallet.wallet.service import FIDELITY_BOND_BRANCH, WalletService
 
     # Import fidelity bond utilities from maker
     try:
@@ -1530,6 +1536,16 @@ async def _list_fidelity_bonds(
         # Sort by bond value (highest first)
         bonds.sort(key=lambda b: b.bond_value, reverse=True)
 
+        # Build a map of txid:vout -> UTXOInfo from wallet cache for address lookup
+        utxo_map: dict[tuple[str, int], Any] = {}
+        for utxos in wallet.utxo_cache.values():
+            for utxo in utxos:
+                utxo_map[(utxo.txid, utxo.vout)] = utxo
+
+        # Track registry updates
+        registry_updated = False
+        coin_type = 0 if network == "mainnet" else 1
+
         for i, bond in enumerate(bonds, 1):
             locktime_dt = datetime.fromtimestamp(bond.locktime)
             expired = datetime.now().timestamp() > bond.locktime
@@ -1543,6 +1559,62 @@ async def _list_fidelity_bonds(
             print(f"  Confirms:    {bond.confirmation_time}")
             print(f"  Bond Value:  {bond.bond_value:,}")
             print("-" * 120)
+
+            # Update registry with discovered bond UTXO info
+            utxo_info = utxo_map.get((bond.txid, bond.vout))
+            if utxo_info:
+                existing_bond = bond_registry.get_bond_by_address(utxo_info.address)
+                if existing_bond:
+                    # Update existing bond with UTXO info
+                    if bond_registry.update_utxo_info(
+                        address=utxo_info.address,
+                        txid=bond.txid,
+                        vout=bond.vout,
+                        value=bond.value,
+                        confirmations=utxo_info.confirmations,
+                    ):
+                        registry_updated = True
+                        logger.debug(f"Updated registry entry for {utxo_info.address[:20]}...")
+                elif locktimes:
+                    # New bond discovered via --locktime scan, add to registry
+                    # Extract index from path (format: m/84'/coin'/0'/2/index:locktime)
+                    path_parts = utxo_info.path.split("/")
+                    index_locktime = path_parts[-1]
+                    idx = int(index_locktime.split(":")[0]) if ":" in index_locktime else 0
+
+                    # Get pubkey and witness script
+                    from jmcore.btc_script import mk_freeze_script
+
+                    key = wallet.get_fidelity_bond_key(idx, bond.locktime)
+                    pubkey_hex = key.get_public_key_bytes(compressed=True).hex()
+                    witness_script = mk_freeze_script(pubkey_hex, bond.locktime)
+                    path = f"m/84'/{coin_type}'/0'/{FIDELITY_BOND_BRANCH}/{idx}"
+
+                    from jmcore.timenumber import format_locktime_date
+
+                    new_bond = RegistryBondInfo(
+                        address=utxo_info.address,
+                        locktime=bond.locktime,
+                        locktime_human=format_locktime_date(bond.locktime),
+                        index=idx,
+                        path=path,
+                        pubkey=pubkey_hex,
+                        witness_script_hex=witness_script,
+                        network=network,
+                        created_at=datetime.now().isoformat(),
+                        txid=bond.txid,
+                        vout=bond.vout,
+                        value=bond.value,
+                        confirmations=utxo_info.confirmations,
+                    )
+                    bond_registry.add_bond(new_bond)
+                    registry_updated = True
+                    logger.info(f"Added new bond to registry: {utxo_info.address[:20]}...")
+
+        # Save registry if any updates were made
+        if registry_updated:
+            save_registry(bond_registry, data_dir)
+            print(f"\nRegistry updated: {data_dir / 'fidelity_bonds.json'}")
 
     finally:
         await wallet.close()

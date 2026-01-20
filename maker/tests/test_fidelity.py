@@ -512,13 +512,14 @@ class TestFindFidelityBonds:
         from jmwallet.wallet.bond_registry import FidelityBondInfo as RegistryBondInfo
 
         # External bond UTXO with -1 index (indicates cold storage)
+        # Using anonymized test data (not real mainnet addresses)
         mock_utxo = MagicMock()
         mock_utxo.path = "m/84'/0'/0'/2/-1:1769904000"  # Branch 2, external bond
         mock_utxo.value = 29791
         mock_utxo.confirmations = 16
         mock_utxo.height = 932978
-        mock_utxo.address = "bc1qxhxgfy77xl7fzdc3ayx27n03fh6dctkgd6tlgufpvzjzzcpmklgs4sdxyl"
-        mock_utxo.txid = "6c0c4d6c35ed740ffd7afea488c14f1c341995bf35374dc881b" + "0" * 21
+        mock_utxo.address = "bc1q" + "test" * 14 + "abcd"  # Anonymized address
+        mock_utxo.txid = "deadbeef" * 8  # Anonymized txid
         mock_utxo.vout = 0
 
         mock_backend = AsyncMock()

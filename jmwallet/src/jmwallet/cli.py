@@ -3368,13 +3368,13 @@ def prepare_certificate_message(
         str | None,
         typer.Option("--cert-pubkey", help="Certificate public key (hex)"),
     ] = None,
-    cert_expiry_blocks: Annotated[
+    validity_periods: Annotated[
         int,
         typer.Option(
-            "--cert-expiry-blocks",
-            help="Certificate expiry in blocks (default ~2 years, range: 2016-131M)",
+            "--validity-periods",
+            help="Certificate validity in 2016-block periods from now (1=~2wk, 52=~2yr)",
         ),
-    ] = 104832,  # ~2 years (52 * 2016)
+    ] = 52,  # ~2 years validity
     data_dir_opt: Annotated[
         Path | None,
         typer.Option(
@@ -3382,6 +3382,10 @@ def prepare_certificate_message(
             help="Data directory (default: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR)",
         ),
     ] = None,
+    mempool_api: Annotated[
+        str,
+        typer.Option("--mempool-api", help="Mempool API URL for fetching block height"),
+    ] = "https://mempool.space/api",
     log_level: Annotated[str, typer.Option("--log-level")] = "INFO",
 ) -> None:
     """
@@ -3399,7 +3403,8 @@ def prepare_certificate_message(
     The certificate message format for Sparrow is plain ASCII text:
       "fidelity-bond-cert|<cert_pubkey_hex>|<cert_expiry>"
 
-    Where cert_expiry is the number of 2016-block periods (difficulty adjustment periods).
+    Where cert_expiry is the ABSOLUTE period number (current_period + validity_periods).
+    The reference implementation validates that current_block < cert_expiry * 2016.
     """
     setup_logging(log_level)
 
@@ -3440,8 +3445,35 @@ def prepare_certificate_message(
         logger.error(f"Invalid certificate pubkey: {e}")
         raise typer.Exit(1)
 
-    # Calculate cert_expiry as 2016-block periods
-    cert_expiry = cert_expiry_blocks // 2016
+    # Fetch current block height from mempool API
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"{mempool_api}/blocks/tip/height", timeout=10) as response:
+            current_block_height = int(response.read().decode())
+        logger.info(f"Current block height: {current_block_height}")
+    except Exception as e:
+        logger.error(f"Failed to fetch block height from {mempool_api}: {e}")
+        logger.info("You can specify a different API with --mempool-api")
+        raise typer.Exit(1)
+
+    # Calculate cert_expiry as ABSOLUTE period number
+    # Reference: yieldgenerator.py line 139
+    # cert_expiry = ((blocks + BLOCK_COUNT_SAFETY) // RETARGET_INTERVAL) + CERT_MAX_VALIDITY_TIME
+    retarget_interval = 2016
+    block_count_safety = 2
+    current_period = (current_block_height + block_count_safety) // retarget_interval
+    cert_expiry = current_period + validity_periods
+
+    # Validate cert_expiry fits in 2 bytes (uint16)
+    if cert_expiry > 65535:
+        logger.error(f"cert_expiry {cert_expiry} exceeds maximum 65535")
+        raise typer.Exit(1)
+
+    # Calculate expiry details for display
+    expiry_block = cert_expiry * retarget_interval
+    blocks_until_expiry = expiry_block - current_block_height
+    weeks_until_expiry = blocks_until_expiry // 2016 * 2
 
     # Create ASCII certificate message (hex pubkey - compatible with Sparrow text input)
     # This format allows users to paste directly into Sparrow's message field
@@ -3466,8 +3498,9 @@ def prepare_certificate_message(
     print(f"Signing Address:       {signing_address}")
     print("  (Select this address in Sparrow to sign)")
     print(f"Certificate Pubkey:    {cert_pubkey}")
-    weeks = cert_expiry_blocks // 2016 * 2
-    print(f"Cert Expiry:           {cert_expiry} periods ({cert_expiry_blocks} blks, ~{weeks} wk)")
+    print(f"\nCurrent Block:         {current_block_height} (period {current_period})")
+    print(f"Cert Expiry:           period {cert_expiry} (block {expiry_block})")
+    print(f"Validity:              ~{weeks_until_expiry} weeks ({blocks_until_expiry} blocks)")
     print("\n" + "-" * 80)
     print("MESSAGE TO SIGN (copy this EXACTLY into Sparrow):")
     print("-" * 80)
@@ -3659,9 +3692,9 @@ def import_certificate(
         int,
         typer.Option(
             "--cert-expiry",
-            help="Certificate expiry in 2016-block periods (1=~2wk, 52=~2yr, max 65535)",
+            help="Certificate expiry as ABSOLUTE period number (from prepare-certificate-message)",
         ),
-    ] = 52,
+    ] = 0,  # 0 means "must be provided"
     data_dir: Annotated[
         Path | None,
         typer.Option(
@@ -3673,6 +3706,10 @@ def import_certificate(
         bool,
         typer.Option("--skip-verification", help="Skip signature verification (not recommended)"),
     ] = False,
+    mempool_api: Annotated[
+        str,
+        typer.Option("--mempool-api", help="Mempool API URL for fetching block height"),
+    ] = "https://mempool.space/api",
     log_level: Annotated[str, typer.Option("--log-level")] = "INFO",
 ) -> None:
     """
@@ -3680,6 +3717,9 @@ def import_certificate(
 
     This imports a certificate generated with 'prepare-certificate-message' into the
     bond registry, allowing the hot wallet to use it for making offers.
+
+    IMPORTANT: The --cert-expiry value must match EXACTLY what was used in
+    prepare-certificate-message. This is an ABSOLUTE period number, not a duration.
 
     If --cert-pubkey and --cert-privkey are not provided, they will be loaded from
     the bond registry (from a previous 'generate-hot-keypair --bond-address' call).
@@ -3727,6 +3767,39 @@ def import_certificate(
     if not cert_signature:
         logger.error("--cert-signature is required")
         raise typer.Exit(1)
+
+    # Validate cert_expiry is provided
+    if cert_expiry == 0:
+        logger.error("--cert-expiry is required")
+        logger.info("Use the same value shown by 'prepare-certificate-message'")
+        raise typer.Exit(1)
+
+    # Fetch current block height to validate cert_expiry is in the future
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"{mempool_api}/blocks/tip/height", timeout=10) as response:
+            current_block_height = int(response.read().decode())
+        logger.debug(f"Current block height: {current_block_height}")
+    except Exception as e:
+        logger.warning(f"Failed to fetch block height: {e}")
+        current_block_height = None
+
+    # Validate cert_expiry is in the future
+    retarget_interval = 2016
+    if current_block_height is not None:
+        expiry_block = cert_expiry * retarget_interval
+        if current_block_height >= expiry_block:
+            logger.error("Certificate has ALREADY EXPIRED!")
+            logger.error(f"  Current block: {current_block_height}")
+            logger.error(f"  Cert expiry:   period {cert_expiry} (block {expiry_block})")
+            logger.info("Run 'prepare-certificate-message' again with current block height")
+            logger.info("and re-sign the new message with your hardware wallet.")
+            raise typer.Exit(1)
+
+        blocks_remaining = expiry_block - current_block_height
+        weeks_remaining = blocks_remaining // retarget_interval * 2
+        logger.info(f"Certificate valid for ~{weeks_remaining} weeks ({blocks_remaining} blocks)")
 
     # Validate inputs
     try:
@@ -3805,12 +3878,21 @@ def import_certificate(
 
     save_registry(registry, resolved_data_dir)
 
+    # Calculate expiry info for display
+    expiry_block = cert_expiry * retarget_interval
+    if current_block_height is not None:
+        blocks_remaining = expiry_block - current_block_height
+        weeks_remaining = blocks_remaining // retarget_interval * 2
+        expiry_info = f"~{weeks_remaining} weeks remaining"
+    else:
+        expiry_info = "could not verify"
+
     print("\n" + "=" * 80)
     print("CERTIFICATE IMPORTED SUCCESSFULLY")
     print("=" * 80)
     print(f"\nBond Address:          {address}")
     print(f"Certificate Pubkey:    {cert_pubkey}")
-    print(f"Certificate Expiry:    {cert_expiry} periods ({cert_expiry * 2016} blocks)")
+    print(f"Certificate Expiry:    period {cert_expiry} (block {expiry_block}, {expiry_info})")
     print(f"\nRegistry updated: {resolved_data_dir / 'fidelity_bonds.json'}")
     print("\n" + "=" * 80)
     print("NEXT STEPS:")

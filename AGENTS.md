@@ -51,6 +51,7 @@ Tests use pytest markers to organize by Docker profile:
 - Add tests and verify the new and existing tests pass, you can use the docker compose setup.
 - Improve the documentation as needed.
 - Don't break backwards compatibility even with the reference implementation. Use feature flags if needed.
+- Don't use real mainnet transactions or addresses in tests or examples for privacy reasons.
 - Use external reputable libraries when appropriate, avoid reinventing the wheel.
 - Finally, update CHANGELOG.md with a summary of your changes.
 

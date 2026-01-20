@@ -1725,16 +1725,26 @@ For maximum security, fidelity bonds can use a certificate chain that keeps the 
 5. **Prepare certificate message** (on online machine):
    ```bash
    jm-wallet prepare-certificate-message <bond_address> \
-     --cert-expiry-blocks 104832  # ~2 years
+     --validity-periods 52  # ~2 years
    ```
-   This outputs a plain-text ASCII message to sign. The `--cert-pubkey` is loaded from the registry.
+   This fetches the current block height and outputs the message to sign. **Important**: Note the `Cert Expiry: period XXX` value shown - you will need this exact number in step 7.
+
+   Example output:
+   ```
+   Current Block:         933047 (period 462)
+   Cert Expiry:           period 514 (block 1036224)   <-- USE THIS NUMBER!
+   Validity:              ~102 weeks (103177 blocks)
+
+   MESSAGE TO SIGN (copy this EXACTLY into Sparrow):
+   fidelity-bond-cert|03250c574fe8a2ea...|514
+   ```
 
 6. **Sign the message in Sparrow**:
    - Open Sparrow Wallet and connect your hardware wallet
    - **Option A**: Right-click the address in the Addresses tab and select "Sign/Verify Message"
    - **Option B**: Go to **Tools -> Sign/Verify Message** and select the address
    - Select the **Signing Address** shown in step 2 (the P2WPKH address, NOT the bond P2WSH)
-   - Copy the **entire message** from step 5 (e.g., `fidelity-bond-cert|02abc...|52`) and paste it into the 'Message' field
+   - Copy the **entire message** from step 5 (e.g., `fidelity-bond-cert|02abc...|514`) and paste it into the 'Message' field
    - **Important**: Select **'Standard (Electrum)'** format, NOT BIP322
    - Click 'Sign Message' - your hardware wallet will prompt for confirmation
    - Copy the resulting base64 signature
@@ -1743,8 +1753,10 @@ For maximum security, fidelity bonds can use a certificate chain that keeps the 
    ```bash
    jm-wallet import-certificate <bond_address> \
      --cert-signature '<base64_signature_from_sparrow>' \
-     --cert-expiry 52
+     --cert-expiry 514   # <-- USE THE PERIOD NUMBER FROM STEP 5!
    ```
+   **Critical**: The `--cert-expiry` value MUST match the period number shown in step 5. This is an ABSOLUTE period number, not a relative duration. Using the wrong value (like `52`) will cause the certificate to be rejected as expired.
+
    The certificate pubkey and private key are loaded from the registry automatically.
 
 8. **Run maker**: The maker will automatically detect certificates and use them.
@@ -1759,12 +1771,18 @@ For maximum security, fidelity bonds can use a certificate chain that keeps the 
 - If hot wallet is compromised, attacker can only impersonate bond until expiry
 - Bond funds remain safe in cold storage
 
-**Certificate expiry:** Specified in 2016-block periods (Bitcoin difficulty adjustment intervals). The reference implementation uses a default of 1 period (~2 weeks) for hot wallet bonds, but cold storage setups typically use longer validity (e.g., 52 periods = ~2 years) to reduce signing frequency.
+**Certificate expiry explained:**
 
-- **Protocol limits**: The cert_expiry field is an unsigned 16-bit integer, allowing values from 0 to 65535 (0 to ~2500 years in blocks)
-- **Practical range**: 1 to 52 periods (2 weeks to 2 years) is recommended. Shorter expiry = more security (limits exposure if hot keypair is compromised), but requires more frequent re-signing
-- **Example**: `cert_expiry=52` means 52 x 2016 = 104,832 blocks (~2 years)
-- **After expiry**: Sign a new certificate message to continue using the bond (bond funds are unaffected)
+The `cert_expiry` is an **absolute** period number that indicates when the certificate becomes invalid. The reference implementation validates: `current_block_height < cert_expiry * 2016`.
+
+- **Validity periods**: The `--validity-periods` option (default 52 = ~2 years) specifies how long the certificate should be valid from NOW
+- **Absolute period**: The command calculates `cert_expiry = current_period + validity_periods`
+- **Protocol limits**: The cert_expiry field is an unsigned 16-bit integer (max 65535)
+- **Practical range**: 1 to 52 periods (2 weeks to 2 years) validity is recommended
+
+**Renewing an expired certificate:**
+
+When your certificate expires, simply repeat steps 5-7 with a new message. The bond funds remain unaffected - only the certificate needs re-signing.
 
 ### Protocol: Bond Announcement
 

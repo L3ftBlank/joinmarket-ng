@@ -86,9 +86,8 @@ jobs:
             target: production
           - name: directory-server-debug
             dockerfile: ./directory_server/Dockerfile
-            image: directory-server
+            image: directory-server-debug
             target: debug
-            tag_suffix: "-debug"
           - name: orderbook-watcher
             dockerfile: ./orderbook_watcher/Dockerfile
             image: orderbook-watcher

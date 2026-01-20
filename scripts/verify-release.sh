@@ -202,9 +202,10 @@ for image in "${!EXPECTED_DIGESTS[@]}"; do
 
     log_info "Checking $image..."
 
-    # Get actual digest from registry
-    if actual=$(docker manifest inspect "$full_image" 2>/dev/null | \
-                grep -oP '"digest":\s*"\K[^"]+' | head -1); then
+    # Get actual digest from registry (manifest index digest, not platform-specific)
+    # We need the digest of the manifest list itself, not the first platform manifest
+    if actual=$(docker buildx imagetools inspect "$full_image" --raw 2>/dev/null | \
+                sha256sum | cut -d' ' -f1 | sed 's/^/sha256:/'); then
         if [[ "$actual" == "$expected" ]]; then
             log_info "  Digest matches: $expected"
         else

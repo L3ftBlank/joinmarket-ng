@@ -57,9 +57,9 @@ jobs:
             tag_suffix: ""
           - name: directory-server-debug
             dockerfile: ./directory_server/Dockerfile
-            image: directory-server
+            image: directory-server-debug
             target: debug
-            tag_suffix: "-debug"
+            tag_suffix: ""
           - name: orderbook-watcher
             dockerfile: ./orderbook_watcher/Dockerfile
             image: orderbook-watcher
@@ -1066,9 +1066,9 @@ jobs:
             tag_suffix: ""
           - name: directory-server-debug
             dockerfile: ./directory_server/Dockerfile
-            image: directory-server
+            image: directory-server-debug
             target: debug
-            tag_suffix: "-debug"
+            tag_suffix: ""
           - name: orderbook-watcher
             dockerfile: ./orderbook_watcher/Dockerfile
             image: orderbook-watcher
@@ -1142,9 +1142,9 @@ jobs:
             tag_suffix: ""
           - name: directory-server-debug
             dockerfile: ./directory_server/Dockerfile
-            image: directory-server
+            image: directory-server-debug
             target: debug
-            tag_suffix: "-debug"
+            tag_suffix: ""
           - name: orderbook-watcher
             dockerfile: ./orderbook_watcher/Dockerfile
             image: orderbook-watcher
@@ -1237,8 +1237,8 @@ jobs:
             image: directory-server
             tag_suffix: ""
           - name: directory-server-debug
-            image: directory-server
-            tag_suffix: "-debug"
+            image: directory-server-debug
+            tag_suffix: ""
           - name: orderbook-watcher
             image: orderbook-watcher
             tag_suffix: ""

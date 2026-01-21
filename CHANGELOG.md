@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-01-21
+
 ### Changed
 
 - **Dependency Lock Files with Hashes**: Updated all dependency lock files (`requirements.txt` and `requirements-dev.txt`) to include SHA256 hashes for enhanced security. This ensures package integrity verification during installation. The `scripts/update-deps.sh` script now uses `pip-compile --generate-hashes` flag. The `coincurve` dependency is pinned to a specific commit hash for reproducibility and hash verification.
@@ -644,6 +646,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tor configuration instructions.
 
 [Unreleased]: https://github.com/m0wer/joinmarket-ng/compare/0.9.0...HEAD
+[0.11.2]: https://github.com/m0wer/joinmarket-ng/compare/0.11.1...0.11.2
 [0.11.0]: https://github.com/m0wer/joinmarket-ng/compare/0.10.0...0.11.0
 [0.10.0]: https://github.com/m0wer/joinmarket-ng/compare/0.9.0...0.10.0
 [0.9.0]: https://github.com/m0wer/joinmarket-ng/compare/0.8.0...0.9.0

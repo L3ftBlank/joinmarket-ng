@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Spent Addresses Shown as 'new' After Wallet Import**: Fixed a bug where addresses that had received and spent funds (now empty) would incorrectly show as 'new' instead of 'used-empty' after importing a wallet from mnemonic. The issue was that `sync_with_descriptor_wallet()` only added addresses to `addresses_with_history` if they were already in the address cache. If the cache wasn't populated far enough, spent addresses returned by `get_addresses_with_history()` would be silently ignored. The fix uses `_find_address_path()` which will derive and find addresses even if not in the initial cache.
+
 - **DirectoryServer Shutdown Hang in Python 3.12+**: Fixed a hang during test fixture teardown when using Python 3.12+. The `DirectoryServer.stop()` method now properly tracks and cancels client handler tasks before calling `wait_closed()`, which in Python 3.12+ waits for all handler tasks to complete. Added timeout safeguards to both `stop()` and test fixtures to prevent indefinite hangs.
 
 - **CoinJoin Confirmation Prompt Input Handling**: Fixed an issue where user confirmation ("y") would be incorrectly declined during the final broadcast confirmation. The stdin buffer is now properly flushed before reading user input to avoid stale data when running in asyncio context.

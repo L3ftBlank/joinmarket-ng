@@ -1617,3 +1617,105 @@ class TestDescriptorRangeUpgrade:
         addr = wallet.get_address(0, 0, 5)
         assert addr in wallet.address_cache
         assert wallet.address_cache[addr] == (0, 0, 5)
+
+    @pytest.mark.asyncio
+    async def test_sync_detects_spent_addresses_from_history(self) -> None:
+        """Test that sync detects addresses with history even if empty and not cached.
+
+        Regression test for bug: After importing a wallet, addresses that had
+        received funds (now spent/empty) were shown as 'new' instead of 'used-empty'.
+
+        The bug was that `get_addresses_with_history()` only added addresses to
+        `addresses_with_history` if they were already in `address_cache`. If the
+        cache wasn't populated far enough, spent addresses would be missed.
+
+        The fix uses `_find_address_path()` which will derive and find addresses
+        even if they're not in the initial cache.
+        """
+        from jmwallet.wallet.service import WalletService
+
+        backend = DescriptorWalletBackend(wallet_name="test_spent_history")
+        backend._wallet_loaded = True
+        backend._descriptors_imported = True
+
+        test_mnemonic = (
+            "abandon abandon abandon abandon abandon abandon abandon abandon "
+            "abandon abandon abandon about"
+        )
+        wallet = WalletService(
+            mnemonic=test_mnemonic,
+            backend=backend,
+            network="mainnet",
+            mixdepth_count=5,
+        )
+
+        # Derive the address at index 1 (m/84'/0'/0'/0/1) - the address that was used
+        spent_address = wallet.get_address(0, 0, 1)
+
+        # Simulate scenario:
+        # 1. Address cache is only populated to index 0 (e.g., small range)
+        # 2. get_addresses_with_history() returns address at index 1 from node
+        # 3. The address should still be tracked as having history
+
+        # Clear the cache to simulate limited initial population
+        wallet.address_cache.clear()
+        # Only cache index 0
+        wallet.get_address(0, 0, 0)
+
+        # Verify the spent_address is NOT in cache (simulating the bug condition)
+        assert spent_address not in wallet.address_cache
+
+        # Mock RPC calls for sync
+        async def mock_rpc_call(
+            method: str,
+            params: list | None = None,
+            client: Any = None,
+            use_wallet: bool = True,
+        ) -> Any:
+            if method == "listunspent":
+                return []  # No UTXOs (everything was spent)
+            if method == "listdescriptors":
+                return {
+                    "descriptors": [
+                        {"desc": "wpkh(xpub.../0/*)#abc", "range": [0, 999]},
+                    ]
+                }
+            if method == "listtransactions":
+                # Return the spent address as having history
+                return [
+                    {
+                        "address": spent_address,
+                        "category": "receive",
+                        "amount": 0.001,
+                        "confirmations": 100,
+                    }
+                ]
+            raise ValueError(f"Unexpected RPC: {method}")
+
+        backend._rpc_call = mock_rpc_call  # type: ignore[method-assign]
+
+        # Run sync
+        await wallet.sync_with_descriptor_wallet()
+
+        # The spent address should now be in addresses_with_history
+        # This is the bug we're testing - before the fix, it would NOT be added
+        # because address_cache.get() would return None
+        assert spent_address in wallet.addresses_with_history
+
+        # Also verify it was added to the address_cache via _find_address_path
+        assert spent_address in wallet.address_cache
+        assert wallet.address_cache[spent_address] == (0, 0, 1)
+
+        # Now verify the address shows as 'used-empty' not 'new'
+        addresses = wallet.get_address_info_for_mixdepth(
+            mixdepth=0,
+            change=0,  # External addresses
+            gap_limit=3,
+            used_addresses=set(),
+            history_addresses={},
+        )
+
+        # Find the address at index 1
+        addr_1_info = next(a for a in addresses if a.index == 1)
+        assert addr_1_info.status == "used-empty"
+        assert addr_1_info.balance == 0

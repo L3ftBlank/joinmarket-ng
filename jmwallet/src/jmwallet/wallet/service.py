@@ -1091,8 +1091,10 @@ class WalletService:
             if hasattr(self.backend, "get_addresses_with_history"):
                 history_addresses = await self.backend.get_addresses_with_history()
                 for address in history_addresses:
-                    # Check if this address belongs to our wallet (use cache first)
-                    path_info = self.address_cache.get(address)
+                    # Check if this address belongs to our wallet
+                    # Use _find_address_path which checks cache first, then derives if needed
+                    # This ensures we find addresses even if cache wasn't populated far enough
+                    path_info = self._find_address_path(address)
                     if path_info is not None:
                         self.addresses_with_history.add(address)
                 logger.debug(f"Tracked {len(self.addresses_with_history)} addresses with history")

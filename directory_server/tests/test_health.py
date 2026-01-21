@@ -22,7 +22,7 @@ def mock_server():
         health_check_host="127.0.0.1",
         health_check_port=18080,
     )
-    server = DirectoryServer(settings, NetworkType.MAINNET)
+    server = DirectoryServer(settings, NetworkType.MAINNET, "J5TestNickOOOOOO")
     return server
 
 

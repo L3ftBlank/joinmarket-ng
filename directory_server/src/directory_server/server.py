@@ -42,9 +42,10 @@ def build_motd(user_motd: str) -> str:
 
 
 class DirectoryServer:
-    def __init__(self, settings: DirectoryServerSettings, network: NetworkType):
+    def __init__(self, settings: DirectoryServerSettings, network: NetworkType, server_nick: str):
         self.settings = settings
         self.network = network
+        self.server_nick = server_nick
 
         self.peer_registry = PeerRegistry(max_peers=settings.max_peers)
         self.connections = ConnectionPool(max_connections=settings.max_peers)
@@ -57,7 +58,7 @@ class DirectoryServer:
         )
         self.handshake_handler = HandshakeHandler(
             network=self.network,
-            server_nick=f"directory-{network.value}",
+            server_nick=server_nick,
             motd=build_motd(settings.motd),
         )
         # Rate limit by connection ID to prevent nick spoofing attacks.

@@ -181,7 +181,7 @@ async def test_server():
         health_check_port=0,  # Use dynamic port to avoid conflicts
     )
 
-    server = DirectoryServer(settings, NetworkType.TESTNET)
+    server = DirectoryServer(settings, NetworkType.TESTNET, "J5TestNickOOOOOO")
 
     server_task = asyncio.create_task(server.start())
 

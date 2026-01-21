@@ -229,7 +229,7 @@ JoinMarket NG uses a dedicated data directory for persistent files that need to 
 
 **Nick State Files** (`state/<component>.nick`):
 - Written at startup by each component (maker, taker, directory, orderbook)
-- Contains the component's current nick (e.g., `J5ABCDEFGHI` or `directory-mainnet`)
+- Contains the component's current nick in JoinMarket format (e.g., `J5FA1Gj7Ln4vSGne`)
 - Automatically deleted on shutdown
 - **Use Cases**:
   - External monitoring: Scripts can read these files to track which nicks belong to your bots

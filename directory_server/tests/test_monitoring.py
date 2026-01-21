@@ -19,7 +19,7 @@ def server():
         health_check_host="127.0.0.1",
         health_check_port=18083,
     )
-    srv = DirectoryServer(settings, NetworkType.MAINNET)
+    srv = DirectoryServer(settings, NetworkType.MAINNET, "J5TestNickOOOOOO")
     srv.server = MagicMock()
     return srv
 
@@ -166,7 +166,7 @@ async def test_signal_handler_for_status():
         health_check_host="127.0.0.1",
         health_check_port=18084,
     )
-    server = DirectoryServer(settings, NetworkType.MAINNET)
+    server = DirectoryServer(settings, NetworkType.MAINNET, "J5TestNickOOOOOO")
 
     with patch("directory_server.server.logger") as mock_logger:
         server.log_status()

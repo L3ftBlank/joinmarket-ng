@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Directory Server Uses Random Nick**: Fixed the directory server to use a random JM-format nick (e.g., `J5FA1Gj7Ln4vSGne`) instead of a hardcoded `directory-{network}` nick. This matches the reference implementation behavior where directory servers use the same nick format as any other peer.
+
 - **Descriptor Wallet Gap Limit Bug**: Fixed a critical bug where wallets with more than 1000 addresses would show 0 balance in `jm-wallet info` despite having funds. The issue was threefold:
   1. `_find_address_path()` only scanned up to index 100, so addresses beyond that were marked "unknown"
   2. `DEFAULT_SCAN_RANGE` (1000) was used as a max index rather than a true gap limit

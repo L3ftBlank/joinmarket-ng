@@ -6,6 +6,7 @@ import asyncio
 import signal
 import sys
 
+from jmcore.crypto import generate_jm_nick
 from jmcore.notifications import get_notifier
 from jmcore.paths import remove_nick_state, write_nick_state
 from jmcore.settings import get_settings
@@ -34,7 +35,8 @@ async def run_server() -> None:
     notifier = get_notifier(settings, component_name="Directory")
 
     network = settings.network_config.network
-    server_nick = f"directory-{network.value}"
+    # Generate random nick like any other peer (matches reference implementation)
+    server_nick = generate_jm_nick()
     data_dir = settings.get_data_dir()
 
     logger.info("=" * 80)
@@ -49,7 +51,7 @@ async def run_server() -> None:
     write_nick_state(data_dir, "directory", server_nick)
     logger.info(f"Nick state written to {data_dir}/state/directory.nick")
 
-    server = DirectoryServer(settings.directory_server, network)
+    server = DirectoryServer(settings.directory_server, network, server_nick)
 
     loop = asyncio.get_running_loop()
 

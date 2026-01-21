@@ -23,7 +23,7 @@ def settings():
 
 @pytest.fixture
 def server(settings):
-    return DirectoryServer(settings, NetworkType.MAINNET)
+    return DirectoryServer(settings, NetworkType.MAINNET, "J5TestNickOOOOOO")
 
 
 @pytest.fixture

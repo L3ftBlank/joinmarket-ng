@@ -111,17 +111,21 @@ jobs:
           SOURCE_DATE_EPOCH: ${{ env.SOURCE_DATE_EPOCH }}
 
   # ==========================================================================
-  # Stage 2a: Unit tests (combined in single job for efficiency)
+  # Stage 2a: Unit tests (parallel matrix across Python versions)
   # Runs in parallel with image builds for faster feedback
-  # Single job frees up runner slots faster for integration tests
   # Excludes tests marked with @pytest.mark.docker (those run in integration tests)
   # ==========================================================================
   test-unit:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12', '3.13', '3.14']
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-python-deps
         with:
+          python-version: ${{ matrix.python-version }}
           components: jmcore,jmwallet,directory_server,orderbook_watcher,maker,taker
           install-dev: 'true'
 
@@ -135,14 +139,14 @@ jobs:
 
       - name: Rename coverage file
         if: always()
-        run: mv coverage.xml coverage-unit.xml
+        run: mv coverage.xml coverage-unit-py${{ matrix.python-version }}.xml
 
       - uses: actions/upload-artifact@v6
         with:
-          name: unit-test-results
+          name: unit-test-results-py${{ matrix.python-version }}
           path: |
             junit/unit-tests.xml
-            coverage-unit.xml
+            coverage-unit-py${{ matrix.python-version }}.xml
             htmlcov/
         if: always()
 

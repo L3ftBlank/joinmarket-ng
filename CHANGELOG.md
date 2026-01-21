@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **CoinJoin Confirmation Prompt Input Handling**: Fixed an issue where user confirmation ("y") would be incorrectly declined during the final broadcast confirmation. The stdin buffer is now properly flushed before reading user input to avoid stale data when running in asyncio context.
+
 - **Encrypted Mnemonic Decryption Error Handling**: Fixed an unhandled `UnicodeDecodeError` that could occur when loading encrypted mnemonic files from config. If the decrypted content is not valid UTF-8 (e.g., file corrupted or encrypted with a different tool), the error is now caught and a clear error message is displayed instead of a raw codec error.
 
 - **Default Wallet Uses Config Password**: Fixed an issue where `wallet.mnemonic_password` from config was not used when loading the default wallet at `~/.joinmarket-ng/wallets/default.mnemonic`. Previously, setting `mnemonic_password` in config only worked if `mnemonic_file` was also explicitly set. Now the config password is used for the default wallet path as well, eliminating the need to set `mnemonic_file` when using the default location. Also consolidated mnemonic resolution logic from jmwallet into the shared `resolve_mnemonic` function in jmcore.
@@ -43,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **list-bonds Now Updates Registry with Discovered Bonds**: Fixed a bug where `jm-wallet list-bonds --locktime` would find bonds on the blockchain but not save them to `fidelity_bonds.json`. Now when bonds are discovered via `--locktime` scanning, they are automatically added to the registry with full UTXO information (txid, vout, value, confirmations). Existing registry entries also get their UTXO info updated.
 
 ### Changed
+
+- **Improved CoinJoin Transaction Summaries**:
+  - Changed "Fee:" to "Total Fees (makers+network):" in confirmation prompts to clearly show it represents the sum of maker fees and mining fees
+  - Added CSV entry logging when users decline to broadcast, allowing manual transaction tracking and later broadcast via the transaction hex
 
 - **Improved Fidelity Bond Recovery Documentation**: Enhanced maker/README.md with detailed fidelity bond recovery workflow including BIP39 passphrase handling. Added note in DOCS.md clarifying that BIP39 passphrases are intentionally not read from config.toml for security reasons.
 

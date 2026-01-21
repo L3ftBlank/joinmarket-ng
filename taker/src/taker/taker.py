@@ -19,7 +19,7 @@ import time
 from enum import Enum
 from typing import Any
 
-from jmcore.bitcoin import calculate_tx_vsize
+from jmcore.bitcoin import calculate_tx_vsize, get_txid
 from jmcore.bond_calc import calculate_timelocked_fidelity_bond_value
 from jmcore.commitment_blacklist import set_blacklist_path
 from jmcore.crypto import NickIdentity
@@ -2145,6 +2145,8 @@ class Taker:
                     )
                     if not confirmed:
                         logger.warning("User declined final broadcast confirmation")
+                        # Log CSV entry for manual tracking/broadcast
+                        self._log_manual_csv_entry(total_maker_fees, actual_mining_fee, destination)
                         self.state = TakerState.FAILED
                         return None
                 except Exception as e:
@@ -3390,6 +3392,48 @@ class Taker:
         except Exception as e:
             logger.error(f"Failed to sign transaction: {e}")
             return []
+
+    def _log_manual_csv_entry(
+        self, total_maker_fees: int, mining_fee: int, destination: str
+    ) -> None:
+        """
+        Log a CSV entry that can be manually added for tracking unbroadcast transactions.
+
+        When users decline to broadcast or want to broadcast manually, this logs
+        the CSV entry they can add to coinjoin_history.csv for tracking.
+        """
+        try:
+            txid = get_txid(self.final_tx.hex())
+            maker_nicks = list(self.maker_sessions.keys())
+            broadcast_method = self.config.tx_broadcast.value
+
+            history_entry = create_taker_history_entry(
+                maker_nicks=maker_nicks,
+                cj_amount=self.cj_amount,
+                total_maker_fees=total_maker_fees,
+                mining_fee=mining_fee,
+                destination=destination,
+                source_mixdepth=self.tx_metadata.get("source_mixdepth", 0),
+                selected_utxos=[(utxo.txid, utxo.vout) for utxo in self.selected_utxos],
+                txid=txid,
+                broadcast_method=broadcast_method,
+                network=self.config.network.value,
+                failure_reason="User declined broadcast (manual broadcast pending)",
+            )
+
+            # Format as CSV line for manual addition
+            from dataclasses import fields
+
+            fieldnames = [f.name for f in fields(history_entry)]
+            values = [str(getattr(history_entry, f)) for f in fieldnames]
+
+            logger.info("-" * 70)
+            logger.info("MANUAL CSV ENTRY - Add to coinjoin_history.csv if broadcasting manually:")
+            logger.info(f"txid: {txid}")
+            logger.info(f"CSV line: {','.join(values)}")
+            logger.info("-" * 70)
+        except Exception as e:
+            logger.warning(f"Failed to generate manual CSV entry: {e}")
 
     async def _phase_broadcast(self) -> str:
         """

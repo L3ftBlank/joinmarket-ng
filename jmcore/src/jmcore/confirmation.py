@@ -81,11 +81,11 @@ def confirm_transaction(
         else:
             print(f"Destination:  {destination}")
 
-    # Fee
+    # Fee (total cost: maker fees + mining fee)
     if fee is not None:
         from jmcore.bitcoin import format_amount
 
-        print(f"Fee:          {format_amount(fee)}")
+        print(f"Total Fees (makers+network): {format_amount(fee)}")
 
     # Mining fee (transaction fee)
     if mining_fee is not None:
@@ -114,8 +114,23 @@ def confirm_transaction(
 
     print("=" * 80)
 
-    # Prompt for confirmation
+    # Prompt for confirmation - flush stdout and clear any buffered stdin
     try:
+        sys.stdout.flush()
+        # Drain any pending input to ensure we get fresh user input
+        # (important when running in asyncio context with logging)
+        try:
+            import termios
+
+            # Flush input buffer to discard any stale data
+            termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
+        except ImportError:
+            # Not Unix
+            pass
+        except (OSError, ValueError):
+            # Not a TTY or no terminal settings available
+            pass
+
         response = input("\nProceed with this transaction? [y/N]: ").strip().lower()
         return response in ("y", "yes")
     except (KeyboardInterrupt, EOFError):

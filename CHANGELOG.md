@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **DirectoryServer Shutdown Hang in Python 3.12+**: Fixed a hang during test fixture teardown when using Python 3.12+. The `DirectoryServer.stop()` method now properly tracks and cancels client handler tasks before calling `wait_closed()`, which in Python 3.12+ waits for all handler tasks to complete. Added timeout safeguards to both `stop()` and test fixtures to prevent indefinite hangs.
+
 - **CoinJoin Confirmation Prompt Input Handling**: Fixed an issue where user confirmation ("y") would be incorrectly declined during the final broadcast confirmation. The stdin buffer is now properly flushed before reading user input to avoid stale data when running in asyncio context.
 
 - **Encrypted Mnemonic Decryption Error Handling**: Fixed an unhandled `UnicodeDecodeError` that could occur when loading encrypted mnemonic files from config. If the decrypted content is not valid UTF-8 (e.g., file corrupted or encrypted with a different tool), the error is now caught and a clear error message is displayed instead of a raw codec error.

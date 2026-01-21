@@ -75,13 +75,14 @@ class DirectoryServer:
         self.server: asyncio.Server | None = None
         self._shutdown = False
         self._start_time = datetime.now(UTC)
+        self._client_tasks: set[asyncio.Task[None]] = set()
         self.health_server = HealthCheckServer(
             host=settings.health_check_host, port=settings.health_check_port
         )
 
     async def start(self) -> None:
         self.server = await asyncio.start_server(
-            self._handle_client,
+            self._client_connected,
             self.settings.host,
             self.settings.port,
             limit=self.settings.max_message_size,
@@ -97,15 +98,39 @@ class DirectoryServer:
         async with self.server:
             await self.server.serve_forever()
 
+    async def _client_connected(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        """Wrapper to track client handler tasks for proper shutdown."""
+        task = asyncio.current_task()
+        if task:
+            self._client_tasks.add(task)
+            task.add_done_callback(self._client_tasks.discard)
+        await self._handle_client(reader, writer)
+
     async def stop(self) -> None:
         logger.info("Shutting down directory server...")
         self._shutdown = True
 
         self.health_server.stop()
 
+        # Cancel all client handler tasks before closing server
+        # This is required for Python 3.12+ where wait_closed() waits for handlers
+        if self._client_tasks:
+            logger.debug(f"Cancelling {len(self._client_tasks)} client handler tasks...")
+            for task in self._client_tasks:
+                task.cancel()
+            # Wait for tasks to finish cancellation with timeout
+            await asyncio.wait(self._client_tasks, timeout=5.0)
+            self._client_tasks.clear()
+
         if self.server:
             self.server.close()
-            await self.server.wait_closed()
+            # Use timeout on wait_closed() as safety net for edge cases
+            try:
+                await asyncio.wait_for(self.server.wait_closed(), timeout=5.0)
+            except TimeoutError:
+                logger.warning("Server wait_closed() timed out after 5s")
 
         await self.connections.close_all()
         logger.info("Directory server stopped")

@@ -197,8 +197,10 @@ async def test_server():
     await server.stop()
     # Cancel the server task since serve_forever() won't return naturally
     server_task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await server_task
+    with contextlib.suppress(asyncio.CancelledError, TimeoutError):
+        # Use timeout to prevent hangs in Python 3.12+ where task cancellation
+        # can block indefinitely if serve_forever() doesn't exit cleanly
+        await asyncio.wait_for(server_task, timeout=5.0)
 
 
 @pytest.mark.asyncio

@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added detailed progress logging for address cache population (shows ETA for large caches)
   - Added logging to track addresses found beyond the current range
 
+- **Extended Address Search for Non-Wallet Addresses**: Fixed a performance issue where the extended address range search would unnecessarily search for counterparty addresses from CoinJoin transactions. The `get_addresses_with_history()` method now excludes "send" category addresses (addresses we sent to, not our own) which don't belong to this wallet. This prevents slow extended searches after CoinJoin transactions and ensures makers restart quickly between transactions.
+
 ## [0.11.2] - 2026-01-21
 
 ### Changed

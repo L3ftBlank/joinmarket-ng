@@ -1230,7 +1230,11 @@ class TestAddressHistory:
 
     @pytest.mark.asyncio
     async def test_get_addresses_with_history_filters_categories(self) -> None:
-        """Test that get_addresses_with_history only includes receive/send/generate."""
+        """Test that get_addresses_with_history only includes receive/generate.
+
+        "send" addresses are counterparty addresses (where we sent to) and should
+        not be included, since they don't belong to this wallet.
+        """
         backend = DescriptorWalletBackend(wallet_name="test_filter_history")
         backend._wallet_loaded = True
 
@@ -1243,7 +1247,7 @@ class TestAddressHistory:
             },
             {
                 "address": "bc1qsend",
-                "category": "send",
+                "category": "send",  # Should be excluded (counterparty address)
                 "amount": -0.01,
                 "txid": "def",
             },
@@ -1280,10 +1284,11 @@ class TestAddressHistory:
 
         addresses = await backend.get_addresses_with_history()
 
-        # Should have 3 addresses (receive, send, generate) but not immature/orphan
-        assert len(addresses) == 3
+        # Should have 2 addresses (receive, generate) but not send/immature/orphan
+        # "send" addresses are counterparty addresses in CoinJoin transactions
+        assert len(addresses) == 2
         assert "bc1qreceive" in addresses
-        assert "bc1qsend" in addresses
+        assert "bc1qsend" not in addresses  # Counterparty addresses excluded
         assert "bc1qgenerate" in addresses
         assert "bc1qimmature" not in addresses
 

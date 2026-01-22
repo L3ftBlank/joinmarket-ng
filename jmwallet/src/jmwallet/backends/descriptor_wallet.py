@@ -1030,8 +1030,12 @@ class DescriptorWalletBackend(BlockchainBackend):
             txs = await self._rpc_call("listtransactions", ["*", 10000, 0, True])
 
             for tx in txs:
-                # Each transaction entry has an 'address' field for the receiving address
-                if "address" in tx and tx.get("category") in ("receive", "send", "generate"):
+                # Each transaction entry has an 'address' field
+                # Only include "receive" and "generate" categories - these are addresses where
+                # this wallet received funds (our own addresses).
+                # "send" category includes addresses we sent TO (counterparty addresses in CoinJoin)
+                # which don't belong to this wallet and should not be searched.
+                if "address" in tx and tx.get("category") in ("receive", "generate"):
                     addresses.add(tx["address"])
 
             logger.debug(f"Found {len(addresses)} addresses with transaction history")

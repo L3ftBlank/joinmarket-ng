@@ -31,6 +31,9 @@ on:
   workflow_dispatch:
   workflow_call:
 
+permissions:
+  contents: read
+
 env:
   REGISTRY: ghcr.io
   # Unique tag for this CI run - used to pass images between jobs
@@ -43,6 +46,7 @@ jobs:
   # ==========================================================================
   build-images:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
@@ -117,6 +121,9 @@ jobs:
   # ==========================================================================
   test-unit:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -158,6 +165,10 @@ jobs:
   test-e2e:
     needs: build-images
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
     env:
       # Use pre-built images from CI
       DIRECTORY_SERVER_IMAGE: ghcr.io/${{ github.repository }}/directory-server:ci-${{ github.sha }}
@@ -253,6 +264,10 @@ jobs:
   test-jmwallet:
     needs: build-images
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
     env:
       DIRECTORY_SERVER_IMAGE: ghcr.io/${{ github.repository }}/directory-server:ci-${{ github.sha }}
     steps:
@@ -315,6 +330,10 @@ jobs:
   test-maker:
     needs: build-images
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
     env:
       DIRECTORY_SERVER_IMAGE: ghcr.io/${{ github.repository }}/directory-server:ci-${{ github.sha }}
     steps:
@@ -377,6 +396,9 @@ jobs:
   test-directory-server-docker:
     needs: build-images
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-python-deps
@@ -402,6 +424,10 @@ jobs:
   test-reference-interop:
     needs: build-images
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
     env:
       DIRECTORY_SERVER_IMAGE: ghcr.io/${{ github.repository }}/directory-server:ci-${{ github.sha }}
       ORDERBOOK_WATCHER_IMAGE: ghcr.io/${{ github.repository }}/orderbook-watcher:ci-${{ github.sha }}
@@ -553,6 +579,10 @@ jobs:
   test-reference-legacy:
     needs: build-images
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
     env:
       DIRECTORY_SERVER_IMAGE: ghcr.io/${{ github.repository }}/directory-server:ci-${{ github.sha }}
       ORDERBOOK_WATCHER_IMAGE: ghcr.io/${{ github.repository }}/orderbook-watcher:ci-${{ github.sha }}
@@ -704,6 +734,10 @@ jobs:
   test-neutrino-functional:
     needs: build-images
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
     env:
       DIRECTORY_SERVER_IMAGE: ghcr.io/${{ github.repository }}/directory-server:ci-${{ github.sha }}
       ORDERBOOK_WATCHER_IMAGE: ghcr.io/${{ github.repository }}/orderbook-watcher:ci-${{ github.sha }}
@@ -813,6 +847,10 @@ jobs:
   test-neutrino-coinjoin:
     needs: build-images
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
     env:
       DIRECTORY_SERVER_IMAGE: ghcr.io/${{ github.repository }}/directory-server:ci-${{ github.sha }}
       ORDERBOOK_WATCHER_IMAGE: ghcr.io/${{ github.repository }}/orderbook-watcher:ci-${{ github.sha }}
@@ -922,6 +960,10 @@ jobs:
   test-reference-maker:
     needs: build-images
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
     env:
       DIRECTORY_SERVER_IMAGE: ghcr.io/${{ github.repository }}/directory-server:ci-${{ github.sha }}
       ORDERBOOK_WATCHER_IMAGE: ghcr.io/${{ github.repository }}/orderbook-watcher:ci-${{ github.sha }}
@@ -1055,6 +1097,7 @@ jobs:
   # ==========================================================================
   build-arm64:
     runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
@@ -1131,6 +1174,7 @@ jobs:
   # ==========================================================================
   build-armv7:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
@@ -1229,6 +1273,7 @@ jobs:
       - build-arm64
       - build-armv7
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write

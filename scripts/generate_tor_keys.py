@@ -145,7 +145,10 @@ def main() -> int:
     public_key_path = output_dir / "hs_ed25519_public_key"
     hostname_path = output_dir / "hostname"
 
-    secret_key_path.write_bytes(secret_key_content)
+    # This is a key generation script - writing the secret key is the intended behavior
+    secret_key_path.write_bytes(
+        secret_key_content
+    )  # codeql[py/clear-text-storage-sensitive-data]
     secret_key_path.chmod(0o600)
 
     public_key_path.write_bytes(public_key_content)
@@ -165,6 +168,8 @@ def main() -> int:
     print(
         "To use with Docker, set TOR_HS_ED25519_SECRET_KEY_BASE64 environment variable:"
     )
+    # This is a key generation script - outputting the key is the intended behavior
+    # codeql[py/clear-text-logging-sensitive-data]
     print(
         f"  export TOR_HS_ED25519_SECRET_KEY_BASE64='{base64.b64encode(secret_key_content).decode()}'"
     )

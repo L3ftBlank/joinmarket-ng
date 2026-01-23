@@ -6,12 +6,17 @@ on:
       - '[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 env:
   REGISTRY: ghcr.io
 
 jobs:
   # Run required checks before creating release
   pre-commit:
+    permissions:
+      contents: read
     uses: ./.github/workflows/pre-commit.yaml
 
   ci:
@@ -23,6 +28,7 @@ jobs:
   create-release:
     needs: [pre-commit, ci]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
     outputs:
@@ -73,6 +79,7 @@ jobs:
   publish-docker:
     needs: create-release
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
@@ -170,6 +177,7 @@ jobs:
   generate-manifest:
     needs: [create-release, publish-docker]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
     steps:

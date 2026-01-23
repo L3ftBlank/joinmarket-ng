@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.4] - 2026-01-23
+
 ### Fixed
 
 - **Address Reuse Bug for Used-but-Empty Addresses**: Fixed a critical privacy bug where addresses that had been used (received and spent funds) would incorrectly show as "new" instead of "used-empty". This could lead to address reuse, a serious privacy concern for CoinJoin wallets. The root cause was that `listsinceblock` and `listtransactions` RPCs don't reliably return transaction details for addresses in descriptor wallets, especially after wallet import. The fix uses `listaddressgroupings` RPC as the primary source for detecting used addresses, which reliably returns all addresses that have been involved in any transaction (as inputs or outputs). This is combined with `listsinceblock` as a secondary source for completeness.
@@ -663,6 +665,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tor configuration instructions.
 
 [Unreleased]: https://github.com/m0wer/joinmarket-ng/compare/0.9.0...HEAD
+[0.11.4]: https://github.com/m0wer/joinmarket-ng/compare/0.11.3...0.11.4
 [0.11.3]: https://github.com/m0wer/joinmarket-ng/compare/0.11.2...0.11.3
 [0.11.2]: https://github.com/m0wer/joinmarket-ng/compare/0.11.1...0.11.2
 [0.11.0]: https://github.com/m0wer/joinmarket-ng/compare/0.10.0...0.11.0

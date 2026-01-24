@@ -782,7 +782,7 @@ The reference implementation directory server may not respond to `GETPEERLIST` r
 | Network | Type | Address |
 |---------|------|---------|
 | Mainnet | Reference | `jmarketxf5wc4aldf3slm5u6726zsky52bqnfv6qyxe5hnafgly6yuyd.onion:5222` |
-| Mainnet | JM-NG | `jmv2dirze66rwxsq7xv7frhmaufyicd3yz5if6obtavsskczjkndn6yd.onion:5222` |
+| Mainnet | JM-NG | `nakamotourflxwjnjpnrk7yc2nhkf6r62ed4gdfxmmn5f4saw5q5qoyd.onion:5222` |
 
 ---
 

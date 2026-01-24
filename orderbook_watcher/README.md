@@ -36,7 +36,7 @@ cp .env.example .env
 
 2. Edit `.env` and configure your directory nodes:
 ```bash
-DIRECTORY_NODES=jmv2dirze66rwxsq7xv7frhmaufyicd3yz5if6obtavsskczjkndn6yd.onion:5222
+DIRECTORY_NODES=nakamotourflxwjnjpnrk7yc2nhkf6r62ed4gdfxmmn5f4saw5q5qoyd.onion:5222
 ```
 
 3. Start the services:

@@ -15,7 +15,7 @@ async def main():
     # Override settings to use only NG directory
     settings = JoinMarketSettings(network="mainnet")
     settings.network_config.directory_servers = [
-        "jmv2dirze66rwxsq7xv7frhmaufyicd3yz5if6obtavsskczjkndn6yd.onion:5222"
+        "nakamotourflxwjnjpnrk7yc2nhkf6r62ed4gdfxmmn5f4saw5q5qoyd.onion:5222"
     ]
 
     print(f"Using directories: {settings.get_directory_servers()}")

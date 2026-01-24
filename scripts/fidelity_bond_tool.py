@@ -51,7 +51,7 @@ from jmcore.protocol import MessageType
 
 async def fetch_bond_proof(
     maker_nick: str,
-    directory_onion: str = "jmv2dirze66rwxsq7xv7frhmaufyicd3yz5if6obtavsskczjkndn6yd.onion",
+    directory_onion: str = "nakamotourflxwjnjpnrk7yc2nhkf6r62ed4gdfxmmn5f4saw5q5qoyd.onion",
     directory_port: int = 5222,
     output_file: str | None = None,
     timeout: int = 60,
@@ -554,7 +554,7 @@ def main():
     fetch_parser.add_argument("maker_nick", help="Nick of the maker to fetch from")
     fetch_parser.add_argument(
         "--directory",
-        default="jmv2dirze66rwxsq7xv7frhmaufyicd3yz5if6obtavsskczjkndn6yd.onion",
+        default="nakamotourflxwjnjpnrk7yc2nhkf6r62ed4gdfxmmn5f4saw5q5qoyd.onion",
         help="Directory server onion address",
     )
     fetch_parser.add_argument("--output", help="Output file to save proof")
@@ -581,7 +581,7 @@ def main():
     )
     fetch_parse_parser.add_argument(
         "--directory",
-        default="jmv2dirze66rwxsq7xv7frhmaufyicd3yz5if6obtavsskczjkndn6yd.onion",
+        default="nakamotourflxwjnjpnrk7yc2nhkf6r62ed4gdfxmmn5f4saw5q5qoyd.onion",
         help="Directory server onion address",
     )
     fetch_parse_parser.add_argument(

@@ -8,12 +8,15 @@ This script automates the release process by:
 3. Updating install.sh DEFAULT_VERSION
 4. Creating a git commit with a standard message
 5. Creating a git tag
-6. Optionally pushing the changes and tag
+6. Pushing the changes and tag (default, use --no-push to skip)
 
 Usage:
-    python scripts/bump_version.py 0.10.0
-    python scripts/bump_version.py 0.10.0 --push
-    python scripts/bump_version.py --dry-run 0.10.0
+    python scripts/bump_version.py patch          # 0.10.0 -> 0.10.1
+    python scripts/bump_version.py minor          # 0.10.0 -> 0.11.0
+    python scripts/bump_version.py major          # 0.10.0 -> 1.0.0
+    python scripts/bump_version.py 0.12.0         # Explicit version
+    python scripts/bump_version.py patch --no-push
+    python scripts/bump_version.py --dry-run patch
 
 The script will:
 - Update jmcore/src/jmcore/version.py
@@ -23,6 +26,7 @@ The script will:
 - Add diff link at the bottom of CHANGELOG.md
 - Commit with message "release: X.Y.Z"
 - Tag with "X.Y.Z"
+- Push changes and tag (unless --no-push is specified)
 """
 
 from __future__ import annotations
@@ -33,6 +37,7 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 # Project root directory
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -55,16 +60,54 @@ PYPROJECT_FILES = [
 # Semantic version regex
 SEMVER_PATTERN = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 
+# Valid bump types
+BumpType = Literal["major", "minor", "patch"]
+
+
+def parse_version(version: str) -> tuple[int, int, int] | None:
+    """Parse a semantic version string, returning None if invalid."""
+    match = SEMVER_PATTERN.match(version)
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2)), int(match.group(3))
+
 
 def validate_version(version: str) -> tuple[int, int, int]:
     """Validate and parse a semantic version string."""
-    match = SEMVER_PATTERN.match(version)
-    if not match:
+    parts = parse_version(version)
+    if parts is None:
         print(
             f"Error: Invalid version format '{version}'. Expected X.Y.Z (e.g., 0.10.0)"
         )
         sys.exit(1)
-    return int(match.group(1)), int(match.group(2)), int(match.group(3))
+    return parts
+
+
+def bump_version(current: tuple[int, int, int], bump_type: BumpType) -> str:
+    """Calculate next version based on bump type."""
+    major, minor, patch = current
+    if bump_type == "major":
+        return f"{major + 1}.0.0"
+    elif bump_type == "minor":
+        return f"{major}.{minor + 1}.0"
+    else:  # patch
+        return f"{major}.{minor}.{patch + 1}"
+
+
+def resolve_version(version_arg: str, current_version: str) -> str:
+    """Resolve version argument to an actual version string.
+
+    Args:
+        version_arg: Either 'major', 'minor', 'patch', or an explicit version
+        current_version: Current version string
+
+    Returns:
+        Resolved version string
+    """
+    if version_arg in ("major", "minor", "patch"):
+        current_parts = validate_version(current_version)
+        return bump_version(current_parts, version_arg)  # type: ignore[arg-type]
+    return version_arg
 
 
 def get_current_version() -> str:
@@ -190,7 +233,7 @@ def run_command(
 
 
 def git_commit_and_tag(
-    new_version: str, dry_run: bool = False, push: bool = False
+    new_version: str, dry_run: bool = False, push: bool = True
 ) -> None:
     """Create git commit and tag."""
     # Stage all changed files
@@ -238,7 +281,11 @@ def main() -> None:
     )
     parser.add_argument(
         "version",
-        help="New version in X.Y.Z format (e.g., 0.10.0)",
+        help=(
+            "Version bump type or explicit version. "
+            "Use 'major', 'minor', 'patch' for automatic semver bump, "
+            "or specify explicit version like '0.12.0'"
+        ),
     )
     parser.add_argument(
         "--dry-run",
@@ -246,9 +293,14 @@ def main() -> None:
         help="Show what would be done without making changes",
     )
     parser.add_argument(
+        "--no-push",
+        action="store_true",
+        help="Don't push commit and tag to remote (push is default)",
+    )
+    parser.add_argument(
         "--push",
         action="store_true",
-        help="Push commit and tag to remote after creating them",
+        help="(Deprecated) Push is now the default behavior",
     )
     parser.add_argument(
         "--force",
@@ -258,21 +310,27 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # Validate version format
-    validate_version(args.version)
-
-    # Get current version
+    # Get current version first (needed for resolving bump types)
     current_version = get_current_version()
+
+    # Resolve version (handles major/minor/patch or explicit version)
+    new_version = resolve_version(args.version, current_version)
+
+    # Validate the resolved version format
+    validate_version(new_version)
+
     print(f"Current version: {current_version}")
-    print(f"New version: {args.version}")
+    if args.version in ("major", "minor", "patch"):
+        print(f"Bump type: {args.version}")
+    print(f"New version: {new_version}")
     print()
 
     # Check if new version is greater than current
     current_parts = validate_version(current_version)
-    new_parts = validate_version(args.version)
+    new_parts = validate_version(new_version)
     if new_parts <= current_parts:
         print(
-            f"Warning: New version {args.version} is not greater than current {current_version}"
+            f"Warning: New version {new_version} is not greater than current {current_version}"
         )
         if not args.force:
             response = input("Continue anyway? [y/N] ")
@@ -289,22 +347,27 @@ def main() -> None:
             print("       Use --force to skip this check.")
             sys.exit(1)
 
+    # Determine push behavior (push is default, --no-push disables)
+    should_push = not args.no_push
+
     # Update files
     print("Updating files...")
-    update_version_file(args.version, dry_run=args.dry_run)
-    update_pyproject_files(args.version, dry_run=args.dry_run)
-    update_install_script(args.version, dry_run=args.dry_run)
-    update_changelog(args.version, current_version, dry_run=args.dry_run)
+    update_version_file(new_version, dry_run=args.dry_run)
+    update_pyproject_files(new_version, dry_run=args.dry_run)
+    update_install_script(new_version, dry_run=args.dry_run)
+    update_changelog(new_version, current_version, dry_run=args.dry_run)
     print()
 
     # Git operations
     print("Git operations...")
-    git_commit_and_tag(args.version, dry_run=args.dry_run, push=args.push)
+    git_commit_and_tag(new_version, dry_run=args.dry_run, push=should_push)
 
     if args.dry_run:
         print("\nThis was a dry run. No changes were made.")
     else:
-        print(f"\nVersion bumped to {args.version}")
+        print(f"\nVersion bumped to {new_version}")
+        if should_push:
+            print("Changes and tag pushed to remote.")
         print("GitHub Actions will create the release when the tag is pushed.")
 
 

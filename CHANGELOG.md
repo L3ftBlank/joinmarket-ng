@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **NUMS Point Generation Algorithm** ([#101](../../issues/101)): Added explicit documentation and implementation of the NUMS (Nothing Up My Sleeve) point generation algorithm for PoDLE commitments. The `generate_nums_point()` function now transparently generates deterministic NUMS points using SHA256 hashing of secp256k1's generator G. NUMS points are cached for efficiency and validated against test vectors from the original JoinMarket implementation. Support for NUMS indices expanded from 10 to the full range of 256 (0-255), providing generous headroom for multiple commitment reuses per UTXO.
 
+- **Tor-Level DoS Defense for Hidden Services**: Makers can now configure Tor-level DoS protection for their hidden services via the `hidden_service_dos` config option. This includes:
+  - **Proof-of-Work Defense** (`PoWDefensesEnabled`): Computational puzzle that clients must solve to connect. Makes flooding attacks expensive. Enabled by default with suggested effort starting at 0 (no puzzle required for normal operation) and auto-scaling under attack.
+    - For ephemeral HS (ADD_ONION): Requires **Tor 0.4.9.2+** (not yet in stable releases)
+    - For persistent HS (torrc): Requires Tor 0.4.8+ with `--enable-gpl` build
+  - **Max Streams per Circuit** (`max_streams`): Limit concurrent streams per rendezvous circuit.
+  - Automatic capability detection for Tor version and PoW module availability.
+  - **Note**: Introduction point rate limiting (`HiddenServiceEnableIntroDoSDefense`) is NOT supported for ephemeral hidden services due to Tor control protocol limitations. Users who need this protection should configure persistent hidden services in torrc. See INSTALL.md for configuration examples.
+  - Reference: https://community.torproject.org/onion-services/advanced/dos/
+
+- **Connection-Based Rate Limiting for Direct Connections**: Added `DirectConnectionRateLimiter` that tracks by connection address (peer_str) instead of nick. This prevents nick rotation attacks where attackers use a random nick per request to bypass the existing nick-based rate limiting. Direct connections now have stricter limits: 30s orderbook interval (vs 10s), 10 violations to ban (vs 100), and general message rate limiting (5 msg/s with 20 burst).
+
 ### Fixed
 
 - **Taker History Update Failure in Sweep Mode**: Fixed a bug where taker history entries were not being updated after a successful sweep CoinJoin. The issue occurred because a change address was always generated (even when not needed), but not always used in the transaction. This caused history matching to fail because the recorded change address didn't match reality. The fix prevents generating a change address when it's not needed: the taker now calculates whether change will exceed the dust threshold before generating an address. If no change output will be created (sweep mode or dust), no address is generated, and an empty string is stored in history. This ensures history accurately reflects which addresses were actually revealed in transactions.

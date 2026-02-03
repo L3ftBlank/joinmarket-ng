@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Address Reuse After Taker Disappears**: Fixed a critical privacy bug where maker addresses revealed during `!ioauth` could be reused if the taker disappeared before sending `!tx` or if the CoinJoin failed after address revelation. Previously, addresses were only recorded to history after the transaction was signed. Now, addresses are recorded to history **before** being revealed to the taker, ensuring they are permanently blacklisted from reuse even if the CoinJoin fails at any subsequent step. This matches the original design principle: "we persisted the address index immediately on requesting it, always, so even in a crash scenario the agent wouldn't accidentally reuse addresses."
+
 ## [0.11.5] - 2026-01-24
 
 ### Fixed

@@ -24,6 +24,7 @@ from jmwallet.history import (
     get_used_addresses,
     mark_pending_transaction_failed,
     read_history,
+    update_awaiting_transaction_signed,
     update_pending_transaction_txid,
     update_transaction_confirmation,
     update_transaction_confirmation_with_detection,
@@ -625,6 +626,169 @@ class TestUsedAddressTracking:
         assert len(used) == 2  # 1 CJ address + 1 change address
         assert "bc1qcoinjoin123456" in used
         assert "bc1qchange789012345" in used
+
+
+class TestUpdateAwaitingTransactionSigned:
+    """Tests for updating 'Awaiting transaction' entries when tx is signed."""
+
+    def test_update_awaiting_transaction_signed_basic(self, temp_data_dir: Path) -> None:
+        """Test updating an 'Awaiting transaction' entry with tx details."""
+        # Create a pending entry with "Awaiting transaction" status
+        # (simulating what happens during !ioauth)
+        entry = create_maker_history_entry(
+            taker_nick="J5taker",
+            cj_amount=1_000_000,
+            fee_received=0,  # Unknown during !ioauth
+            txfee_contribution=0,  # Unknown during !ioauth
+            cj_address="bc1qawaiting12345678",
+            change_address="bc1qchange12345678",
+            our_utxos=[("abc123", 0)],
+            txid=None,  # No txid during !ioauth
+        )
+        entry.failure_reason = "Awaiting transaction"
+        append_history_entry(entry, temp_data_dir)
+
+        # Verify it's stored with "Awaiting transaction" status
+        entries = read_history(temp_data_dir)
+        assert len(entries) == 1
+        assert entries[0].failure_reason == "Awaiting transaction"
+        assert entries[0].txid == ""
+        assert entries[0].fee_received == 0
+
+        # Now update when transaction is signed
+        result = update_awaiting_transaction_signed(
+            destination_address="bc1qawaiting12345678",
+            txid="signed_tx_1234567890abcdef",
+            fee_received=250,
+            txfee_contribution=50,
+            data_dir=temp_data_dir,
+        )
+        assert result is True
+
+        # Verify the entry was updated correctly
+        entries = read_history(temp_data_dir)
+        assert len(entries) == 1
+        assert entries[0].txid == "signed_tx_1234567890abcdef"
+        assert entries[0].fee_received == 250
+        assert entries[0].txfee_contribution == 50
+        assert entries[0].net_fee == 200  # 250 - 50
+        assert entries[0].failure_reason == "Pending confirmation"  # Now awaiting confirmation
+
+    def test_update_awaiting_transaction_signed_nonexistent(self, temp_data_dir: Path) -> None:
+        """Test that update fails when no matching entry exists."""
+        result = update_awaiting_transaction_signed(
+            destination_address="bc1qnonexistent1234",
+            txid="some_txid",
+            fee_received=100,
+            txfee_contribution=25,
+            data_dir=temp_data_dir,
+        )
+        assert result is False
+
+    def test_update_awaiting_transaction_signed_only_matches_awaiting(
+        self, temp_data_dir: Path
+    ) -> None:
+        """Test that update only matches 'Awaiting transaction' entries."""
+        # Create an entry with different failure_reason
+        entry = create_maker_history_entry(
+            taker_nick="J5taker",
+            cj_amount=1_000_000,
+            fee_received=250,
+            txfee_contribution=50,
+            cj_address="bc1qpending12345678",
+            change_address="bc1qchange12345678",
+            our_utxos=[("abc123", 0)],
+            txid=None,
+        )
+        # Default failure_reason is "Pending confirmation", not "Awaiting transaction"
+        append_history_entry(entry, temp_data_dir)
+
+        # Should NOT update because failure_reason is "Pending confirmation"
+        result = update_awaiting_transaction_signed(
+            destination_address="bc1qpending12345678",
+            txid="new_txid",
+            fee_received=500,
+            txfee_contribution=100,
+            data_dir=temp_data_dir,
+        )
+        assert result is False
+
+        # Original values should be unchanged
+        entries = read_history(temp_data_dir)
+        assert len(entries) == 1
+        assert entries[0].fee_received == 250  # Unchanged
+
+    def test_update_awaiting_transaction_signed_preserves_other_fields(
+        self, temp_data_dir: Path
+    ) -> None:
+        """Test that updating preserves other fields like cj_amount, taker nick, etc."""
+        entry = create_maker_history_entry(
+            taker_nick="J5specifictaker",
+            cj_amount=5_000_000,
+            fee_received=0,
+            txfee_contribution=0,
+            cj_address="bc1qpreserve12345678",
+            change_address="bc1qchangepreserve",
+            our_utxos=[("utxo1", 0), ("utxo2", 1)],
+            txid=None,
+            network="signet",
+        )
+        entry.failure_reason = "Awaiting transaction"
+        append_history_entry(entry, temp_data_dir)
+
+        # Update with tx details
+        result = update_awaiting_transaction_signed(
+            destination_address="bc1qpreserve12345678",
+            txid="preserved_txid_123456",
+            fee_received=1000,
+            txfee_contribution=200,
+            data_dir=temp_data_dir,
+        )
+        assert result is True
+
+        # Verify other fields are preserved
+        entries = read_history(temp_data_dir)
+        assert len(entries) == 1
+        assert entries[0].counterparty_nicks == "J5specifictaker"
+        assert entries[0].cj_amount == 5_000_000
+        assert entries[0].change_address == "bc1qchangepreserve"
+        assert entries[0].network == "signet"
+        assert "utxo1:0" in entries[0].utxos_used
+        assert "utxo2:1" in entries[0].utxos_used
+
+    def test_update_awaiting_transaction_signed_wont_match_with_existing_txid(
+        self, temp_data_dir: Path
+    ) -> None:
+        """Test that entries with existing txid are not matched."""
+        # Create entry that already has a txid (shouldn't be possible normally,
+        # but test defensive coding)
+        entry = create_maker_history_entry(
+            taker_nick="J5taker",
+            cj_amount=1_000_000,
+            fee_received=0,
+            txfee_contribution=0,
+            cj_address="bc1qwithtxid12345678",
+            change_address="bc1qchange12345678",
+            our_utxos=[("abc123", 0)],
+            txid="existing_txid_123",  # Already has txid
+        )
+        entry.failure_reason = "Awaiting transaction"
+        append_history_entry(entry, temp_data_dir)
+
+        # Should NOT match because txid already exists
+        result = update_awaiting_transaction_signed(
+            destination_address="bc1qwithtxid12345678",
+            txid="new_txid_456",
+            fee_received=500,
+            txfee_contribution=100,
+            data_dir=temp_data_dir,
+        )
+        assert result is False
+
+        # Original txid should be unchanged
+        entries = read_history(temp_data_dir)
+        assert len(entries) == 1
+        assert entries[0].txid == "existing_txid_123"
 
 
 class TestPeerCountDetection:

@@ -521,6 +521,74 @@ def update_pending_transaction_txid(
         return False
 
 
+def update_awaiting_transaction_signed(
+    destination_address: str,
+    txid: str,
+    fee_received: int,
+    txfee_contribution: int,
+    data_dir: Path | None = None,
+) -> bool:
+    """
+    Update a pending "Awaiting transaction" entry when the maker signs the tx.
+
+    This is called after the maker successfully signs a transaction. The entry
+    was created earlier (during !ioauth) with failure_reason="Awaiting transaction"
+    to ensure the addresses were recorded before revealing them.
+
+    Args:
+        destination_address: The CoinJoin destination address to match
+        txid: The transaction ID
+        fee_received: CoinJoin fee earned
+        txfee_contribution: Mining fee contribution
+        data_dir: Optional data directory
+
+    Returns:
+        True if a matching entry was found and updated, False otherwise
+    """
+    history_path = _get_history_path(data_dir)
+    if not history_path.exists():
+        return False
+
+    entries = read_history(data_dir)
+    updated = False
+
+    for entry in entries:
+        # Match by destination address and "Awaiting transaction" status
+        if (
+            entry.destination_address == destination_address
+            and entry.failure_reason == "Awaiting transaction"
+            and not entry.txid  # Should not have txid yet
+        ):
+            entry.txid = txid
+            entry.fee_received = fee_received
+            entry.txfee_contribution = txfee_contribution
+            entry.net_fee = fee_received - txfee_contribution
+            entry.failure_reason = "Pending confirmation"  # Now awaiting confirmation
+            logger.info(
+                f"Updated awaiting transaction for {destination_address[:20]}... "
+                f"with txid {txid[:16]}..., fee={fee_received} sats"
+            )
+            updated = True
+            break
+
+    if not updated:
+        return False
+
+    # Rewrite the entire history file
+    try:
+        fieldnames = _get_fieldnames()
+        with open(history_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            for entry in entries:
+                row = {f.name: getattr(entry, f.name) for f in fields(entry)}
+                writer.writerow(row)
+        return True
+    except Exception as e:
+        logger.error(f"Failed to update history: {e}")
+        return False
+
+
 def mark_pending_transaction_failed(
     destination_address: str,
     failure_reason: str,

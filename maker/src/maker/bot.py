@@ -42,6 +42,7 @@ from jmwallet.backends.base import BlockchainBackend
 from jmwallet.history import (
     append_history_entry,
     create_maker_history_entry,
+    update_awaiting_transaction_signed,
 )
 from jmwallet.wallet.service import WalletService
 from loguru import logger
@@ -2037,6 +2038,40 @@ class MakerBot:
                 success, response = await session.handle_auth(commitment, revelation, kphex)
 
                 if success:
+                    # CRITICAL: Record addresses to history BEFORE revealing them to taker
+                    # This ensures addresses are never reused even if:
+                    # - The taker disappears after receiving !ioauth
+                    # - The program crashes after sending !ioauth
+                    # - The taker sends invalid !tx and we reject it
+                    # See: https://github.com/m0wer/joinmarket-ng/issues/XXX
+                    try:
+                        our_utxos = list(session.our_utxos.keys())
+                        # Use 0 for fees since we haven't signed yet - will be updated
+                        # when transaction is actually signed
+                        history_entry = create_maker_history_entry(
+                            taker_nick=taker_nick,
+                            cj_amount=session.amount,
+                            fee_received=0,  # Unknown until tx is signed
+                            txfee_contribution=0,  # Unknown until tx is signed
+                            cj_address=session.cj_address,
+                            change_address=session.change_address,
+                            our_utxos=our_utxos,
+                            txid=None,  # Unknown until tx is signed
+                            network=self.config.network.value,
+                        )
+                        # Override failure_reason to indicate addresses revealed but awaiting tx
+                        history_entry.failure_reason = "Awaiting transaction"
+                        append_history_entry(history_entry, data_dir=self.config.data_dir)
+                        logger.debug(
+                            f"Recorded revealed addresses for {taker_nick} in history "
+                            f"(cj={session.cj_address[:12]}..., "
+                            f"change={session.change_address[:12]}...)"
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to record revealed addresses in history: {e}")
+                        # Continue anyway - better to reveal addresses than fail the CJ
+                        # The addresses should still be tracked via blockchain sync
+
                     await self._send_response(taker_nick, "ioauth", response)
 
                     # Broadcast the commitment via hp2 so other makers can blacklist it
@@ -2145,26 +2180,42 @@ class MakerBot:
                     fee_received = session.offer.calculate_fee(session.amount)
                     txfee_contribution = session.offer.txfee
 
-                    # Record transaction in history
+                    # Update the history entry that was created during !ioauth
+                    # (when addresses were revealed) with the tx details
                     try:
-                        our_utxos = list(session.our_utxos.keys())
-
-                        history_entry = create_maker_history_entry(
-                            taker_nick=taker_nick,
-                            cj_amount=session.amount,
+                        txid = response.get("txid", "")
+                        updated = update_awaiting_transaction_signed(
+                            destination_address=session.cj_address,
+                            txid=txid,
                             fee_received=fee_received,
                             txfee_contribution=txfee_contribution,
-                            cj_address=session.cj_address,
-                            change_address=session.change_address,
-                            our_utxos=our_utxos,
-                            txid=response.get("txid"),
-                            network=self.config.network.value,
+                            data_dir=self.config.data_dir,
                         )
-                        append_history_entry(history_entry, data_dir=self.config.data_dir)
                         net = fee_received - txfee_contribution
-                        logger.debug(f"Recorded CoinJoin in history: net fee {net} sats")
+                        if updated:
+                            logger.debug(f"Updated CoinJoin history with txid: net fee {net} sats")
+                        else:
+                            # Fallback: create a new entry if no "Awaiting transaction" entry found
+                            # This can happen if history was cleared or entry was lost
+                            logger.warning(
+                                "No 'Awaiting transaction' entry found, creating new history entry"
+                            )
+                            our_utxos = list(session.our_utxos.keys())
+                            history_entry = create_maker_history_entry(
+                                taker_nick=taker_nick,
+                                cj_amount=session.amount,
+                                fee_received=fee_received,
+                                txfee_contribution=txfee_contribution,
+                                cj_address=session.cj_address,
+                                change_address=session.change_address,
+                                our_utxos=our_utxos,
+                                txid=txid,
+                                network=self.config.network.value,
+                            )
+                            append_history_entry(history_entry, data_dir=self.config.data_dir)
+                            logger.debug(f"Created new CoinJoin history: net fee {net} sats")
                     except Exception as e:
-                        logger.warning(f"Failed to record CoinJoin history: {e}")
+                        logger.warning(f"Failed to update CoinJoin history: {e}")
 
                     # Fire-and-forget notification for successful signing
                     asyncio.create_task(

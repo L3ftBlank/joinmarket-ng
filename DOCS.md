@@ -935,6 +935,8 @@ The `F:` prefix identifies the features field and maintains backward compatibili
 
 This section documents the cryptographic primitives used in JoinMarket, with particular focus on verifiability and trust minimization.
 
+**Introductory Video**: For a visual introduction to elliptic curves and how they work in Bitcoin, watch [Curves which make Bitcoin possible](https://www.youtube.com/watch?v=qCafMW4OG7s) by MetaMaths.
+
 ### secp256k1 Elliptic Curve
 
 JoinMarket uses the secp256k1 elliptic curve, the same curve used by Bitcoin. The curve is defined by the equation:

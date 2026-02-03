@@ -931,6 +931,135 @@ The `F:` prefix identifies the features field and maintains backward compatibili
 
 ---
 
+## Cryptographic Foundations
+
+This section documents the cryptographic primitives used in JoinMarket, with particular focus on verifiability and trust minimization.
+
+### secp256k1 Elliptic Curve
+
+JoinMarket uses the secp256k1 elliptic curve, the same curve used by Bitcoin. The curve is defined by the equation:
+
+$$y^2 = x^3 + 7 \pmod{p}$$
+
+Where the field prime $p$ is:
+
+$$p = 2^{256} - 2^{32} - 2^9 - 2^8 - 2^7 - 2^6 - 2^4 - 1$$
+
+In hexadecimal:
+
+```
+p = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
+```
+
+**Reference**: [SEC 2: Recommended Elliptic Curve Domain Parameters](https://www.secg.org/sec2-v2.pdf), Section 2.4.1
+
+### Generator Point G
+
+The generator point $G$ is a specific point on the secp256k1 curve with known $x$ and $y$ coordinates. All Bitcoin and JoinMarket public keys are derived as scalar multiples of $G$.
+
+**Coordinates** (from SEC 2 v2.0 Section 2.4.1):
+
+```
+Gx = 0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798
+Gy = 0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8
+```
+
+**Compressed form** (33 bytes): `02` prefix + $G_x$ (since $G_y$ is even)
+```
+G_compressed = 0279BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798
+```
+
+**Uncompressed form** (65 bytes): `04` prefix + $G_x$ + $G_y$
+```
+G_uncompressed = 0479BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798
+                   483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8
+```
+
+**Verification**: Given only $G_x$, we can compute $G_y$ by solving the curve equation:
+
+1. Compute $y^2 = G_x^3 + 7 \pmod{p}$
+2. Compute $y = (y^2)^{(p+1)/4} \pmod{p}$ (valid since $p \equiv 3 \pmod{4}$)
+3. Choose the even $y$ for the `02` prefix (or odd $y$ for `03`)
+
+This allows independent verification that `G_compressed` and `G_uncompressed` represent the same point.
+
+**Curve order** (the number of points on the curve):
+
+$$n = \texttt{0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141}$$
+
+### NUMS Points for PoDLE
+
+**What is PoDLE?**
+
+PoDLE (Proof of Discrete Log Equivalence) is a zero-knowledge proof used in JoinMarket to prevent Sybil attacks. It proves that a taker owns a UTXO without revealing which UTXO until after makers commit to participate.
+
+**What are NUMS points?**
+
+NUMS (Nothing Up My Sleeve) points are alternative generator points $J_0, J_1, \ldots, J_{255}$ that have no known discrete logarithm relationship to $G$. This property is crucial—if someone knew $k$ such that $J_i = k \cdot G$, they could forge PoDLE proofs.
+
+**Why "Nothing Up My Sleeve"?**
+
+The NUMS points are generated deterministically from $G$ using a transparent algorithm that leaves no room for hidden backdoors. Anyone can verify the generation process and confirm the points were not chosen maliciously.
+
+**Generation Algorithm**:
+
+To generate NUMS point $J_i$ for index $i$:
+
+1. For $G \in \{G_{\text{compressed}}, G_{\text{uncompressed}}\}$:
+2. $\quad \text{seed} = G \mathbin\| i_{\text{byte}}$
+3. $\quad$ For $\text{counter} \in \{0, 1, \ldots, 255\}$:
+4. $\quad\quad \text{seed}_c = \text{seed} \mathbin\| \text{counter}_{\text{byte}}$
+5. $\quad\quad x = \text{SHA256}(\text{seed}_c)$
+6. $\quad\quad \text{claimed\_point} = \texttt{0x02} \mathbin\| x$ (try even $y$)
+7. $\quad\quad$ If $\text{claimed\_point}$ is valid on curve: **return** it
+8. **Fail** (should never happen)
+
+```python
+def generate_nums_point(index: int) -> Point:
+    for G in [G_COMPRESSED, G_UNCOMPRESSED]:
+        seed = G + bytes([index])
+        for counter in range(256):
+            seed_c = seed + bytes([counter])
+            x = sha256(seed_c)
+            claimed_point = b'\x02' + x
+            if is_valid_curve_point(claimed_point):
+                return claimed_point
+```
+
+**Reference**: [PoDLE Specification](https://gist.github.com/AdamISZ/9cbba5e9408d23813ca8) by Adam Gibson (waxwing)
+
+**Test Vectors** (from joinmarket-clientserver):
+
+| Index | NUMS Point (hex) |
+|------:|:-----------------|
+| 0 | `0296f47ec8e6d6a9c3379c2ce983a6752bcfa88d46f2a6ffe0dd12c9ae76d01a1f` |
+| 1 | `023f9976b86d3f1426638da600348d96dc1f1eb0bd5614cc50db9e9a067c0464a2` |
+| 5 | `02bbc5c4393395a38446e2bd4d638b7bfd864afb5ffaf4bed4caf797df0e657434` |
+| 9 | `021b739f21b981c2dcbaf9af4d89223a282939a92aee079e94a46c273759e5b42e` |
+| 100 | `02aacc3145d04972d0527c4458629d328219feda92bef6ef6025878e3a252e105a` |
+| 255 | `02a0a8694820c794852110e5939a2c03f8482f81ed57396042c6b34557f6eb430a` |
+
+**Implementation**: `jmcore/src/jmcore/podle.py` — The `generate_nums_point()` function implements this algorithm, with results validated against test vectors in `test_podle.py`.
+
+### PoDLE Protocol
+
+The PoDLE proves that two public keys $P = k \cdot G$ and $P_2 = k \cdot J$ share the same private key $k$:
+
+1. **Commitment**: Taker computes $C = \text{SHA256}(P_2)$ and sends to maker
+
+2. **Revelation**: After maker commits, taker reveals $(P, P_2, s, e)$ where:
+   - $K_G = r \cdot G$, $K_J = r \cdot J$ (commitments using random nonce $r$)
+   - $e = \text{SHA256}(K_G \mathbin\| K_J \mathbin\| P \mathbin\| P_2)$ (challenge)
+   - $s = r + e \cdot k \pmod{n}$ (Schnorr-like response)
+
+3. **Verification**: Maker checks:
+   - $\text{SHA256}(P_2) \stackrel{?}{=} C$ (commitment opens correctly)
+   - $e \stackrel{?}{=} \text{SHA256}(s \cdot G - e \cdot P \mathbin\| s \cdot J - e \cdot P_2 \mathbin\| P \mathbin\| P_2)$ (proof verifies)
+
+This ensures the taker controls a real UTXO without revealing which one until makers have committed, preventing costless Sybil attacks on the orderbook.
+
+---
+
 ## Operator Notifications
 
 JoinMarket NG supports push notifications for CoinJoin events via [Apprise](https://github.com/caronc/apprise), enabling alerts through 100+ services including Gotify, Telegram, Discord, Pushover, and email.

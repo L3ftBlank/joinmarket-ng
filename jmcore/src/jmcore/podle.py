@@ -15,6 +15,9 @@ Protocol flow:
 4. Taker reveals P, P2, sig, e as the "revelation"
 5. Maker verifies: P = k*G and P2 = k*J (same k)
 
+For detailed cryptographic documentation including NUMS point generation algorithm
+and secp256k1 curve parameters, see DOCS.md section "Cryptographic Foundations".
+
 Reference: https://gist.github.com/AdamISZ/9cbba5e9408d23813ca8
 Reference: joinmarket-clientserver/src/jmclient/podle.py
 """
@@ -35,21 +38,34 @@ SECP256K1_N = int("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364
 SECP256K1_P = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
 
 # Generator point G (compressed)
+# Standard secp256k1 generator point as defined in SEC2 v2.0 section 2.4.1
+# https://www.secg.org/sec2-v2.pdf
+# G = (0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798,
+#      0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8)
 G_COMPRESSED = bytes.fromhex("0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798")
 
-# Precomputed NUMS (Nothing Up My Sleeve) points J_0 to J_9
-# These are generated deterministically and cannot be derived from G
-PRECOMPUTED_NUMS = {
-    0: bytes.fromhex("0296f47ec8e6d6a9c3379c2ce983a6752bcfa88d46f2a6ffe0dd12c9ae76d01a1f"),
-    1: bytes.fromhex("023f9976b86d3f1426638da600348d96dc1f1eb0bd5614cc50db9e9a067c0464a2"),
-    2: bytes.fromhex("023745b000f6db094a794d9ee08637d714393cd009f86087438ac3804e929bfe89"),
-    3: bytes.fromhex("023346660dcb1f8d56e44d23f93c3ad79761cdd5f4972a638e9e15517832f6a165"),
-    4: bytes.fromhex("02ec91c86964dcbb077c8193156f3cfa91476d5adfcfcf64913a4b082c75d5bca7"),
-    5: bytes.fromhex("02bbc5c4393395a38446e2bd4d638b7bfd864afb5ffaf4bed4caf797df0e657434"),
-    6: bytes.fromhex("02967efd39dc59e6f060bf3bd0080e8ecf4a22b9d1754924572b3e51ce2cde2096"),
-    7: bytes.fromhex("02cfce8a7f9b8a1735c4d827cd84e3f2a444de1d1f7ed419d23c88d72de341357f"),
-    8: bytes.fromhex("0206d6d6b1d88936bb6013ae835716f554d864954ea336e3e0141fefb2175b82f9"),
-    9: bytes.fromhex("021b739f21b981c2dcbaf9af4d89223a282939a92aee079e94a46c273759e5b42e"),
+# Generator point G (uncompressed) - used for NUMS point generation
+# Same point as G_COMPRESSED, just in uncompressed format (0x04 || x || y)
+# From SEC2 v2.0 section 2.4.1: "The base point G in uncompressed form is: ..."
+# Can be verified by converting G_COMPRESSED to uncompressed form
+# x-coordinate: 0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
+# y-coordinate: 0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8
+G_UNCOMPRESSED = bytes.fromhex(
+    "0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+    "483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8"
+)
+
+# A few precomputed NUMS points for verification in tests.
+# These are deterministically generated via generate_nums_point() and
+# serve as test vectors to ensure the generation algorithm is correct.
+# See: https://gist.github.com/AdamISZ/9cbba5e9408d23813ca8
+NUMS_TEST_VECTORS = {
+    0: "0296f47ec8e6d6a9c3379c2ce983a6752bcfa88d46f2a6ffe0dd12c9ae76d01a1f",
+    1: "023f9976b86d3f1426638da600348d96dc1f1eb0bd5614cc50db9e9a067c0464a2",
+    5: "02bbc5c4393395a38446e2bd4d638b7bfd864afb5ffaf4bed4caf797df0e657434",
+    9: "021b739f21b981c2dcbaf9af4d89223a282939a92aee079e94a46c273759e5b42e",
+    100: "02aacc3145d04972d0527c4458629d328219feda92bef6ef6025878e3a252e105a",
+    255: "02a0a8694820c794852110e5939a2c03f8482f81ed57396042c6b34557f6eb430a",
 }
 
 
@@ -57,6 +73,10 @@ class PoDLEError(Exception):
     """PoDLE generation or verification error."""
 
     pass
+
+
+# Cache for generated NUMS points to avoid recomputation
+_nums_cache: dict[int, PublicKey] = {}
 
 
 @dataclass
@@ -97,13 +117,70 @@ class PoDLECommitment:
 # ==============================================================================
 
 
-def get_nums_point(index: int) -> PublicKey:
-    """Get Nothing-Up-My-Sleeve (NUMS) generator point J for given index."""
-    if index not in PRECOMPUTED_NUMS:
-        raise PoDLEError(f"NUMS point index {index} not supported (max 9)")
+def generate_nums_point(index: int) -> PublicKey:
+    """
+    Generate a Nothing-Up-My-Sleeve (NUMS) point deterministically.
 
-    point_bytes = PRECOMPUTED_NUMS[index]
-    return PublicKey(point_bytes)
+    The algorithm takes secp256k1's generator G (both compressed and uncompressed),
+    appends the index byte and a counter byte, then SHA256 hashes the result.
+    It tries to create a valid curve point by prepending 0x02 to the hash.
+    The first valid point found is returned as the NUMS point for that index.
+
+    This ensures NUMS points are generated transparently with no hidden discrete log.
+
+    Reference: https://gist.github.com/AdamISZ/9cbba5e9408d23813ca8
+    Reference: joinmarket-clientserver/src/jmclient/podle.py getNUMS()
+
+    Args:
+        index: Index of the NUMS point to generate (0-255)
+
+    Returns:
+        The NUMS point as a PublicKey
+
+    Raises:
+        PoDLEError: If index is out of range or no valid point found (should never happen)
+    """
+    if not 0 <= index <= 255:
+        raise PoDLEError(f"NUMS point index {index} must be in range 0-255")
+
+    # Try both compressed and uncompressed G as seeds
+    for g_bytes in [G_COMPRESSED, G_UNCOMPRESSED]:
+        seed = g_bytes + bytes([index])
+        for counter in range(256):
+            seed_with_counter = seed + bytes([counter])
+            hashed_seed = hashlib.sha256(seed_with_counter).digest()
+            # Try to create a valid point with 02 prefix (even y-coordinate)
+            claimed_point = b"\x02" + hashed_seed
+            try:
+                nums_point = PublicKey(claimed_point)
+                # coincurve validates the point on construction
+                return nums_point
+            except Exception:
+                continue
+
+    # This should never happen given the search space
+    raise PoDLEError(f"Failed to generate NUMS point for index {index}")  # pragma: no cover
+
+
+def get_nums_point(index: int) -> PublicKey:
+    """
+    Get Nothing-Up-My-Sleeve (NUMS) generator point J for given index.
+
+    NUMS points are generated deterministically and cached for efficiency.
+    Supports indices 0-255.
+
+    Args:
+        index: Index of the NUMS point (0-255)
+
+    Returns:
+        The NUMS point as a PublicKey
+    """
+    if index in _nums_cache:
+        return _nums_cache[index]
+
+    nums_point = generate_nums_point(index)
+    _nums_cache[index] = nums_point
+    return nums_point
 
 
 def scalar_mult_g(scalar: int) -> PublicKey:
@@ -154,7 +231,7 @@ def generate_podle(
     Args:
         private_key_bytes: 32-byte private key
         utxo_str: UTXO reference as "txid:vout"
-        index: NUMS point index (0-9)
+        index: NUMS point index (0-255)
 
     Returns:
         PoDLECommitment with all proof data
@@ -162,8 +239,8 @@ def generate_podle(
     if len(private_key_bytes) != 32:
         raise PoDLEError(f"Invalid private key length: {len(private_key_bytes)}")
 
-    if index not in PRECOMPUTED_NUMS:
-        raise PoDLEError(f"Invalid NUMS index: {index}")
+    if not 0 <= index <= 255:
+        raise PoDLEError(f"Invalid NUMS index: {index} (must be 0-255)")
 
     # Get private key as integer
     k = int.from_bytes(private_key_bytes, "big")

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **NUMS Point Generation Algorithm** ([#101](https://github.com/joinmarket-ng/joinmarket-ng/issues/101)): Added explicit documentation and implementation of the NUMS (Nothing Up My Sleeve) point generation algorithm for PoDLE commitments. The `generate_nums_point()` function now transparently generates deterministic NUMS points using SHA256 hashing of secp256k1's generator G. NUMS points are cached for efficiency and validated against test vectors from the original JoinMarket implementation. Support for NUMS indices expanded from 10 to the full range of 256 (0-255), providing generous headroom for multiple commitment reuses per UTXO.
+
 ### Fixed
 
 - **CoinJoin Starts with Insufficient Funds When Using UTXO Selector** ([#106](https://github.com/joinmarket-ng/joinmarket-ng/issues/106)): Fixed a bug where `jm-taker coinjoin --select-utxos` would proceed with the coinjoin even when the selected UTXOs had insufficient funds. The error ("Failed to generate PoDLE commitment") would only appear after confirming the transaction. Now, fund validation occurs immediately after UTXO selection, failing early with a clear error message before connecting to the orderbook. This matches the existing behavior of `jm-wallet send --select-utxos`. Related: [#102](https://github.com/joinmarket-ng/joinmarket-ng/issues/102).
@@ -700,7 +704,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tor configuration instructions.
 
 [Unreleased]: https://github.com/m0wer/joinmarket-ng/compare/0.9.0...HEAD
-[0.12.0]: https://github.com/m0wer/joinmarket-ng/compare/0.11.5...0.12.0
+[0.11.6]: https://github.com/m0wer/joinmarket-ng/compare/0.11.5...0.11.6
 [0.11.5]: https://github.com/m0wer/joinmarket-ng/compare/0.11.4...0.11.5
 [0.11.4]: https://github.com/m0wer/joinmarket-ng/compare/0.11.3...0.11.4
 [0.11.3]: https://github.com/m0wer/joinmarket-ng/compare/0.11.2...0.11.3

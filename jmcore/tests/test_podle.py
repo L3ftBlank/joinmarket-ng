@@ -10,12 +10,14 @@ import pytest
 
 from jmcore.podle import (
     G_COMPRESSED,
-    PRECOMPUTED_NUMS,
+    G_UNCOMPRESSED,
+    NUMS_TEST_VECTORS,
     SECP256K1_N,
     SECP256K1_P,
     PoDLECommitment,
     PoDLEError,
     deserialize_revelation,
+    generate_nums_point,
     generate_podle,
     get_nums_point,
     parse_podle_revelation,
@@ -47,37 +49,94 @@ class TestConstants:
         assert len(G_COMPRESSED) == 33
         assert G_COMPRESSED[0] in (0x02, 0x03)
 
-    def test_precomputed_nums_count(self) -> None:
-        """Test we have 10 NUMS points."""
-        assert len(PRECOMPUTED_NUMS) == 10
+    def test_g_uncompressed(self) -> None:
+        """Test uncompressed generator point format."""
+        assert len(G_UNCOMPRESSED) == 65
+        assert G_UNCOMPRESSED[0] == 0x04
 
-    def test_precomputed_nums_format(self) -> None:
-        """Test NUMS points are valid compressed pubkeys."""
-        for idx, point_bytes in PRECOMPUTED_NUMS.items():
-            assert len(point_bytes) == 33, f"NUMS point {idx} wrong length"
-            assert point_bytes[0] in (0x02, 0x03), f"NUMS point {idx} wrong prefix"
+    def test_g_compressed_matches_uncompressed(self) -> None:
+        """
+        Verify that G_COMPRESSED and G_UNCOMPRESSED represent the same point.
+
+        This ensures we can trust both constants and that G_UNCOMPRESSED is not
+        tampered with, minimizing the need for trust in hardcoded values.
+        """
+        # Convert uncompressed to compressed using coincurve
+        from coincurve import PublicKey
+
+        # Parse uncompressed point
+        uncompressed_point = PublicKey(G_UNCOMPRESSED)
+        # Get compressed representation
+        compressed_from_uncompressed = uncompressed_point.format(compressed=True)
+
+        # Should match G_COMPRESSED
+        assert compressed_from_uncompressed == G_COMPRESSED
+
+        # Also verify x and y coordinates match what's documented
+        # Uncompressed format is: 0x04 || x (32 bytes) || y (32 bytes)
+        x_coord = G_UNCOMPRESSED[1:33]
+        y_coord = G_UNCOMPRESSED[33:65]
+
+        # x should match the compressed form (minus the 0x02 prefix)
+        assert x_coord == G_COMPRESSED[1:]
+
+        # Verify these are the standard secp256k1 generator coordinates
+        assert x_coord.hex() == "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+        assert y_coord.hex() == "483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8"
+
+    def test_nums_test_vectors_format(self) -> None:
+        """Test NUMS test vectors are valid hex strings."""
+        for idx, hex_str in NUMS_TEST_VECTORS.items():
+            assert len(hex_str) == 66, f"NUMS test vector {idx} wrong length"
+            assert hex_str.startswith("02") or hex_str.startswith("03"), (
+                f"NUMS test vector {idx} wrong prefix"
+            )
 
 
 class TestGetNumsPoint:
-    """Tests for get_nums_point function."""
+    """Tests for get_nums_point and generate_nums_point functions."""
 
-    def test_valid_index(self) -> None:
-        """Test getting valid NUMS points."""
-        for i in range(10):
+    def test_valid_index_range(self) -> None:
+        """Test getting NUMS points in valid range 0-255."""
+        # Test first few and some specific indices
+        for i in [0, 1, 5, 9, 100, 255]:
             point = get_nums_point(i)
             assert point is not None
             compressed = point_to_bytes(point)
-            assert compressed == PRECOMPUTED_NUMS[i]
+            assert len(compressed) == 33
+
+    def test_nums_generation_matches_test_vectors(self) -> None:
+        """
+        Test that dynamically generated NUMS points match known test vectors.
+
+        This validates that the NUMS generation algorithm produces the correct
+        deterministic values as documented in the original JoinMarket spec.
+        """
+        for idx, expected_hex in NUMS_TEST_VECTORS.items():
+            point = generate_nums_point(idx)
+            actual_hex = point_to_bytes(point).hex()
+            assert actual_hex == expected_hex, (
+                f"NUMS point {idx} mismatch: expected {expected_hex}, got {actual_hex}"
+            )
+
+    def test_nums_caching(self) -> None:
+        """Test that NUMS points are cached after generation."""
+        # First call generates the point
+        point1 = get_nums_point(42)
+        # Second call should return cached point
+        point2 = get_nums_point(42)
+        # Should be the exact same object
+        assert point1 is point2
 
     def test_invalid_index_negative(self) -> None:
         """Test negative index raises error."""
-        with pytest.raises(PoDLEError, match="not supported"):
+        with pytest.raises(PoDLEError, match="must be in range"):
             get_nums_point(-1)
 
     def test_invalid_index_too_high(self) -> None:
-        """Test index > 9 raises error."""
-        with pytest.raises(PoDLEError, match="not supported"):
-            get_nums_point(10)
+        """Test index > 255 raises error."""
+        with pytest.raises(PoDLEError, match="must be in range"):
+            get_nums_point(256)
 
 
 class TestECOperations:
@@ -172,9 +231,9 @@ class TestGeneratePoDLE:
             generate_podle(b"short", "a" * 64 + ":0")
 
     def test_invalid_nums_index(self) -> None:
-        """Test invalid NUMS index."""
+        """Test invalid NUMS index (must be 0-255)."""
         with pytest.raises(PoDLEError, match="Invalid NUMS index"):
-            generate_podle(bytes([1] * 32), "a" * 64 + ":0", index=99)
+            generate_podle(bytes([1] * 32), "a" * 64 + ":0", index=256)
 
     def test_zero_private_key(self) -> None:
         """Test zero private key is rejected."""
@@ -452,10 +511,11 @@ class TestFullFlow:
         assert is_valid, f"Full flow verification failed: {error}"
 
     def test_all_nums_indices(self) -> None:
-        """Test PoDLE works with all NUMS indices."""
+        """Test PoDLE works with various NUMS indices including higher values."""
         private_key = bytes([10] * 32)
         utxo_str = "i" * 64 + ":8"
 
+        # Test first 10 indices (commonly used)
         for idx in range(10):
             commitment = generate_podle(private_key, utxo_str, index=idx)
 
@@ -465,7 +525,27 @@ class TestFullFlow:
                 sig=commitment.sig,
                 e=commitment.e,
                 commitment=commitment.commitment,
-                index_range=range(10),
+                index_range=range(256),  # Full range support
             )
 
             assert is_valid, f"Index {idx} verification failed: {error}"
+
+    def test_high_nums_indices(self) -> None:
+        """Test PoDLE works with higher NUMS indices (100, 200, 255)."""
+        private_key = bytes([11] * 32)
+        utxo_str = "j" * 64 + ":9"
+
+        for idx in [100, 200, 255]:
+            commitment = generate_podle(private_key, utxo_str, index=idx)
+
+            # Verify with a range that includes the index
+            is_valid, error = verify_podle(
+                p=commitment.p,
+                p2=commitment.p2,
+                sig=commitment.sig,
+                e=commitment.e,
+                commitment=commitment.commitment,
+                index_range=range(idx, idx + 1),  # Only check the specific index
+            )
+
+            assert is_valid, f"High index {idx} verification failed: {error}"

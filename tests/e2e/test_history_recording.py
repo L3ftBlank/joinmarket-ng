@@ -67,6 +67,7 @@ async def test_history_recording_mechanism(bitcoin_core_backend):
                 total_maker_fees=5000,
                 mining_fee=1500,
                 destination=dest_address,
+                change_address=change_address,
                 source_mixdepth=0,
                 selected_utxos=[("a" * 64, 0)],
                 txid="b" * 64,
@@ -74,15 +75,6 @@ async def test_history_recording_mechanism(bitcoin_core_backend):
                 success=True,
                 failure_reason="",
             )
-
-            # Manually add change address to entry (dataclass, not Pydantic)
-            import dataclasses
-
-            entry_dict = dataclasses.asdict(history_entry)
-            entry_dict["change_address"] = change_address
-            from jmwallet.history import TransactionHistoryEntry
-
-            history_entry = TransactionHistoryEntry(**entry_dict)
 
             # Write to history
             append_history_entry(history_entry, data_dir=data_dir)

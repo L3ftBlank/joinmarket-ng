@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-02-03
+
 ### Fixed
 
 - **CoinJoin Confirmation Total Fee Display** (#109): Fixed a bug where the "Total Fees (makers+network)" in the CoinJoin confirmation prompt only showed maker fees, not the actual total. The display now correctly shows the sum of maker fees and mining fees.
@@ -684,6 +686,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tor configuration instructions.
 
 [Unreleased]: https://github.com/m0wer/joinmarket-ng/compare/0.9.0...HEAD
+[0.12.0]: https://github.com/m0wer/joinmarket-ng/compare/0.11.5...0.12.0
 [0.11.5]: https://github.com/m0wer/joinmarket-ng/compare/0.11.4...0.11.5
 [0.11.4]: https://github.com/m0wer/joinmarket-ng/compare/0.11.3...0.11.4
 [0.11.3]: https://github.com/m0wer/joinmarket-ng/compare/0.11.2...0.11.3

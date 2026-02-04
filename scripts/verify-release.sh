@@ -13,9 +13,10 @@
 #
 # Requirements:
 #   - gpg (GnuPG)
-#   - docker (for image verification and reproduction)
+#   - docker with buildx (for image verification and reproduction)
 #   - curl or wget
 #   - git
+#   - jq (for --reproduce digest extraction)
 # =============================================================================
 
 set -euo pipefail
@@ -268,6 +269,12 @@ REPRODUCE_ERRORS=0
 REPRODUCE_SUCCESS=0
 
 if [[ "$REPRODUCE" == true ]]; then
+    # Check for jq (required for OCI manifest parsing)
+    if ! command -v jq &> /dev/null; then
+        log_error "jq is required for --reproduce. Please install it."
+        exit 1
+    fi
+
     # Detect current architecture
     CURRENT_ARCH=$(detect_arch)
     log_info "Attempting to reproduce Docker builds for $CURRENT_ARCH..."
@@ -307,6 +314,10 @@ if [[ "$REPRODUCE" == true ]]; then
     IMAGES=("directory-server" "maker" "taker" "orderbook-watcher")
     DOCKERFILES=("./directory_server/Dockerfile" "./maker/Dockerfile" "./taker/Dockerfile" "./orderbook_watcher/Dockerfile")
 
+    # Create OCI output directory
+    OCI_DIR="$WORK_DIR/oci"
+    mkdir -p "$OCI_DIR"
+
     for i in "${!IMAGES[@]}"; do
         image="${IMAGES[$i]}"
         dockerfile="${DOCKERFILES[$i]}"
@@ -323,31 +334,28 @@ if [[ "$REPRODUCE" == true ]]; then
 
         log_info "Building $image for $PLATFORM..."
 
-        # Build single platform image and get its digest
-        # Use --iidfile to get the image ID (config digest)
-        IIDFILE="$WORK_DIR/${image}.iid"
+        # Build to OCI tar format (no local registry needed)
+        OCI_TAR="$OCI_DIR/${image}.tar"
+        OCI_EXTRACT="$OCI_DIR/${image}"
+        mkdir -p "$OCI_EXTRACT"
 
         if ! docker buildx build \
             --file "$dockerfile" \
             --build-arg SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
             --platform "$PLATFORM" \
-            --iidfile "$IIDFILE" \
-            --load \
+            --output "type=oci,dest=${OCI_TAR}" \
             . 2>&1 | tee "$WORK_DIR/${image}-build.log"; then
             log_error "  Build failed for $image"
             REPRODUCE_ERRORS=$((REPRODUCE_ERRORS + 1))
             continue
         fi
 
-        # Tag and push to local registry to get manifest digest
-        LOCAL_TAG="${LOCAL_REGISTRY}/verify/${image}:test"
-        IMAGE_ID=$(cat "$IIDFILE")
-        docker tag "$IMAGE_ID" "$LOCAL_TAG"
-        docker push "$LOCAL_TAG" 2>/dev/null
+        # Extract OCI tar and get manifest digest
+        tar -xf "$OCI_TAR" -C "$OCI_EXTRACT"
 
-        # Get manifest digest from local registry
-        built_digest=$(docker buildx imagetools inspect "$LOCAL_TAG" --raw 2>/dev/null | \
-                       sha256sum | cut -d' ' -f1 | sed 's/^/sha256:/')
+        # Get the manifest digest from OCI index.json
+        # For single-platform builds, index.json points to the image manifest
+        built_digest=$(jq -r '.manifests[0].digest' "$OCI_EXTRACT/index.json")
 
         # Also get digest from published registry for this specific platform
         FULL_IMAGE="${REGISTRY}/${REPO}/${image}:${VERSION}"
@@ -360,7 +368,7 @@ if [[ "$REPRODUCE" == true ]]; then
                               jq -r ".manifests[] | select(.platform.os == \"linux\" and .platform.architecture == \"${CURRENT_ARCH}\" and (.platform.variant // \"\") == \"\") | .digest" 2>/dev/null || echo "")
         fi
 
-        if [[ -n "$built_digest" ]]; then
+        if [[ -n "$built_digest" && "$built_digest" != "null" ]]; then
             # Compare against manifest
             if [[ "$built_digest" != "$manifest_expected" ]]; then
                 log_error "  Local build digest differs from manifest!"
@@ -391,8 +399,8 @@ if [[ "$REPRODUCE" == true ]]; then
             REPRODUCE_ERRORS=$((REPRODUCE_ERRORS + 1))
         fi
 
-        # Clean up local image
-        docker rmi "$IMAGE_ID" "$LOCAL_TAG" 2>/dev/null || true
+        # Clean up OCI files
+        rm -rf "$OCI_TAR" "$OCI_EXTRACT"
     done
 fi
 

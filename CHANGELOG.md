@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Maker `min_size` Default Reduced to Dust Threshold**: Changed the default `min_size` for maker offers from 100,000 sats to 27,300 sats (the dust threshold). The previous 100k default was arbitrary and prevented makers with smaller UTXOs from participating. The dust threshold is the true minimum for any Bitcoin output, making it the natural floor for CoinJoin amounts.
 
+- **Simplified Reproducibility Verification**: The `verify-release.sh --reproduce` and `sign-release.sh --reproduce` scripts no longer require a local Docker registry. Instead, they use OCI tar export (`--output type=oci,dest=...`) to extract the manifest digest directly from the built image. This reduces dependencies (no registry container needed) and is more reliable.
+
+### Fixed
+
+- **Reproducibility Verification Digest Extraction**: Fixed `verify-release.sh --reproduce` and `sign-release.sh --reproduce` to correctly extract platform-specific image digests instead of manifest list digests. When building with `--load`, Docker creates a manifest list that includes attestations, resulting in a different digest than the actual platform image. The scripts now use `jq` to extract the correct digest from `.manifests[]` excluding attestation manifests (platform.os != "unknown"), matching the CI workflow's digest extraction logic.
+
+- **Docker Image Reproducibility**: Fixed Dockerfiles to delete apt/dpkg log files (`/var/log/dpkg.log`, `/var/log/apt/*`) after package installation. These logs contain timestamps that made builds non-reproducible across different build times. This affects all four images: maker, taker, directory-server, and orderbook-watcher.
+
 ## [0.13.1] - 2026-02-04
 
 ### Fixed

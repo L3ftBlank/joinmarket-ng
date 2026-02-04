@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.2] - 2026-02-04
+
 ### Changed
 
 - **Maker `min_size` Default Reduced to Dust Threshold**: Changed the default `min_size` for maker offers from 100,000 sats to 27,300 sats (the dust threshold). The previous 100k default was arbitrary and prevented makers with smaller UTXOs from participating. The dust threshold is the true minimum for any Bitcoin output, making it the natural floor for CoinJoin amounts.

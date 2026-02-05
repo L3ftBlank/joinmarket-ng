@@ -58,9 +58,10 @@ Arguments:
   version         Release version to verify (e.g., 1.0.0)
 
 Options:
-  --reproduce     Attempt to reproduce the Docker builds locally
-  --min-sigs N    Require at least N valid signatures (default: 1)
-  --help          Show this help message
+  --reproduce       Attempt to reproduce the Docker builds locally
+  --min-sigs N      Require at least N valid signatures (default: 1)
+  --skip-signatures Skip GPG signature verification (for testing reproducibility)
+  --help            Show this help message
 
 The --reproduce flag builds images for your current architecture only and
 compares layer digests against the release manifest. Layer digests are
@@ -78,6 +79,7 @@ EOF
 VERSION=""
 REPRODUCE=false
 MIN_SIGS=1
+SKIP_SIGNATURES=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -88,6 +90,10 @@ while [[ $# -gt 0 ]]; do
         --min-sigs)
             MIN_SIGS="$2"
             shift 2
+            ;;
+        --skip-signatures)
+            SKIP_SIGNATURES=true
+            shift
             ;;
         --help|-h)
             usage
@@ -150,54 +156,58 @@ log_info "Downloaded release manifest"
 # =============================================================================
 # Step 2: Fetch and verify GPG signatures
 # =============================================================================
-log_info "Checking GPG signatures..."
+if [[ "$SKIP_SIGNATURES" == true ]]; then
+    log_warn "Skipping GPG signature verification (--skip-signatures)"
+else
+    log_info "Checking GPG signatures..."
 
-SIG_DIR="$PROJECT_ROOT/signatures/$VERSION"
-VALID_SIGS=0
-SIGNERS=()
+    SIG_DIR="$PROJECT_ROOT/signatures/$VERSION"
+    VALID_SIGS=0
+    SIGNERS=()
 
-if [[ -d "$SIG_DIR" ]]; then
-    # Import trusted keys
-    TRUSTED_KEYS="$PROJECT_ROOT/signatures/trusted-keys.txt"
-    if [[ -f "$TRUSTED_KEYS" ]]; then
-        log_info "Importing trusted keys..."
-        while IFS=' ' read -r fingerprint name || [[ -n "$fingerprint" ]]; do
-            # Skip comments and empty lines
-            [[ "$fingerprint" =~ ^#.*$ || -z "$fingerprint" ]] && continue
+    if [[ -d "$SIG_DIR" ]]; then
+        # Import trusted keys
+        TRUSTED_KEYS="$PROJECT_ROOT/signatures/trusted-keys.txt"
+        if [[ -f "$TRUSTED_KEYS" ]]; then
+            log_info "Importing trusted keys..."
+            while IFS=' ' read -r fingerprint name || [[ -n "$fingerprint" ]]; do
+                # Skip comments and empty lines
+                [[ "$fingerprint" =~ ^#.*$ || -z "$fingerprint" ]] && continue
 
-            # Try to import from keyserver
-            gpg --keyserver hkps://keys.openpgp.org --recv-keys "$fingerprint" 2>/dev/null || \
-            gpg --keyserver hkps://keyserver.ubuntu.com --recv-keys "$fingerprint" 2>/dev/null || \
-            log_warn "Could not import key $fingerprint ($name)"
-        done < "$TRUSTED_KEYS"
+                # Try to import from keyserver
+                gpg --keyserver hkps://keys.openpgp.org --recv-keys "$fingerprint" 2>/dev/null || \
+                gpg --keyserver hkps://keyserver.ubuntu.com --recv-keys "$fingerprint" 2>/dev/null || \
+                log_warn "Could not import key $fingerprint ($name)"
+            done < "$TRUSTED_KEYS"
+        fi
+
+        # Verify each signature
+        for sig_file in "$SIG_DIR"/*.sig; do
+            [[ -f "$sig_file" ]] || continue
+
+            fingerprint=$(basename "$sig_file" .sig)
+            log_info "Verifying signature from $fingerprint..."
+
+            if gpg --verify "$sig_file" "$MANIFEST_FILE" 2>/dev/null; then
+                log_info "Valid signature from $fingerprint"
+                VALID_SIGS=$((VALID_SIGS + 1))
+                SIGNERS+=("$fingerprint")
+            else
+                log_warn "Invalid signature from $fingerprint"
+            fi
+        done
+    else
+        log_warn "No signatures found for version $VERSION"
+        log_warn "Signature directory: $SIG_DIR"
     fi
 
-    # Verify each signature
-    for sig_file in "$SIG_DIR"/*.sig; do
-        [[ -f "$sig_file" ]] || continue
+    log_info "Valid signatures: $VALID_SIGS"
 
-        fingerprint=$(basename "$sig_file" .sig)
-        log_info "Verifying signature from $fingerprint..."
-
-        if gpg --verify "$sig_file" "$MANIFEST_FILE" 2>/dev/null; then
-            log_info "Valid signature from $fingerprint"
-            VALID_SIGS=$((VALID_SIGS + 1))
-            SIGNERS+=("$fingerprint")
-        else
-            log_warn "Invalid signature from $fingerprint"
-        fi
-    done
-else
-    log_warn "No signatures found for version $VERSION"
-    log_warn "Signature directory: $SIG_DIR"
-fi
-
-log_info "Valid signatures: $VALID_SIGS"
-
-if [[ $VALID_SIGS -lt $MIN_SIGS ]]; then
-    log_error "Insufficient valid signatures. Required: $MIN_SIGS, Found: $VALID_SIGS"
-    log_error "This release has not been verified by enough trusted parties."
-    exit 1
+    if [[ $VALID_SIGS -lt $MIN_SIGS ]]; then
+        log_error "Insufficient valid signatures. Required: $MIN_SIGS, Found: $VALID_SIGS"
+        log_error "This release has not been verified by enough trusted parties."
+        exit 1
+    fi
 fi
 
 # =============================================================================
@@ -396,12 +406,16 @@ echo ""
 echo "=============================================="
 log_info "Verification Summary for $VERSION"
 echo "=============================================="
-echo "Valid GPG signatures: $VALID_SIGS"
-if [[ ${#SIGNERS[@]} -gt 0 ]]; then
-    echo "Signers:"
-    for signer in "${SIGNERS[@]}"; do
-        echo "  - $signer"
-    done
+if [[ "$SKIP_SIGNATURES" == true ]]; then
+    echo "GPG signature verification: SKIPPED"
+else
+    echo "Valid GPG signatures: $VALID_SIGS"
+    if [[ ${#SIGNERS[@]} -gt 0 ]]; then
+        echo "Signers:"
+        for signer in "${SIGNERS[@]}"; do
+            echo "  - $signer"
+        done
+    fi
 fi
 echo "Digest verification: PASSED"
 if [[ "$REPRODUCE" == true ]]; then

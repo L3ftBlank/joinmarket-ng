@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Install Script Update Mode Torrc Verification**: Running `install.sh --update` now verifies and fixes the Tor configuration if the JoinMarket-NG section is missing, commented out, or incomplete (e.g., missing `CookieAuthFile`).
 
+- **Orderbook-Watcher File Permission Reproducibility**: Added permission normalization step to the orderbook-watcher Dockerfile. Previously, files copied directly to the production stage preserved local filesystem permissions (based on umask), causing builds to differ across systems. The new `RUN find ... chmod` step ensures consistent 644/755 permissions regardless of the build environment.
+
+### Added
+
+- **Skip Signature Verification Option**: Added `--skip-signatures` flag to `verify-release.sh` for testing reproducibility without requiring GPG signatures.
+
 ## [0.13.7] - 2026-02-05
 
 ### Fixed
@@ -25,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Note
 
-Releases prior to these changes (including 0.13.5 and 0.13.6) cannot be reproduced locally because they were built without `rewrite-timestamp=true`. Only releases built with these changes will be fully reproducible.
+Releases prior to these changes (including 0.13.5, 0.13.6, and 0.13.7) cannot be fully reproduced locally for the orderbook-watcher image due to file permission differences. Files copied directly to the production stage in orderbook-watcher preserved local filesystem permissions, which vary based on umask settings. CI runners typically use umask 0022 (resulting in 644 files), while developer machines often use umask 0002 (resulting in 664 files). Only releases built with the permission normalization fix will have fully reproducible orderbook-watcher images.
 
 ## [0.13.6] - 2026-02-05
 

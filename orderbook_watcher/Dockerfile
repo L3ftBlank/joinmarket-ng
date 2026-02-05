@@ -68,8 +68,16 @@ USER jm
 ENV PATH=/home/jm/.local/bin:$PATH
 
 # Copy application source and static files (as jm user)
+# Use explicit chmod to normalize permissions for reproducible builds
+# Directory permissions (755) are applied by COPY automatically for parent dirs
+# File permissions must be normalized as local umask/git settings vary
 COPY --chown=jm:jm orderbook_watcher/src /app/orderbook_watcher/src
 COPY --chown=jm:jm orderbook_watcher/static /app/orderbook_watcher/static
+
+# Normalize file permissions for reproducibility (umask varies across systems)
+# Only modify files under orderbook_watcher/ (owned by jm), not /app itself (owned by root)
+RUN find /app/orderbook_watcher -type f -exec chmod 644 {} + && \
+    find /app/orderbook_watcher -type d -exec chmod 755 {} +
 
 ENV PYTHONPATH=/app/orderbook_watcher/src
 

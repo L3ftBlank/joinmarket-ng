@@ -153,12 +153,11 @@ jobs:
           # that make builds non-reproducible across different build environments
           provenance: false
           sbom: false
-          cache-from: |
-            type=registry,ref=${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.image }}:buildcache
-            type=registry,ref=${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.image }}:latest
-          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.image }}:buildcache,mode=max
+          # Disable cache for reproducible builds
+          # Cached layers from previous builds may have different package versions,
+          # making local reproduction impossible. Fresh builds ensure consistency.
+          no-cache: true
           build-args: |
-            BUILDKIT_INLINE_CACHE=1
             VERSION=${{ needs.create-release.outputs.version }}
             SOURCE_DATE_EPOCH=${{ env.SOURCE_DATE_EPOCH }}
         env:

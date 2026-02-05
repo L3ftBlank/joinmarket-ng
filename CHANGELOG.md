@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Disabled Build Cache for CI Releases**: Added `no-cache: true` to the CI release workflow. Cached layers from previous builds may contain different package versions, making local reproduction impossible. Fresh builds ensure consistency between CI and local verification.
+
+- **Base Image Digest Pinning**: All Dockerfiles now pin Python base images by manifest list digest for reproducible builds. This ensures the exact same base image is used across builds, regardless of when they run. Use `./scripts/update-base-images.sh` to update digests when new Python images are released.
+
+- **Faster Verification with Git Worktree**: `verify-release.sh --reproduce` and `sign-release.sh --reproduce` now use `git worktree` instead of cloning from GitHub. This is faster and more secure - it uses locally verified code rather than trusting the remote blindly. Users must have the commit locally (run `git fetch origin` if needed).
+
+### Added
+
+- **Base Image Update Script**: New `scripts/update-base-images.sh` script to update Python base image digests in all Dockerfiles. Run periodically to get security updates while maintaining reproducibility. Use `--check` to verify if updates are needed.
+
 ## [0.13.5] - 2026-02-05
 
 ### Changed

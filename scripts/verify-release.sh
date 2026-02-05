@@ -285,12 +285,24 @@ if [[ "$REPRODUCE" == true ]]; then
     log_info "SOURCE_DATE_EPOCH: $SOURCE_DATE_EPOCH"
     log_info "Platform: $PLATFORM"
 
-    # Clone repository at specific commit
+    # Use git worktree from local repo (faster and more secure than cloning)
+    # This uses locally verified code instead of trusting remote blindly
     REPO_DIR="$WORK_DIR/repo"
-    git clone --depth 1 "https://github.com/${REPO}.git" "$REPO_DIR"
+
+    # Check if commit exists locally
+    if ! git -C "$PROJECT_ROOT" cat-file -e "$COMMIT^{commit}" 2>/dev/null; then
+        log_error "Commit $COMMIT not found locally."
+        log_error "Please fetch it first: git fetch origin"
+        log_error "Or fetch the specific tag: git fetch origin tag $VERSION"
+        exit 1
+    fi
+
+    # Create worktree at the specific commit
+    log_info "Creating git worktree at commit $COMMIT..."
+    git -C "$PROJECT_ROOT" worktree add --detach "$REPO_DIR" "$COMMIT"
+    # Clean up worktree on exit
+    trap "rm -rf '$WORK_DIR'; git -C '$PROJECT_ROOT' worktree remove --force '$REPO_DIR' 2>/dev/null || true" EXIT
     cd "$REPO_DIR"
-    git fetch --depth 1 origin "$COMMIT"
-    git checkout "$COMMIT"
 
     # Build images for current architecture only
     IMAGES=("directory-server" "maker" "taker" "orderbook-watcher")
@@ -330,7 +342,6 @@ if [[ "$REPRODUCE" == true ]]; then
 
         # Get the manifest digest from OCI index.json
         manifest_digest=$(jq -r '.manifests[0].digest' "$OCI_EXTRACT/index.json")
-        manifest_file="$OCI_EXTRACT/blobs/${manifest_digest#sha256:}"
         manifest_file="$OCI_EXTRACT/blobs/sha256/${manifest_digest#sha256:}"
 
         # Extract layer digests from the manifest
@@ -341,8 +352,8 @@ if [[ "$REPRODUCE" == true ]]; then
         # Extract expected layers from manifest file
         # Look for section starting with "### ${image}-${CURRENT_ARCH}-layers"
         expected_layers_file="$WORK_DIR/${image}-expected-layers.txt"
-        awk "/^### ${image}-${CURRENT_ARCH}-layers$/,/^(###|$)/" "$MANIFEST_FILE" | \
-            grep "^sha256:" | sort > "$expected_layers_file"
+        sed -n "/^### ${image}-${CURRENT_ARCH}-layers\$/,/^###/{/^sha256:/p}" "$MANIFEST_FILE" | \
+            sort > "$expected_layers_file"
 
         # Compare layer digests
         if [[ -s "$expected_layers_file" ]]; then

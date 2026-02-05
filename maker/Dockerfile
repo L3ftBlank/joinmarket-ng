@@ -1,7 +1,12 @@
 # =============================================================================
 # Builder stage: Install dependencies and build wheels
 # =============================================================================
-FROM python:3.14-slim AS builder
+# Base image digests for reproducible builds
+# Update with: ./scripts/update-base-images.sh
+ARG PYTHON_VERSION=3.14
+ARG PYTHON_SLIM_DIGEST=sha256:fa0acdcd760f0bf265bc2c1ee6120776c4d92a9c3a37289e17b9642ad2e5b83b
+
+FROM python:${PYTHON_VERSION}-slim@${PYTHON_SLIM_DIGEST} AS builder
 
 WORKDIR /build
 
@@ -56,7 +61,7 @@ RUN if [ -n "$SOURCE_DATE_EPOCH" ]; then export SOURCE_DATE_EPOCH=$SOURCE_DATE_E
 # =============================================================================
 # Production stage: Minimal runtime image
 # =============================================================================
-FROM python:3.14-slim AS production
+FROM python:${PYTHON_VERSION}-slim@${PYTHON_SLIM_DIGEST} AS production
 
 WORKDIR /app
 

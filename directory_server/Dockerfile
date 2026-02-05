@@ -1,9 +1,13 @@
 # =============================================================================
 # Builder stage: Install dependencies and build wheels
 # =============================================================================
+# Base image digests for reproducible builds
+# Update with: ./scripts/update-base-images.sh
 ARG PYTHON_VERSION=3.14
+ARG PYTHON_SLIM_DIGEST=sha256:fa0acdcd760f0bf265bc2c1ee6120776c4d92a9c3a37289e17b9642ad2e5b83b
+ARG PYTHON_FULL_DIGEST=sha256:1c4c033d666001d84b5c4d85280af2c5a21a4ea1eb86c2fc06e3ef2f33fa6776
 
-FROM python:${PYTHON_VERSION}-slim AS builder
+FROM python:${PYTHON_VERSION}-slim@${PYTHON_SLIM_DIGEST} AS builder
 
 WORKDIR /build
 
@@ -46,7 +50,7 @@ RUN if [ -n "$SOURCE_DATE_EPOCH" ]; then export SOURCE_DATE_EPOCH=$SOURCE_DATE_E
 # =============================================================================
 # Production stage: Minimal runtime image
 # =============================================================================
-FROM python:${PYTHON_VERSION}-slim AS production
+FROM python:${PYTHON_VERSION}-slim@${PYTHON_SLIM_DIGEST} AS production
 
 WORKDIR /app
 
@@ -80,7 +84,7 @@ CMD ["jm-directory-server"]
 # =============================================================================
 # Debug stage: Full Python image with debug symbols and tools
 # =============================================================================
-FROM python:${PYTHON_VERSION} AS debug-builder
+FROM python:${PYTHON_VERSION}@${PYTHON_FULL_DIGEST} AS debug-builder
 
 WORKDIR /build
 
@@ -118,7 +122,7 @@ COPY directory_server/pyproject.toml /build/directory_server/
 RUN if [ -n "$SOURCE_DATE_EPOCH" ]; then export SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH; fi && \
     pip install --no-cache-dir --user /build/directory_server
 
-FROM python:${PYTHON_VERSION} AS debug
+FROM python:${PYTHON_VERSION}@${PYTHON_FULL_DIGEST} AS debug
 
 WORKDIR /app
 

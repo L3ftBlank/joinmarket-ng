@@ -47,14 +47,18 @@ async def check_pow_status(
         if cookie_path:
             await controller.authenticate_cookie(cookie_path)
         else:
-            # Try common cookie paths
+            # Try common cookie paths (ordered by likelihood on modern Linux systems)
             common_paths = [
-                "/var/lib/tor/control_auth_cookie",
-                "/run/tor/control.authcookie",
+                Path("/run/tor/control.authcookie"),
+                Path("/var/run/tor/control.authcookie"),
+                Path("/var/lib/tor/control_auth_cookie"),
                 Path.home() / ".tor" / "control_auth_cookie",
             ]
             authenticated = False
             for path in common_paths:
+                # Check that file exists AND has content (non-zero size)
+                if not path.exists() or path.stat().st_size == 0:
+                    continue
                 try:
                     await controller.authenticate_cookie(str(path))
                     authenticated = True

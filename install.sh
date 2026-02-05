@@ -226,7 +226,9 @@ setup_tor() {
     fi
 
     if [ -n "$torrc_path" ] && [ -f "$torrc_path" ]; then
-        if ! grep -q "^ControlPort 127.0.0.1:9051" "$torrc_path" 2>/dev/null; then
+        # Check for both ControlPort and CookieAuthFile - need both for proper setup
+        if ! grep -q "^ControlPort 127.0.0.1:9051" "$torrc_path" 2>/dev/null || \
+           ! grep -q "^CookieAuthFile /run/tor/control.authcookie" "$torrc_path" 2>/dev/null; then
             echo ""
             echo "Tor needs control port configuration for maker bots."
             echo ""
@@ -240,12 +242,17 @@ setup_tor() {
 
             if [[ ! $REPLY =~ ^[Nn]$ ]]; then
                 sudo cp "$torrc_path" "${torrc_path}.backup.$(date +%Y%m%d_%H%M%S)"
+                # Remove old JoinMarket-NG section if it exists (to replace with correct one)
+                if grep -q "## JoinMarket-NG Configuration" "$torrc_path" 2>/dev/null; then
+                    sudo sed -i '/^## JoinMarket-NG Configuration/,/^$/d' "$torrc_path"
+                fi
                 sudo bash -c "cat >> $torrc_path" << 'EOF'
 
 ## JoinMarket-NG Configuration
 SocksPort 127.0.0.1:9050
 ControlPort 127.0.0.1:9051
 CookieAuthentication 1
+CookieAuthFile /run/tor/control.authcookie
 EOF
                 print_success "Tor configured"
 
@@ -778,9 +785,12 @@ main() {
     fi
 
     if [[ "$MODE" == "update" ]]; then
-        # Update mode - minimal checks
+        # Update mode - update packages and verify Tor config
         setup_virtualenv
         update_packages
+        if [[ "$SKIP_TOR" == "false" ]]; then
+            setup_tor
+        fi
         print_success "JoinMarket-NG updated successfully!"
         echo ""
         echo "Restart any running maker/taker processes to use the new version."

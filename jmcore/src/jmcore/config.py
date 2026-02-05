@@ -104,7 +104,9 @@ def create_tor_control_config_from_env() -> TorControlConfig:
             Path("/var/lib/tor/control_auth_cookie"),
         ]
         for path in common_paths:
-            if path.exists():
+            # Check that file exists AND has content (non-zero size)
+            # An empty cookie file indicates Tor isn't configured to write there
+            if path.exists() and path.stat().st_size > 0:
                 cookie_path = path
                 break
 

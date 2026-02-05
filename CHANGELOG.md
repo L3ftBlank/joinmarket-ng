@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.4] - 2026-02-05
+
 ### Changed
 
 - **Use OCI Digests for Reproducible Build Verification**: The release manifest now contains OCI tar digests instead of registry manifest digests. CI builds each platform image as an OCI tar (in addition to pushing to registry) and stores those digests in the manifest. This ensures local verification produces the exact same digest as CI, since both use the same output format (`type=oci,dest=...,rewrite-timestamp=true`). Previously, local verification used OCI output while CI stored registry digests, which are fundamentally different even for identical image content.

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.8] - 2026-02-05
+
 ### Fixed
 
 - **Empty Tor Cookie File Detection**: Cookie path auto-detection now verifies that the cookie file has content (non-zero size) before using it. Previously, an empty cookie file at `/run/tor/control.authcookie` would be selected, causing Tor authentication to fail with "cookie of size zero" errors.

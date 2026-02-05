@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.6] - 2026-02-05
+
 ### Changed
 
 - **Disabled Build Cache for CI Releases**: Added `no-cache: true` to the CI release workflow. Cached layers from previous builds may contain different package versions, making local reproduction impossible. Fresh builds ensure consistency between CI and local verification.

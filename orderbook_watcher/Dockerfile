@@ -40,6 +40,13 @@ COPY orderbook_watcher/requirements.txt /build/orderbook_watcher/
 RUN if [ -n "$SOURCE_DATE_EPOCH" ]; then export SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH; fi && \
     pip install --no-cache-dir --user -r /build/orderbook_watcher/requirements.txt
 
+# Copy source and static files, normalize permissions for reproducibility
+# This runs as root in builder, ensuring consistent 644/755 permissions regardless of source
+COPY orderbook_watcher/src /build/orderbook_watcher/src
+COPY orderbook_watcher/static /build/orderbook_watcher/static
+RUN find /build/orderbook_watcher/src /build/orderbook_watcher/static -type f -exec chmod 644 {} + && \
+    find /build/orderbook_watcher/src /build/orderbook_watcher/static -type d -exec chmod 755 {} +
+
 # =============================================================================
 # Production stage: Minimal runtime image
 # =============================================================================
@@ -67,17 +74,9 @@ USER jm
 # Make sure scripts are in PATH
 ENV PATH=/home/jm/.local/bin:$PATH
 
-# Copy application source and static files (as jm user)
-# Use explicit chmod to normalize permissions for reproducible builds
-# Directory permissions (755) are applied by COPY automatically for parent dirs
-# File permissions must be normalized as local umask/git settings vary
-COPY --chown=jm:jm orderbook_watcher/src /app/orderbook_watcher/src
-COPY --chown=jm:jm orderbook_watcher/static /app/orderbook_watcher/static
-
-# Normalize file permissions for reproducibility (umask varies across systems)
-# Only modify files under orderbook_watcher/ (owned by jm), not /app itself (owned by root)
-RUN find /app/orderbook_watcher -type f -exec chmod 644 {} + && \
-    find /app/orderbook_watcher -type d -exec chmod 755 {} +
+# Copy application source and static files from builder (with normalized permissions)
+COPY --from=builder --chown=jm:jm /build/orderbook_watcher/src /app/orderbook_watcher/src
+COPY --from=builder --chown=jm:jm /build/orderbook_watcher/static /app/orderbook_watcher/static
 
 ENV PYTHONPATH=/app/orderbook_watcher/src
 

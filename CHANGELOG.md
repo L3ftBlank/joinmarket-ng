@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Orderbook-Watcher Reproducibility via Builder Stage**: Fixed reproducible builds for orderbook-watcher by copying source and static files through the builder stage with permission normalization. Previously, files were copied directly to the production stage, preserving local filesystem permissions (based on umask), and the post-copy chmod ran as user `jm` which couldn't fix permissions on directories with restrictive modes. Now, files are copied to builder, normalized to 644/755 as root, then copied to production with `--from=builder`.
+
+- **Root .dockerignore**: Added a root-level `.dockerignore` file to exclude development artifacts (`*.egg-info/`, `__pycache__/`, `*.pyc`, etc.) from Docker build context. These files don't exist in CI (fresh git clone) but accumulate locally during development, causing COPY layer mismatches.
+
 ## [0.13.8] - 2026-02-05
 
 ### Fixed

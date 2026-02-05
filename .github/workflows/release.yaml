@@ -148,6 +148,11 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Disable attestations for reproducible builds
+          # Provenance and SBOM attestations include timestamps and environment data
+          # that make builds non-reproducible across different build environments
+          provenance: false
+          sbom: false
           cache-from: |
             type=registry,ref=${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.image }}:buildcache
             type=registry,ref=${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.image }}:latest

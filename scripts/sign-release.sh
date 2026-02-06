@@ -124,6 +124,44 @@ if ! command -v jq &> /dev/null; then
     exit 1
 fi
 
+# Check/setup buildx builder with docker-container driver for OCI export support
+# The default 'docker' driver doesn't support OCI export format
+setup_buildx_builder() {
+    local builder_name="jmng-verify"
+
+    # Check if our builder already exists and is usable
+    if docker buildx inspect "$builder_name" &>/dev/null; then
+        log_info "Using existing buildx builder: $builder_name"
+        docker buildx use "$builder_name"
+        return 0
+    fi
+
+    # Check if current builder supports OCI export
+    local current_driver
+    current_driver=$(docker buildx inspect --bootstrap 2>/dev/null | grep -oP 'Driver:\s+\K\S+' || echo "docker")
+
+    if [[ "$current_driver" == "docker-container" ]]; then
+        log_info "Current buildx builder supports OCI export"
+        return 0
+    fi
+
+    # Create a new builder with docker-container driver
+    log_info "Creating buildx builder with docker-container driver..."
+    log_info "The default 'docker' driver doesn't support OCI export format."
+
+    if docker buildx create --name "$builder_name" --driver docker-container --bootstrap; then
+        docker buildx use "$builder_name"
+        log_info "Created and activated buildx builder: $builder_name"
+        return 0
+    else
+        log_error "Failed to create buildx builder."
+        log_error "You can manually create one with:"
+        log_error "  docker buildx create --name $builder_name --driver docker-container --use"
+        log_error "Or enable the containerd image store in Docker Desktop settings."
+        return 1
+    fi
+}
+
 # =============================================================================
 # Step 0: Get GPG key early (needed for auto-detection)
 # =============================================================================
@@ -220,6 +258,11 @@ echo ""
 # Step 2: Optionally reproduce builds (recommended for all signers)
 # =============================================================================
 if [[ "$REPRODUCE" == true ]]; then
+    # Ensure buildx builder supports OCI export
+    if ! setup_buildx_builder; then
+        exit 1
+    fi
+
     CURRENT_ARCH=$(detect_arch)
     log_info "Reproducing builds for $CURRENT_ARCH to verify layer digests..."
     log_info "Layer digests are content-addressable and format-independent"

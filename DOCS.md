@@ -1179,6 +1179,20 @@ Docker manifest digests vary based on manifest format (Docker distribution vs OC
 
 The `--reproduce` flag builds the Docker image for your current architecture and compares layer digests against the release manifest. This verifies the released image content matches the source code.
 
+**BuildKit requirements:**
+
+The `--reproduce` flag requires a Docker buildx builder with the `docker-container` driver to support OCI export format. The scripts will automatically create one if needed, but you can also set it up manually:
+
+```bash
+# Create a buildx builder with docker-container driver
+docker buildx create --name jmng-verify --driver docker-container --use --bootstrap
+
+# Verify the driver
+docker buildx inspect  # Should show: Driver: docker-container
+```
+
+Alternatively, if using Docker Desktop, enable the "containerd image store" in Settings > Features in development.
+
 **Sign a release:**
 
 ```bash

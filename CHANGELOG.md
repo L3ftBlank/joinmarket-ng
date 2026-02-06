@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Auto-Setup BuildKit Builder for OCI Export**: The `verify-release.sh --reproduce` and `sign-release.sh --reproduce` scripts now automatically detect when the current Docker buildx driver doesn't support OCI export format and create a suitable builder (`jmng-verify`) with the `docker-container` driver. Previously, users with plain Docker CE (without Docker Desktop or containerd image store) would get "OCI exporter is not supported for the docker driver" errors.
+
 ## [0.13.10] - 2026-02-06
 
 ### Fixed

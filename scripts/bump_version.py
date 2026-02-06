@@ -180,7 +180,7 @@ def update_changelog(
     Update CHANGELOG.md:
     1. Change [Unreleased] to [X.Y.Z] - YYYY-MM-DD
     2. Add new [Unreleased] section
-    3. Update diff links at the bottom
+    3. Update diff links at the bottom (supports both relative and absolute URLs)
     """
     content = CHANGELOG.read_text()
     today = datetime.now().strftime("%Y-%m-%d")
@@ -192,29 +192,33 @@ def update_changelog(
     new_content = re.sub(unreleased_pattern, new_unreleased, content)
 
     # Update the diff links at the bottom
-    # Find existing [Unreleased] link and update it
-    unreleased_link_pattern = r"\[Unreleased\]: https://github\.com/m0wer/joinmarket-ng/compare/[^.]+\.\.\.HEAD"
-    new_unreleased_link = f"[Unreleased]: https://github.com/m0wer/joinmarket-ng/compare/{new_version}...HEAD"
-    new_content = re.sub(unreleased_link_pattern, new_unreleased_link, new_content)
+    # Support both relative (../../compare/...) and absolute GitHub URLs
+    # Pattern matches: [Unreleased]: <path>/compare/<version>...HEAD
+    # Using \S+ to match version strings that contain dots (e.g., 0.13.9)
+    unreleased_link_pattern = r"\[Unreleased\]: (.+/compare/)\S+\.\.\.HEAD"
+    match = re.search(unreleased_link_pattern, new_content)
+    if match:
+        base_path = match.group(1)  # e.g., "../../compare/" or full GitHub URL
+        new_unreleased_link = f"[Unreleased]: {base_path}{new_version}...HEAD"
+        new_content = re.sub(unreleased_link_pattern, new_unreleased_link, new_content)
 
-    # Add new version diff link before the [Unreleased] link
-    # Find where the [Unreleased] link is and add the new version link after it
-    new_version_link = (
-        f"[{new_version}]: https://github.com/m0wer/joinmarket-ng/compare/"
-        f"{current_version}...{new_version}"
-    )
+        # Add new version diff link after the [Unreleased] link
+        new_version_link = (
+            f"[{new_version}]: {base_path}{current_version}...{new_version}"
+        )
 
-    # Insert the new version link right after the [Unreleased] link
-    new_content = re.sub(
-        r"(\[Unreleased\]: https://github\.com/m0wer/joinmarket-ng/compare/[^\n]+)",
-        f"\\1\n{new_version_link}",
-        new_content,
-    )
+        # Insert the new version link right after the [Unreleased] link
+        new_content = re.sub(
+            r"(\[Unreleased\]: [^\n]+)",
+            f"\\1\n{new_version_link}",
+            new_content,
+        )
 
     if dry_run:
         print(f"Would update {CHANGELOG}")
         print(f"  [Unreleased] -> [{new_version}] - {today}")
-        print(f"  Add diff link for {new_version}")
+        print(f"  Update [Unreleased] link to compare from {new_version}")
+        print(f"  Add [{new_version}] link: {current_version}...{new_version}")
     else:
         CHANGELOG.write_text(new_content)
         print(f"Updated {CHANGELOG}")

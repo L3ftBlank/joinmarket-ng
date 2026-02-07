@@ -33,10 +33,19 @@ jobs:
           # Falls Sie pymdown-extensions benötigen für Highlighting/Copybutton
           pip install pymdown-extensions
 
-      - name: Build documentation
+- name: Build documentation
         run: |
-          # Symlinks in echte Dateien kopieren (resolving symlinks for GitHub Actions)
-          find docs/ -type l -exec cp --remove-destination {} {} \;
+          # Symlink-Struktur auf dem Server neu erstellen
+          # (Workaround für Git-Symlink-Probleme in Actions)
+          ln -s ../media docs/media
+          ln -s ../README.md docs/index.md
+          ln -s ../DOCS.md docs/DOCS.md
+          ln -s ../INSTALL.md docs/INSTALL.md
+          ln -s ../jmwallet/README.md docs/jmwallet/README.md
+          ln -s ../scripts/README.md docs/scripts/README.md
+          ln -s ../maker/README.md docs/maker/README.md
+          ln -s ../taker/README.md docs/taker/README.md
+
           mkdocs build
 
       - name: Upload artifact

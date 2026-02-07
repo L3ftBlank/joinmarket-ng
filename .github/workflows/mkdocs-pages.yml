@@ -1,13 +1,11 @@
 name: Build and deploy MkDocs documentation
 
 on:
-  # Run workflow on every push to the 'documentation-branch' (oder master/main)
   push:
     branches:
       - documentation-branch
       - master
       - main
-  # Erlaubt auch manuelles Auslösen über den "Run workflow" Button
   workflow_dispatch:
 
 permissions:
@@ -34,7 +32,6 @@ jobs:
 
       - name: Build documentation
         run: |
-          # Pfad zum Repository-Root
           REPO_ROOT="${GITHUB_WORKSPACE}"
 
           # Alte Symlinks oder kaputte Ordner im docs/ Ordner ZUERST löschen
@@ -64,3 +61,15 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: './site'
+
+  # Neuer Job: Dieser Job deployed das Artifact auf GitHub Pages
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

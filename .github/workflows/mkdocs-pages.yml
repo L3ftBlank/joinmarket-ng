@@ -1,0 +1,42 @@
+name: Build and deploy MkDocs documentation
+
+on:
+  # Run workflow on every push to the 'documentation-branch' (oder master/main)
+  push:
+    branches:
+      - documentation-branch
+      - master
+      - main
+  # Erlaubt auch manuelles Auslösen über den "Run workflow" Button
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install MkDocs and dependencies
+        run: |
+          pip install mkdocs-material
+          # Falls Sie pymdown-extensions benötigen für Highlighting/Copybutton
+          pip install pymdown-extensions
+
+      - name: Build documentation
+        run: mkdocs build
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './site'

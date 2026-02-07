@@ -36,6 +36,7 @@ htmlcov/
 env/
 venv/
 ENV/
+jm-ng-doc-env/
 
 # Type checking & linting
 .mypy_cache/
@@ -69,3 +70,4 @@ joinmarket-clientserver/
 
 # Documentation build output (published to GitHub Pages)
 docs_build/
+site/

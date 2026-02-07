@@ -34,15 +34,17 @@ jobs:
 
       - name: Build documentation
         run: |
-          # Symlink-Struktur auf dem Server neu erstellen (-f erzwingt Überschreiben)
-          ln -sf ../media docs/media
+          # Ordner-Symlinks erstellen (-sfn erlaubt das sichere Überschreiben von Verzeichnissen)
+          ln -sfn ../media docs/media
           ln -sf ../README.md docs/index.md
           ln -sf ../DOCS.md docs/DOCS.md
           ln -sf ../INSTALL.md docs/INSTALL.md
-          ln -sf ../jmwallet/README.md docs/jmwallet/README.md
-          ln -sf ../scripts/README.md docs/scripts/README.md
-          ln -sf ../maker/README.md docs/maker/README.md
-          ln -sf ../taker/README.md docs/taker/README.md
+
+          # Ordner verlinken (das ist robuster als Dateien)
+          ln -sfn ../jmwallet docs/jmwallet
+          ln -sfn ../scripts docs/scripts
+          ln -sfn ../maker docs/maker
+          ln -sfn ../taker docs/taker
 
           mkdocs build
 

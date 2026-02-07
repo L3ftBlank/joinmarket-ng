@@ -34,17 +34,16 @@ jobs:
 
       - name: Build documentation
         run: |
-          # Ordner-Symlinks erstellen (-sfn erlaubt das sichere Überschreiben von Verzeichnissen)
-          ln -sfn ../media docs/media
-          ln -sf ../README.md docs/index.md
-          ln -sf ../DOCS.md docs/DOCS.md
-          ln -sf ../INSTALL.md docs/INSTALL.md
+          # Dateien und Ordner KOPIEREN statt zu verlinken (vermeidet Symlink-Probleme in CI)
+          cp -r ../media docs/media
+          cp ../README.md docs/index.md
+          cp ../DOCS.md docs/DOCS.md
+          cp ../INSTALL.md docs/INSTALL.md
 
-          # Ordner verlinken (das ist robuster als Dateien)
-          ln -sfn ../jmwallet docs/jmwallet
-          ln -sfn ../scripts docs/scripts
-          ln -sfn ../maker docs/maker
-          ln -sfn ../taker docs/taker
+          cp -r ../jmwallet docs/jmwallet
+          cp -r ../scripts docs/scripts
+          cp -r ../maker docs/maker
+          cp -r ../taker docs/taker
 
           mkdocs build
 

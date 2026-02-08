@@ -16,6 +16,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Diese ID ist wichtig für den Upload-Step unten
+    id: build
+    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -61,3 +64,9 @@ jobs:
           cp -r "${REPO_ROOT}/orderbook_watcher" "${REPO_ROOT}/docs/orderbook_watcher"
 
           mkdocs build
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # MkDocs baut standardmäßig in den 'site' Ordner
+          path: './site'

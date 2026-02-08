@@ -32,48 +32,29 @@ jobs:
 
       - name: Build documentation
         run: |
-          REPO_ROOT="${GITHUB_WORKSPACE}"
+          REPO_ROOT="\${GITHUB_WORKSPACE}"
 
           # Alte Symlinks oder kaputte Ordner im docs/ Ordner ZUERST löschen
-          rm -rf "${REPO_ROOT}/docs/media"
-          rm -rf "${REPO_ROOT}/docs/index.md"
-          rm -rf "${REPO_ROOT}/docs/DOCS.md"
-          rm -rf "${REPO_ROOT}/docs/INSTALL.md"
-          rm -rf "${REPO_ROOT}/docs/jmwallet"
-          rm -rf "${REPO_ROOT}/docs/scripts"
-          rm -rf "${REPO_ROOT}/docs/maker"
-          rm -rf "${REPO_ROOT}/docs/taker"
-          rm -rf "${REPO_ROOT}/docs/directory_server"
-          rm -rf "${REPO_ROOT}/docs/orderbook_watcher"
+          rm -rf "\${REPO_ROOT}/docs/media"
+          rm -rf "\${REPO_ROOT}/docs/index.md"
+          rm -rf "\${REPO_ROOT}/docs/DOCS.md"
+          rm -rf "\${REPO_ROOT}/docs/INSTALL.md"
+          rm -rf "\${REPO_ROOT}/docs/developer_reference.md"   # <--- Ergänzt
+          rm -rf "\${REPO_ROOT}/docs/jmwallet"
+          rm -rf "\${REPO_ROOT}/docs/scripts"
+          rm -rf "\${REPO_ROOT}/docs/maker"
+          rm -rf "\${REPO_ROOT}/docs/taker"
+          rm -rf "\${REPO_ROOT}/docs/directory_server"          # <--- Ergänzt
+          rm -rf "\${REPO_ROOT}/docs/orderbook_watcher"         # <--- Ergänzt
 
           # Dateien und Ordner KOPIEREN
           cp -r "${REPO_ROOT}/media" "${REPO_ROOT}/docs/media"
           cp "${REPO_ROOT}/README.md" "${REPO_ROOT}/docs/index.md"
           cp "${REPO_ROOT}/DOCS.md" "${REPO_ROOT}/docs/DOCS.md"
           cp "${REPO_ROOT}/INSTALL.md" "${REPO_ROOT}/docs/INSTALL.md"
-          cp "${REPO_ROOT}/docs/developer_reference.md" "${REPO_ROOT}/docs/developer_reference.md"
+          cp "${REPO_ROOT}/developer_reference.md" "${REPO_ROOT}/docs/developer_reference.md" # <--- Ergänzt (Vom Root kopieren)
+          
           cp -r "${REPO_ROOT}/jmwallet" "${REPO_ROOT}/docs/jmwallet"
           cp -r "${REPO_ROOT}/scripts" "${REPO_ROOT}/docs/scripts"
           cp -r "${REPO_ROOT}/maker" "${REPO_ROOT}/docs/maker"
-          cp -r "${REPO_ROOT}/taker" "${REPO_ROOT}/docs/taker"
-          cp -r "${REPO_ROOT}/directory_server" "${REPO_ROOT}/docs/directory_server"
-          cp -r "${REPO_ROOT}/orderbook_watcher" "${REPO_ROOT}/docs/orderbook_watcher"
-
-          mkdocs build
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: './site'
-
-  # Neuer Job: Dieser Job deployed das Artifact auf GitHub Pages
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          cp -r "${REPO_ROOT}/taker" "${REPO_ROOT}/docs/t

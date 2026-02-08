@@ -1,25 +1,21 @@
 site_name: JoinMarket NG
-
 theme:
   name: material
-
   features:
-    - content.code.copy    # <--- Das ist der EINZIGE Weg, den Button zu aktivieren
-    
+    - content.code.copy # <--- Das ist der EINZIGE Weg, den Button zu aktivieren
 markdown_extensions:
   - pymdownx.highlight
   - pymdownx.superfences
   - pymdownx.inlinehilite
-
-    
 nav:
   - Home: index.md
   - Installation: INSTALL.md
   - Protocol Documentation: DOCS.md
+  - Developer Reference: developer_reference.md
   - Module:
     - Wallet: jmwallet/README.md
     - Scripts: scripts/README.md
     - Maker: maker/README.md
     - Taker: taker/README.md
     - Directory Server: directory_server/README.md
-    - Order Book Watcher: orderbook_watcher/README.md
+    - OrderbookWatcher: orderbook_watcher/README.md

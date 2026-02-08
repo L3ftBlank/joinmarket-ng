@@ -32,7 +32,7 @@ jobs:
 
       - name: Build documentation
         run: |
-          REPO_ROOT="\${GITHUB_WORKSPACE}"
+          REPO_ROOT="${GITHUB_WORKSPACE}"
 
           # Alte Symlinks oder kaputte Ordner im docs/ Ordner ZUERST löschen
           rm -rf "\${REPO_ROOT}/docs/media"

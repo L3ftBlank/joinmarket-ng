@@ -35,17 +35,17 @@ jobs:
           REPO_ROOT="${GITHUB_WORKSPACE}"
 
           # Alte Symlinks oder kaputte Ordner im docs/ Ordner ZUERST löschen
-          rm -rf "\${REPO_ROOT}/docs/media"
-          rm -rf "\${REPO_ROOT}/docs/index.md"
-          rm -rf "\${REPO_ROOT}/docs/DOCS.md"
-          rm -rf "\${REPO_ROOT}/docs/INSTALL.md"
-          rm -rf "\${REPO_ROOT}/docs/developer_reference.md"   # <--- Ergänzt
-          rm -rf "\${REPO_ROOT}/docs/jmwallet"
-          rm -rf "\${REPO_ROOT}/docs/scripts"
-          rm -rf "\${REPO_ROOT}/docs/maker"
-          rm -rf "\${REPO_ROOT}/docs/taker"
-          rm -rf "\${REPO_ROOT}/docs/directory_server"          # <--- Ergänzt
-          rm -rf "\${REPO_ROOT}/docs/orderbook_watcher"         # <--- Ergänzt
+          rm -rf "${REPO_ROOT}/docs/media"
+          rm -rf "${REPO_ROOT}/docs/index.md"
+          rm -rf "${REPO_ROOT}/docs/DOCS.md"
+          rm -rf "${REPO_ROOT}/docs/INSTALL.md"
+          rm -rf "${REPO_ROOT}/docs/developer_reference.md"   # <--- Ergänzt
+          rm -rf "${REPO_ROOT}/docs/jmwallet"
+          rm -rf "${REPO_ROOT}/docs/scripts"
+          rm -rf "${REPO_ROOT}/docs/maker"
+          rm -rf "${REPO_ROOT}/docs/taker"
+          rm -rf "${REPO_ROOT}/docs/directory_server"          # <--- Ergänzt
+          rm -rf "${REPO_ROOT}/docs/orderbook_watcher"         # <--- Ergänzt
 
           # Dateien und Ordner KOPIEREN
           cp -r "${REPO_ROOT}/media" "${REPO_ROOT}/docs/media"

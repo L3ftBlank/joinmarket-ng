@@ -1,4 +1,4 @@
-# JoinMarket Taker Client
+# JoinMarket Taker Client Test02
 
 Mix your bitcoin for privacy via CoinJoin. Takers initiate transactions and pay small fees to makers.
 

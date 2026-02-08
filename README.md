@@ -2,7 +2,7 @@
   <img src="media/logo.svg" alt="JoinMarket NG Logo" width="200"/>
 </p>
 
-# JoinMarket NG Test01
+# JoinMarket NG Test03
 
 Modern implementation of [JoinMarket](https://github.com/JoinMarket-Org/joinmarket-clientserver/) - decentralized Bitcoin privacy through CoinJoin.
 

@@ -21,3 +21,5 @@ nav:
     - Scripts: scripts/README.md
     - Maker: maker/README.md
     - Taker: taker/README.md
+    - Directory Server: directory_server/README.md
+    - Order Book Watcher: orderbook_watcher/README.md

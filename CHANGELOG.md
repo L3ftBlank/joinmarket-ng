@@ -9,7 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Pin Apt Package Versions for Reproducible Builds**: All apt packages in Dockerfiles are now pinned to exact versions (e.g., `libsodium23=1.0.18-1+deb13u1`). Previously, `apt-get install` without version pins meant that a security update to any package (like libsodium23) between CI build time and local verification would produce a different layer digest, breaking `verify-release.sh --reproduce` within days of release.
+
 - **Auto-Setup BuildKit Builder for OCI Export**: The `verify-release.sh --reproduce` and `sign-release.sh --reproduce` scripts now automatically detect when the current Docker buildx driver doesn't support OCI export format and create a suitable builder (`jmng-verify`) with the `docker-container` driver. Previously, users with plain Docker CE (without Docker Desktop or containerd image store) would get "OCI exporter is not supported for the docker driver" errors.
+
+### Changed
+
+- **update-base-images.sh Now Updates Apt Versions**: The `./scripts/update-base-images.sh` script now also resolves the latest available apt package versions from the base image and updates pinned versions in all Dockerfiles. This ensures that running the script before a release picks up both base image security patches and apt package updates in a single step.
 
 ## [0.13.10] - 2026-02-06
 

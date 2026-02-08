@@ -10,13 +10,14 @@ FROM python:${PYTHON_VERSION}-slim@${PYTHON_SLIM_DIGEST} AS builder
 
 WORKDIR /build
 
-# Install build dependencies (sorted alphabetically for reproducibility)
+# Install build dependencies (sorted alphabetically, versions pinned for reproducibility)
+# Update versions with: ./scripts/update-base-images.sh
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    git \
-    libffi-dev \
-    libsodium-dev \
-    pkg-config \
+    build-essential=12.12 \
+    git=1:2.47.3-0+deb13u1 \
+    libffi-dev=3.4.8-2 \
+    libsodium-dev=1.0.18-1+deb13u1 \
+    pkg-config=1.8.1-4 \
     && rm -rf /var/lib/apt/lists/*
 
 # Reproducible builds: SOURCE_DATE_EPOCH must be set via --build-arg for reproducible builds
@@ -62,9 +63,10 @@ FROM python:${PYTHON_VERSION}-slim@${PYTHON_SLIM_DIGEST} AS production
 WORKDIR /app
 
 # Install only runtime dependencies (no build tools)
+# Versions pinned for reproducible builds
 # Delete apt/dpkg logs and ldconfig cache for reproducible builds
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libsodium23 \
+    libsodium23=1.0.18-1+deb13u1 \
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf /var/log/dpkg.log /var/log/apt/* \
     && rm -rf /var/cache/ldconfig/aux-cache

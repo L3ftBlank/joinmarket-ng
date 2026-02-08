@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Update Base Image Digests for Reproducible Builds
+# Update Base Image Digests and Apt Package Versions for Reproducible Builds
 #
-# This script updates the base image digests in all Dockerfiles to ensure
-# reproducible builds. Run this periodically to get security updates while
-# maintaining reproducibility.
+# This script updates the base image digests and pinned apt package versions
+# in all Dockerfiles to ensure reproducible builds. Run this periodically to
+# get security updates while maintaining reproducibility.
 #
 # Usage:
 #   ./scripts/update-base-images.sh [--check]
@@ -40,8 +40,21 @@ fi
 # Python version to use
 PYTHON_VERSION="3.14"
 
-# Get current manifest list digests
-log_info "Fetching current image digests..."
+# Dockerfiles to update
+DOCKERFILES=(
+    "$PROJECT_ROOT/directory_server/Dockerfile"
+    "$PROJECT_ROOT/maker/Dockerfile"
+    "$PROJECT_ROOT/taker/Dockerfile"
+    "$PROJECT_ROOT/orderbook_watcher/Dockerfile"
+)
+
+UPDATES_NEEDED=0
+UPDATES_MADE=0
+
+# =============================================================================
+# Phase 1: Update base image digests
+# =============================================================================
+log_info "Phase 1: Checking base image digests..."
 
 SLIM_DIGEST=$(docker buildx imagetools inspect "python:${PYTHON_VERSION}-slim" --raw 2>/dev/null | \
     sha256sum | awk '{print "sha256:" $1}')
@@ -56,17 +69,6 @@ fi
 log_info "python:${PYTHON_VERSION}-slim digest: $SLIM_DIGEST"
 log_info "python:${PYTHON_VERSION} digest: $FULL_DIGEST"
 
-# Dockerfiles to update
-DOCKERFILES=(
-    "$PROJECT_ROOT/directory_server/Dockerfile"
-    "$PROJECT_ROOT/maker/Dockerfile"
-    "$PROJECT_ROOT/taker/Dockerfile"
-    "$PROJECT_ROOT/orderbook_watcher/Dockerfile"
-)
-
-UPDATES_NEEDED=0
-UPDATES_MADE=0
-
 for dockerfile in "${DOCKERFILES[@]}"; do
     if [[ ! -f "$dockerfile" ]]; then
         log_warn "Dockerfile not found: $dockerfile"
@@ -75,7 +77,6 @@ for dockerfile in "${DOCKERFILES[@]}"; do
 
     relative_path="${dockerfile#$PROJECT_ROOT/}"
 
-    # Check current slim digest
     current_slim=$(grep -oP 'PYTHON_SLIM_DIGEST=\Ksha256:[a-f0-9]+' "$dockerfile" 2>/dev/null || echo "")
     current_full=$(grep -oP 'PYTHON_FULL_DIGEST=\Ksha256:[a-f0-9]+' "$dockerfile" 2>/dev/null || echo "")
 
@@ -98,7 +99,6 @@ for dockerfile in "${DOCKERFILES[@]}"; do
     fi
 
     if [[ "$needs_update" == true && "$CHECK_ONLY" == false ]]; then
-        # Update the digests in place
         if [[ -n "$current_slim" ]]; then
             sed -i "s|PYTHON_SLIM_DIGEST=sha256:[a-f0-9]*|PYTHON_SLIM_DIGEST=$SLIM_DIGEST|g" "$dockerfile"
             UPDATES_MADE=$((UPDATES_MADE + 1))
@@ -107,24 +107,119 @@ for dockerfile in "${DOCKERFILES[@]}"; do
             sed -i "s|PYTHON_FULL_DIGEST=sha256:[a-f0-9]*|PYTHON_FULL_DIGEST=$FULL_DIGEST|g" "$dockerfile"
             UPDATES_MADE=$((UPDATES_MADE + 1))
         fi
-        log_info "$relative_path: Updated"
+        log_info "$relative_path: Digests updated"
     elif [[ "$needs_update" == false ]]; then
-        log_info "$relative_path: Up to date"
+        log_info "$relative_path: Digests up to date"
     fi
 done
 
+# =============================================================================
+# Phase 2: Update pinned apt package versions
+# =============================================================================
+echo ""
+log_info "Phase 2: Checking pinned apt package versions..."
+
+# Collect all unique pinned packages from all Dockerfiles
+# Matches patterns like: package=version or package=epoch:version
+declare -A CURRENT_VERSIONS
+for dockerfile in "${DOCKERFILES[@]}"; do
+    [[ -f "$dockerfile" ]] || continue
+    while IFS= read -r match; do
+        pkg="${match%%=*}"
+        ver="${match#*=}"
+        # Remove trailing whitespace and backslash continuations
+        ver="${ver%% *}"
+        ver="${ver%\\}"
+        CURRENT_VERSIONS["$pkg"]="$ver"
+    done < <(grep -oP '^\s+\K[a-z][a-z0-9.+-]+=\S+' "$dockerfile" 2>/dev/null | \
+        sed 's/ *\\$//' || true)
+done
+
+if [[ ${#CURRENT_VERSIONS[@]} -eq 0 ]]; then
+    log_warn "No pinned apt packages found in Dockerfiles"
+else
+    # Build the list of packages to query
+    PACKAGES=()
+    for pkg in "${!CURRENT_VERSIONS[@]}"; do
+        PACKAGES+=("$pkg")
+    done
+
+    log_info "Found ${#PACKAGES[@]} pinned packages: ${PACKAGES[*]}"
+    log_info "Querying latest versions from python:${PYTHON_VERSION}-slim..."
+
+    # Query latest candidate versions from the base image
+    # We use the slim image since that's what production stages use
+    APT_OUTPUT=$(docker run --rm "python:${PYTHON_VERSION}-slim" sh -c \
+        "apt-get update -qq 2>/dev/null && apt-cache policy ${PACKAGES[*]} 2>/dev/null" 2>/dev/null)
+
+    if [[ -z "$APT_OUTPUT" ]]; then
+        log_error "Failed to query apt package versions from base image"
+        exit 1
+    fi
+
+    # Parse apt-cache policy output to extract candidate versions
+    declare -A LATEST_VERSIONS
+    current_pkg=""
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^([a-z][a-z0-9.+-]*): ]]; then
+            current_pkg="${BASH_REMATCH[1]}"
+        elif [[ "$line" =~ Candidate:\ (.+) ]]; then
+            if [[ -n "$current_pkg" ]]; then
+                LATEST_VERSIONS["$current_pkg"]="${BASH_REMATCH[1]}"
+            fi
+        fi
+    done <<< "$APT_OUTPUT"
+
+    # Compare and update versions
+    for pkg in "${!CURRENT_VERSIONS[@]}"; do
+        current_ver="${CURRENT_VERSIONS[$pkg]}"
+        latest_ver="${LATEST_VERSIONS[$pkg]:-}"
+
+        if [[ -z "$latest_ver" ]]; then
+            log_warn "$pkg: Could not determine latest version (package may not exist)"
+            continue
+        fi
+
+        if [[ "$current_ver" != "$latest_ver" ]]; then
+            log_info "$pkg: version update available"
+            log_info "  Current: $current_ver"
+            log_info "  Latest:  $latest_ver"
+            UPDATES_NEEDED=$((UPDATES_NEEDED + 1))
+
+            if [[ "$CHECK_ONLY" == false ]]; then
+                # Escape special regex characters in version strings
+                escaped_current=$(printf '%s' "$current_ver" | sed 's/[.+]/\\&/g')
+                escaped_latest=$(printf '%s' "$latest_ver" | sed 's/[&/\\]/\\&/g')
+                for dockerfile in "${DOCKERFILES[@]}"; do
+                    [[ -f "$dockerfile" ]] || continue
+                    if grep -q "${pkg}=${current_ver}" "$dockerfile" 2>/dev/null; then
+                        sed -i "s|${pkg}=${escaped_current}|${pkg}=${escaped_latest}|g" "$dockerfile"
+                    fi
+                done
+                UPDATES_MADE=$((UPDATES_MADE + 1))
+                log_info "$pkg: Updated to $latest_ver in all Dockerfiles"
+            fi
+        else
+            log_info "$pkg: Up to date ($current_ver)"
+        fi
+    done
+fi
+
+# =============================================================================
+# Summary
+# =============================================================================
 echo ""
 if [[ "$CHECK_ONLY" == true ]]; then
     if [[ $UPDATES_NEEDED -gt 0 ]]; then
-        log_warn "$UPDATES_NEEDED digest(s) need updating"
-        log_info "Run without --check to update"
+        log_warn "$UPDATES_NEEDED update(s) available"
+        log_info "Run without --check to apply updates"
         exit 1
     else
-        log_info "All digests are up to date"
+        log_info "All base images and package versions are up to date"
     fi
 else
     if [[ $UPDATES_MADE -gt 0 ]]; then
-        log_info "Updated $UPDATES_MADE digest(s)"
+        log_info "Applied $UPDATES_MADE update(s)"
         log_info "Don't forget to:"
         log_info "  1. Test the builds locally"
         log_info "  2. Commit the changes"

@@ -1159,6 +1159,9 @@ Docker images are built reproducibly using `SOURCE_DATE_EPOCH` to ensure identic
 - All platforms (amd64, arm64, armv7) are built with the same timestamp
 - Per-platform layer digests are stored in the release manifest
 - Verification compares layer digests (not manifest digests) for reliability
+- Apt packages are pinned to exact versions to prevent drift between build and verification
+- Python dependencies are locked with hash verification via `pip-compile --generate-hashes`
+- Base images are pinned by digest (updated via `./scripts/update-base-images.sh`)
 
 **Why layer digests?**
 
@@ -1177,7 +1180,7 @@ Docker manifest digests vary based on manifest format (Docker distribution vs OC
 ./scripts/verify-release.sh 1.0.0 --min-sigs 2
 ```
 
-The `--reproduce` flag builds the Docker image for your current architecture and compares layer digests against the release manifest. This verifies the released image content matches the source code.
+The `--reproduce` flag builds the Docker image for your current architecture and compares layer digests against the release manifest. This verifies the released image content matches the source code. Cross-platform builds via QEMU are not supported for verification because QEMU emulation produces different layer digests than native builds.
 
 **BuildKit requirements:**
 

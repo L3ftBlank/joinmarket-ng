@@ -126,23 +126,24 @@ fi
 setup_buildx_builder() {
     local builder_name="jmng-verify"
 
-    # Check if our builder already exists and is usable
-    if docker buildx inspect "$builder_name" &>/dev/null; then
-        log_info "Using existing buildx builder: $builder_name"
-        docker buildx use "$builder_name"
-        return 0
-    fi
-
-    # Check if current builder supports OCI export
+    # First, check if we already have a working builder by checking the driver
+    # Use awk for compatibility (grep -oP not available everywhere)
     local current_driver
-    current_driver=$(docker buildx inspect --bootstrap 2>/dev/null | grep -oP 'Driver:\s+\K\S+' || echo "docker")
+    current_driver=$(docker buildx inspect 2>/dev/null | awk '/^Driver:/{print $2}')
 
     if [[ "$current_driver" == "docker-container" ]]; then
-        log_info "Current buildx builder supports OCI export"
+        # Current builder already supports OCI export
         return 0
     fi
 
-    # Create a new builder with docker-container driver
+    # Check if our custom builder already exists
+    if docker buildx inspect "$builder_name" &>/dev/null; then
+        docker buildx use "$builder_name" >/dev/null 2>&1
+        log_info "Using buildx builder: $builder_name"
+        return 0
+    fi
+
+    # Need to create a new builder
     log_info "Creating buildx builder with docker-container driver..."
     log_info "The default 'docker' driver doesn't support OCI export format."
 
@@ -311,10 +312,6 @@ if [[ "$REPRODUCE" == true ]]; then
 
     # Detect current architecture
     CURRENT_ARCH=$(detect_arch)
-    log_info "Attempting to reproduce Docker builds for $CURRENT_ARCH..."
-    log_info "Comparing layer digests (content-addressable, format-independent)"
-
-    # Map arch to Docker platform format
     case "$CURRENT_ARCH" in
         amd64)  PLATFORM="linux/amd64" ;;
         arm64)  PLATFORM="linux/arm64" ;;
@@ -324,6 +321,9 @@ if [[ "$REPRODUCE" == true ]]; then
             exit 1
             ;;
     esac
+
+    log_info "Reproducing Docker builds for $CURRENT_ARCH..."
+    log_info "Comparing layer digests (content-addressable, format-independent)"
 
     # Extract commit and SOURCE_DATE_EPOCH from manifest
     COMMIT=$(grep "^commit:" "$MANIFEST_FILE" | cut -d' ' -f2)

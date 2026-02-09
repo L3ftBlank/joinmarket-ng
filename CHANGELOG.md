@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.12] - 2026-02-09
+
 ### Fixed
 
 - **Pin Python Build Tools for Reproducible Builds**: Pinned `setuptools` and `wheel` versions in all Dockerfiles via `PIP_CONSTRAINT`. When pip builds local packages (jmcore, jmwallet, taker, etc.) via PEP 517 build isolation, it downloads the latest `setuptools` from PyPI. The setuptools version is stamped into each package's `WHEEL` metadata file (`Generator: setuptools (x.y.z)`), and different versions produce different `WHEEL` and `RECORD` file contents. This caused the pip packages layer to have different digests between CI build time (e.g., setuptools 81.0.0) and local verification days later (e.g., setuptools 82.0.0). The `./scripts/update-base-images.sh` script now also updates these pinned versions from PyPI.
@@ -858,7 +860,8 @@ Releases prior to these changes (including 0.13.5, 0.13.6, and 0.13.7) cannot be
 - Pre-built image support for directory server compose.
 - Tor configuration instructions.
 
-[Unreleased]: ../../compare/0.13.11...HEAD
+[Unreleased]: ../../compare/0.13.12...HEAD
+[0.13.12]: ../../compare/0.13.11...0.13.12
 [0.13.11]: ../../compare/0.13.10...0.13.11
 [0.13.10]: ../../compare/0.13.9...0.13.10
 [0.13.9]: ../../compare/0.13.8...0.13.9

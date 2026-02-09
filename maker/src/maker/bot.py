@@ -1802,6 +1802,10 @@ class MakerBot:
         last_cleanup = asyncio.get_event_loop().time()
         cleanup_interval = 60.0  # Clean up timed-out sessions every 60 seconds
 
+        # Track consecutive errors for exponential backoff
+        consecutive_errors = 0
+        max_consecutive_errors = 10
+
         while self.running:
             try:
                 # Use listen_for_messages with short duration to check running flag frequently
@@ -1815,6 +1819,9 @@ class MakerBot:
                 if now - last_cleanup > cleanup_interval:
                     self._cleanup_timed_out_sessions()
                     last_cleanup = now
+
+                # Reset error counter on successful iteration
+                consecutive_errors = 0
 
             except asyncio.CancelledError:
                 logger.info(f"Listener for {node_id} cancelled")
@@ -1844,8 +1851,22 @@ class MakerBot:
                     asyncio.create_task(get_notifier().notify_all_directories_disconnected())
                 break
             except Exception as e:
-                logger.error(f"Error listening on {node_id}: {e}")
-                await asyncio.sleep(1.0)
+                consecutive_errors += 1
+                backoff = min(2**consecutive_errors, 60.0)
+                logger.error(
+                    f"Error listening on {node_id} (consecutive: {consecutive_errors}): {e}"
+                )
+                if consecutive_errors >= max_consecutive_errors:
+                    logger.error(
+                        f"Too many consecutive errors on {node_id}, disconnecting for reconnection"
+                    )
+                    self.directory_clients.pop(node_id, None)
+                    try:
+                        await client.close()
+                    except Exception:
+                        pass
+                    break
+                await asyncio.sleep(backoff)
 
         logger.info(f"Stopped listening on {node_id}")
 

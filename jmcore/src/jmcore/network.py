@@ -5,6 +5,7 @@ Network primitives and connection management.
 from __future__ import annotations
 
 import asyncio
+import builtins
 import contextlib
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Coroutine
@@ -96,6 +97,10 @@ class TCPConnection(Connection):
                 self._connected = False
                 logger.trace("TCPConnection.receive: connection closed by peer")
                 raise ConnectionError("Connection closed by peer") from e
+            except (builtins.ConnectionError, OSError) as e:
+                self._connected = False
+                logger.trace(f"TCPConnection.receive: connection error: {e}")
+                raise ConnectionError(f"Connection lost: {e}") from e
 
     async def close(self) -> None:
         if not self._connected:

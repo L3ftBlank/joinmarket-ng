@@ -26,7 +26,15 @@ from loguru import logger
 from jmcore.btc_script import mk_freeze_script, redeem_script_to_p2wsh_script
 from jmcore.crypto import NickIdentity, verify_fidelity_bond_proof
 from jmcore.models import FidelityBond, Offer, OfferType
-from jmcore.network import ONION_HOSTID, TCPConnection, connect_direct, connect_via_tor
+from jmcore.network import (
+    ONION_HOSTID,
+    TCPConnection,
+    connect_direct,
+    connect_via_tor,
+)
+from jmcore.network import (
+    ConnectionError as NetworkConnectionError,
+)
 from jmcore.protocol import (
     COMMAND_PREFIX,
     FEATURE_NEUTRINO_COMPAT,
@@ -774,6 +782,10 @@ class DirectoryClient:
             except asyncio.QueueEmpty:
                 break
 
+        # Track consecutive errors to prevent tight loops on persistent failures
+        consecutive_errors = 0
+        max_consecutive_errors = 5
+
         while asyncio.get_event_loop().time() - start_time < duration:
             try:
                 remaining_time = duration - (asyncio.get_event_loop().time() - start_time)
@@ -789,17 +801,25 @@ class DirectoryClient:
                     f"{response.get('line', '')[:80]}..."
                 )
                 messages.append(response)
+                consecutive_errors = 0
 
             except TimeoutError:
                 # Normal timeout - no more messages within duration
                 break
+            except NetworkConnectionError as e:
+                # Connection-level errors from our network layer - always propagate
+                raise DirectoryClientError(f"Connection lost: {e}") from e
+            except (ConnectionResetError, BrokenPipeError, OSError) as e:
+                # System-level connection errors that bypassed our network layer
+                raise DirectoryClientError(f"Connection lost: {e}") from e
             except Exception as e:
-                # Connection errors should propagate up so caller can reconnect
-                error_msg = str(e).lower()
-                if "connection" in error_msg and ("closed" in error_msg or "lost" in error_msg):
-                    raise DirectoryClientError(f"Connection lost: {e}") from e
-                # Other errors (JSON parse, etc) - log and continue
+                # Other errors (JSON parse, etc) - log and continue, but with a limit
+                consecutive_errors += 1
                 logger.warning(f"Error processing message: {e}")
+                if consecutive_errors >= max_consecutive_errors:
+                    raise DirectoryClientError(
+                        f"Too many consecutive errors ({consecutive_errors}), last error: {e}"
+                    ) from e
                 continue
 
         logger.trace(f"Collected {len(messages)} messages in {duration}s")

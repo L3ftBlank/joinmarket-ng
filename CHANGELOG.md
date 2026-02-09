@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Maker Infinite Loop on Connection Reset**: Fixed a tight infinite loop in the maker bot that occurred when a directory server connection was reset. A `ConnectionResetError` (errno 104) was not recognized by the string-based error detection in `listen_for_messages()`, causing the loop to `continue` immediately and retry the broken connection with zero delay. This flooded logs and consumed all available RAM over time. The fix adds proper exception type catching in `TCPConnection.receive()` for `OSError`/`ConnectionError`, replaces fragile string matching with explicit exception handling in `listen_for_messages()` with consecutive error tracking, and adds exponential backoff with max error limits in the maker's `_listen_client()` loop.
+
+- **Missing maker-data Docker Volume**: Added the `maker-data` named volume to the root `docker-compose.yml` volumes section. It was referenced by the maker service but not declared, which could cause issues on some Docker versions.
+
+### Changed
+
+- **Docker Resource Limits for Test Environment**: Added deploy resource limits (1 CPU, 512MB memory) to all services in the root `docker-compose.yml` (test environment) to prevent runaway resource consumption from bugs like the infinite loop above. Component-specific docker-compose files (`maker/`, `taker/`, etc.) already had resource limits configured.
+
 ## [0.13.11] - 2026-02-08
 
 ### Fixed

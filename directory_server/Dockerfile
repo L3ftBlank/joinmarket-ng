@@ -6,6 +6,12 @@
 ARG PYTHON_VERSION=3.14
 ARG PYTHON_SLIM_DIGEST=sha256:fa0acdcd760f0bf265bc2c1ee6120776c4d92a9c3a37289e17b9642ad2e5b83b
 ARG PYTHON_FULL_DIGEST=sha256:1c4c033d666001d84b5c4d85280af2c5a21a4ea1eb86c2fc06e3ef2f33fa6776
+# Pin build tools for reproducible builds
+# setuptools version is stamped into WHEEL metadata (Generator: setuptools (x.y.z))
+# Different versions produce different WHEEL/RECORD files, breaking layer reproducibility
+# Update versions with: ./scripts/update-base-images.sh
+ARG SETUPTOOLS_VERSION=82.0.0
+ARG WHEEL_VERSION=0.46.3
 
 FROM python:${PYTHON_VERSION}-slim@${PYTHON_SLIM_DIGEST} AS builder
 
@@ -25,6 +31,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # When not provided, pip install runs without it (non-reproducible but works)
 # Usage: docker build --build-arg SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) ...
 ARG SOURCE_DATE_EPOCH
+
+# Pin build tools for reproducible builds (re-declare to inherit global ARGs)
+ARG SETUPTOOLS_VERSION
+ARG WHEEL_VERSION
+RUN echo "setuptools==${SETUPTOOLS_VERSION}" > /build/constraints.txt && \
+    echo "wheel==${WHEEL_VERSION}" >> /build/constraints.txt
+ENV PIP_CONSTRAINT=/build/constraints.txt
 
 # Install jmcore dependencies (with hash verification)
 COPY jmcore/requirements.txt /build/jmcore/requirements.txt
@@ -111,6 +124,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Reproducible builds: SOURCE_DATE_EPOCH must be set via --build-arg for reproducible builds
 ARG SOURCE_DATE_EPOCH
+
+# Pin build tools for reproducible builds (same versions as main builder)
+ARG SETUPTOOLS_VERSION
+ARG WHEEL_VERSION
+RUN echo "setuptools==${SETUPTOOLS_VERSION}" > /build/constraints.txt && \
+    echo "wheel==${WHEEL_VERSION}" >> /build/constraints.txt
+ENV PIP_CONSTRAINT=/build/constraints.txt
 
 # Install jmcore dependencies (with hash verification)
 COPY jmcore/requirements.txt /build/jmcore/requirements.txt

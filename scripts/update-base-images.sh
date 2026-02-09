@@ -206,6 +206,63 @@ else
 fi
 
 # =============================================================================
+# Phase 3: Update pinned Python build tool versions (setuptools, wheel)
+# =============================================================================
+echo ""
+log_info "Phase 3: Checking pinned Python build tool versions..."
+
+# Build tools pinned as ARGs in Dockerfiles for reproducible builds
+declare -A BUILD_TOOLS=(
+    ["SETUPTOOLS_VERSION"]="setuptools"
+    ["WHEEL_VERSION"]="wheel"
+)
+
+for arg_name in "${!BUILD_TOOLS[@]}"; do
+    pip_pkg="${BUILD_TOOLS[$arg_name]}"
+
+    # Get current pinned version from first Dockerfile that has it
+    current_ver=""
+    for dockerfile in "${DOCKERFILES[@]}"; do
+        [[ -f "$dockerfile" ]] || continue
+        current_ver=$(grep -oP "ARG ${arg_name}=\K[0-9][0-9.]*" "$dockerfile" 2>/dev/null | head -1 || echo "")
+        [[ -n "$current_ver" ]] && break
+    done
+
+    if [[ -z "$current_ver" ]]; then
+        log_warn "$arg_name: Not found in any Dockerfile"
+        continue
+    fi
+
+    # Query latest version from PyPI
+    latest_ver=$(pip index versions "$pip_pkg" 2>/dev/null | head -1 | grep -oP '\((\K[0-9][0-9.]*)' || echo "")
+
+    if [[ -z "$latest_ver" ]]; then
+        log_warn "$pip_pkg: Could not determine latest version from PyPI"
+        continue
+    fi
+
+    if [[ "$current_ver" != "$latest_ver" ]]; then
+        log_info "$pip_pkg ($arg_name): version update available"
+        log_info "  Current: $current_ver"
+        log_info "  Latest:  $latest_ver"
+        UPDATES_NEEDED=$((UPDATES_NEEDED + 1))
+
+        if [[ "$CHECK_ONLY" == false ]]; then
+            for dockerfile in "${DOCKERFILES[@]}"; do
+                [[ -f "$dockerfile" ]] || continue
+                if grep -q "ARG ${arg_name}=" "$dockerfile" 2>/dev/null; then
+                    sed -i "s|ARG ${arg_name}=${current_ver}|ARG ${arg_name}=${latest_ver}|g" "$dockerfile"
+                fi
+            done
+            UPDATES_MADE=$((UPDATES_MADE + 1))
+            log_info "$pip_pkg: Updated to $latest_ver in all Dockerfiles"
+        fi
+    else
+        log_info "$pip_pkg ($arg_name): Up to date ($current_ver)"
+    fi
+done
+
+# =============================================================================
 # Summary
 # =============================================================================
 echo ""

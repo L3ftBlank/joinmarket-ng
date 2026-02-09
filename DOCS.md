@@ -1160,6 +1160,7 @@ Docker images are built reproducibly using `SOURCE_DATE_EPOCH` to ensure identic
 - Per-platform layer digests are stored in the release manifest
 - Verification compares layer digests (not manifest digests) for reliability
 - Apt packages are pinned to exact versions to prevent drift between build and verification
+- Python build tools (setuptools, wheel) are pinned via `PIP_CONSTRAINT` in Dockerfiles to prevent version stamps in WHEEL metadata from changing between build and verification
 - Python dependencies are locked with hash verification via `pip-compile --generate-hashes`
 - Base images are pinned by digest (updated via `./scripts/update-base-images.sh`)
 

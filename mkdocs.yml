@@ -10,8 +10,8 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Installation: install.md
-#  - Protocol Documentation:
-#    - Concepts: DOCS01-Concepts.md
+  - Protocol Documentation:
+    - Concepts: DOCS01-Concepts.md
 #    - JoinMarket-NG: DOCS02-JoinMarket-NG.md
 #    - Architecture: DOCS03-Architecture.md
 #    - Protocol: DOCS04-Protocol.md

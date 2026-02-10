@@ -23,8 +23,8 @@ nav:
     - Best Practices: DOCS10-Best Practices.md
     - References: DOCS11-References.md
 
-#  - Module:
-#    - Wallet: jmwallet.md
+  - Module:
+    - Wallet: jmwallet.md
 #    - Scripts: scripts.md
 #    - Maker: maker.md
 #    - Taker: taker.md

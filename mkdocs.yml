@@ -28,5 +28,5 @@ nav:
     - Scripts: README_scripts.md
     - Maker: README_maker.md
     - Taker: README_taker.md
-#    - Directory Server: directory_server.md
-#    - OrderbookWatcher: orderbook_watcher.md
+    - Directory Server: README_directory_server.md
+    - OrderbookWatcher: README_orderbook_watcher.md

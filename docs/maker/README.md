@@ -1,1 +1,0 @@
-/home/uof/github/joinmarket-ng/maker/README.md

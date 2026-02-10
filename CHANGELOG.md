@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **UTXO Freezing** ([#104](../../issues/104)): Added `jm-wallet freeze` command to freeze/unfreeze individual UTXOs, preventing them from being used in automatic coin selection (taker, maker, and sweep operations). This is critical for privacy — preserving specific UTXO sizes, preventing dust attacks, and excluding newly deposited coins from being mixed.
+  - **Interactive curses TUI**: Space/Tab to toggle freeze, j/k and arrow keys to navigate, a/n for freeze/unfreeze all, q to exit. Color-coded status indicators (red for frozen, green for spendable, magenta for fidelity bonds). Footer shows frozen count, frozen value, and spendable value. Optional `--mixdepth/-m` filter.
+  - **BIP-329 JSONL persistence**: Frozen state is stored in `wallet_metadata.jsonl` using the BIP-329 label format with the `spendable` field on `output` type records. This gives Sparrow wallet interoperability for free — users can sync their coin control state between JoinMarket NG and Sparrow.
+  - **Automatic exclusion**: Frozen UTXOs are excluded from `select_utxos()`, `get_all_utxos()`, `select_utxos_with_merge()`, and `get_balance()`. Makers won't advertise frozen funds, and takers won't use them.
+  - **Visible in wallet info**: `jm-wallet info` shows frozen amounts per mixdepth in simple view and `[FROZEN]` tags on addresses in extended view.
+  - **UTXO selector integration**: The interactive UTXO selector (`--select-utxos`) now shows frozen indicators and prevents selecting frozen UTXOs via "select all".
+
 ### Changed
 
 - **Directory Disconnect Notification Defaults**: Changed `notify_disconnect` default to `false` (was `true`). Individual directory server disconnect/reconnect notifications are noisy and not actionable. Added new `notify_all_disconnect` setting (default `true`) that fires only when ALL directory servers are disconnected, which is the critical event users need to know about. The `notify_all_directories_disconnected()` method now respects this toggle.

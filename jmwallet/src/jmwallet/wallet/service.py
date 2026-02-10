@@ -16,6 +16,7 @@ from jmwallet.backends.descriptor_wallet import DescriptorWalletBackend
 from jmwallet.wallet.address import script_to_p2wsh_address
 from jmwallet.wallet.bip32 import HDKey, mnemonic_to_seed
 from jmwallet.wallet.models import AddressInfo, AddressStatus, UTXOInfo
+from jmwallet.wallet.utxo_metadata import UTXOMetadataStore, load_metadata_store
 
 # Fidelity bond constants
 FIDELITY_BOND_BRANCH = 2  # Internal branch for fidelity bonds
@@ -78,6 +79,11 @@ class WalletService:
         self.reserved_addresses: set[str] = set()
         # Cache for fidelity bond locktimes (address -> locktime)
         self.fidelity_bond_locktime_cache: dict[str, int] = {}
+
+        # UTXO metadata store for frozen state and labels (BIP-329)
+        self.metadata_store: UTXOMetadataStore | None = None
+        if data_dir is not None:
+            self.metadata_store = load_metadata_store(data_dir)
 
     def get_address(self, mixdepth: int, change: int, index: int) -> str:
         """Get address for given path"""
@@ -570,6 +576,7 @@ class WalletService:
         if hasattr(self.backend, "scan_descriptors"):
             result = await self._sync_all_with_descriptors(fidelity_bond_addresses)
             if result is not None:
+                self._apply_frozen_state()
                 return result
             # Fall back to address-by-address sync on failure
             logger.warning("Descriptor scan failed, falling back to address scan")
@@ -580,6 +587,7 @@ class WalletService:
             utxos = await self.sync_mixdepth(mixdepth)
             result[mixdepth] = utxos
         logger.info(f"Sync complete: {sum(len(u) for u in result.values())} total UTXOs")
+        self._apply_frozen_state()
         return result
 
     async def _sync_all_with_descriptors(
@@ -1219,6 +1227,7 @@ class WalletService:
             f"{format_amount(total_value)} total"
         )
 
+        self._apply_frozen_state()
         return result
 
     async def check_and_upgrade_descriptor_range(
@@ -1528,11 +1537,15 @@ class WalletService:
             mixdepth: Mixdepth to get balance for
             include_fidelity_bonds: If True (default), include fidelity bond UTXOs.
                                     If False, exclude fidelity bond UTXOs.
+
+        Note:
+            Frozen UTXOs are excluded from balance calculations.
         """
         if mixdepth not in self.utxo_cache:
             await self.sync_mixdepth(mixdepth)
 
         utxos = self.utxo_cache.get(mixdepth, [])
+        utxos = [u for u in utxos if not u.frozen]
         if not include_fidelity_bonds:
             utxos = [u for u in utxos if not u.is_fidelity_bond]
         return sum(utxo.value for utxo in utxos)
@@ -1577,6 +1590,9 @@ class WalletService:
         Args:
             include_fidelity_bonds: If True (default), include fidelity bond UTXOs.
                                     If False, exclude fidelity bond UTXOs.
+
+        Note:
+            Frozen UTXOs are excluded from balance calculations.
         """
         total = 0
         for mixdepth in range(self.mixdepth_count):
@@ -1618,6 +1634,9 @@ class WalletService:
         utxos = self.utxo_cache.get(mixdepth, [])
 
         eligible = [utxo for utxo in utxos if utxo.confirmations >= min_confirmations]
+
+        # Filter out frozen UTXOs (never auto-selected)
+        eligible = [utxo for utxo in eligible if not utxo.frozen]
 
         # Filter out fidelity bond UTXOs by default
         if not include_fidelity_bonds:
@@ -1679,6 +1698,8 @@ class WalletService:
         """
         utxos = self.utxo_cache.get(mixdepth, [])
         eligible = [utxo for utxo in utxos if utxo.confirmations >= min_confirmations]
+        # Filter out frozen UTXOs (never auto-selected)
+        eligible = [utxo for utxo in eligible if not utxo.frozen]
         if not include_fidelity_bonds:
             eligible = [utxo for utxo in eligible if not utxo.is_fidelity_bond]
         return eligible
@@ -1721,6 +1742,9 @@ class WalletService:
 
         utxos = self.utxo_cache.get(mixdepth, [])
         eligible = [utxo for utxo in utxos if utxo.confirmations >= min_confirmations]
+
+        # Filter out frozen UTXOs (never auto-selected)
+        eligible = [utxo for utxo in eligible if not utxo.frozen]
 
         # Filter out fidelity bond UTXOs by default
         if not include_fidelity_bonds:
@@ -1850,6 +1874,108 @@ class WalletService:
     async def close(self) -> None:
         """Close backend connection"""
         await self.backend.close()
+
+    def _apply_frozen_state(self) -> None:
+        """Apply frozen state from metadata store to all cached UTXOs.
+
+        Called after sync operations to mark UTXOs that are frozen according
+        to the persisted metadata. Also applies labels from metadata.
+        """
+        if self.metadata_store is None:
+            return
+
+        frozen_outpoints = self.metadata_store.get_frozen_outpoints()
+        if not frozen_outpoints and not self.metadata_store.records:
+            return
+
+        frozen_count = 0
+        for utxos in self.utxo_cache.values():
+            for utxo in utxos:
+                outpoint = utxo.outpoint
+                utxo.frozen = outpoint in frozen_outpoints
+                if utxo.frozen:
+                    frozen_count += 1
+                # Apply label from metadata if not already set
+                stored_label = self.metadata_store.get_label(outpoint)
+                if stored_label is not None and utxo.label is None:
+                    utxo.label = stored_label
+
+        if frozen_count > 0:
+            logger.debug(f"Applied frozen state to {frozen_count} UTXO(s)")
+
+    def freeze_utxo(self, outpoint: str) -> None:
+        """Freeze a UTXO by outpoint (persisted to disk).
+
+        Args:
+            outpoint: Outpoint string in ``txid:vout`` format.
+
+        Raises:
+            RuntimeError: If no metadata store is available (no data_dir).
+        """
+        if self.metadata_store is None:
+            raise RuntimeError("Cannot freeze UTXOs without a data directory")
+        self.metadata_store.freeze(outpoint)
+        # Update the in-memory UTXO cache
+        for utxos in self.utxo_cache.values():
+            for utxo in utxos:
+                if utxo.outpoint == outpoint:
+                    utxo.frozen = True
+                    return
+
+    def unfreeze_utxo(self, outpoint: str) -> None:
+        """Unfreeze a UTXO by outpoint (persisted to disk).
+
+        Args:
+            outpoint: Outpoint string in ``txid:vout`` format.
+
+        Raises:
+            RuntimeError: If no metadata store is available (no data_dir).
+        """
+        if self.metadata_store is None:
+            raise RuntimeError("Cannot unfreeze UTXOs without a data directory")
+        self.metadata_store.unfreeze(outpoint)
+        # Update the in-memory UTXO cache
+        for utxos in self.utxo_cache.values():
+            for utxo in utxos:
+                if utxo.outpoint == outpoint:
+                    utxo.frozen = False
+                    return
+
+    def toggle_freeze_utxo(self, outpoint: str) -> bool:
+        """Toggle frozen state of a UTXO by outpoint (persisted to disk).
+
+        Args:
+            outpoint: Outpoint string in ``txid:vout`` format.
+
+        Returns:
+            True if now frozen, False if now unfrozen.
+
+        Raises:
+            RuntimeError: If no metadata store is available (no data_dir).
+        """
+        if self.metadata_store is None:
+            raise RuntimeError("Cannot toggle freeze without a data directory")
+        now_frozen = self.metadata_store.toggle_freeze(outpoint)
+        # Update the in-memory UTXO cache
+        for utxos in self.utxo_cache.values():
+            for utxo in utxos:
+                if utxo.outpoint == outpoint:
+                    utxo.frozen = now_frozen
+                    break
+        return now_frozen
+
+    def is_utxo_frozen(self, outpoint: str) -> bool:
+        """Check if a UTXO is frozen.
+
+        Args:
+            outpoint: Outpoint string in ``txid:vout`` format.
+
+        Returns:
+            True if frozen, False otherwise.
+        """
+        if self.metadata_store is None:
+            return False
+        return self.metadata_store.is_frozen(outpoint)
 
     def get_address_info_for_mixdepth(
         self,

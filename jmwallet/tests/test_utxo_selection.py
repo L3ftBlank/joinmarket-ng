@@ -488,3 +488,185 @@ class TestFidelityBondUTXOFiltering:
         assert len(selected) == 3
         assert any(u.is_fidelity_bond for u in selected)
         assert sum(u.value for u in selected) == 650_000
+
+
+# ---------------------------------------------------------------------------
+# Frozen UTXO filtering tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def wallet_with_frozen(test_mnemonic: str, mock_backend) -> WalletService:
+    """Create a WalletService with some frozen UTXOs."""
+    ws = WalletService(
+        mnemonic=test_mnemonic,
+        backend=mock_backend,
+        network="regtest",
+        mixdepth_count=5,
+        gap_limit=20,
+    )
+
+    ws.utxo_cache = {
+        0: [
+            UTXOInfo(
+                txid="a" * 64,
+                vout=0,
+                value=100_000,
+                address="bcrt1test1",
+                confirmations=10,
+                scriptpubkey="0014" + "aa" * 20,
+                path="m/84'/0'/0'/0/0",
+                mixdepth=0,
+                frozen=True,  # Frozen
+            ),
+            UTXOInfo(
+                txid="b" * 64,
+                vout=0,
+                value=50_000,
+                address="bcrt1test2",
+                confirmations=5,
+                scriptpubkey="0014" + "bb" * 20,
+                path="m/84'/0'/0'/0/1",
+                mixdepth=0,
+            ),
+            UTXOInfo(
+                txid="c" * 64,
+                vout=0,
+                value=30_000,
+                address="bcrt1test3",
+                confirmations=3,
+                scriptpubkey="0014" + "cc" * 20,
+                path="m/84'/0'/0'/0/2",
+                mixdepth=0,
+            ),
+        ],
+        1: [],
+    }
+
+    return ws
+
+
+class TestFrozenUTXOFiltering:
+    """Tests that frozen UTXOs are excluded from coin selection and balances."""
+
+    def test_select_utxos_excludes_frozen(self, wallet_with_frozen: WalletService):
+        """select_utxos() skips frozen UTXOs."""
+        selected = wallet_with_frozen.select_utxos(0, 40_000, min_confirmations=1)
+        # Should select the 50k UTXO (not the frozen 100k)
+        assert len(selected) == 1
+        assert selected[0].value == 50_000
+        assert not selected[0].frozen
+
+    def test_select_utxos_insufficient_due_to_frozen(self, wallet_with_frozen: WalletService):
+        """select_utxos() raises when frozen UTXOs would be needed."""
+        # Total spendable: 50k + 30k = 80k. Requesting 90k fails.
+        with pytest.raises(ValueError, match="Insufficient funds"):
+            wallet_with_frozen.select_utxos(0, 90_000, min_confirmations=1)
+
+    def test_get_all_utxos_excludes_frozen(self, wallet_with_frozen: WalletService):
+        """get_all_utxos() does not return frozen UTXOs."""
+        all_utxos = wallet_with_frozen.get_all_utxos(0, min_confirmations=1)
+        assert len(all_utxos) == 2
+        assert all(not u.frozen for u in all_utxos)
+
+    def test_select_utxos_with_merge_excludes_frozen(self, wallet_with_frozen: WalletService):
+        """select_utxos_with_merge() greedy mode excludes frozen UTXOs."""
+        selected = wallet_with_frozen.select_utxos_with_merge(
+            0, 30_000, min_confirmations=1, merge_algorithm="greedy"
+        )
+        # Greedy selects all spendable: 50k + 30k = 80k (not the frozen 100k)
+        assert len(selected) == 2
+        assert sum(u.value for u in selected) == 80_000
+        assert all(not u.frozen for u in selected)
+
+    @pytest.mark.asyncio
+    async def test_get_balance_excludes_frozen(self, wallet_with_frozen: WalletService):
+        """get_balance() excludes frozen UTXOs from the total."""
+        balance = await wallet_with_frozen.get_balance(0)
+        # Spendable: 50k + 30k = 80k (not 180k)
+        assert balance == 80_000
+
+    @pytest.mark.asyncio
+    async def test_get_total_balance_excludes_frozen(self, wallet_with_frozen: WalletService):
+        """get_total_balance() excludes frozen UTXOs across all mixdepths."""
+        balance = await wallet_with_frozen.get_total_balance()
+        assert balance == 80_000
+
+
+class TestFrozenUTXOWithFidelityBonds:
+    """Tests for frozen UTXOs combined with fidelity bond filtering."""
+
+    @pytest.fixture
+    def wallet_frozen_and_fb(self, test_mnemonic: str, mock_backend) -> WalletService:
+        """WalletService with both frozen and fidelity bond UTXOs."""
+        ws = WalletService(
+            mnemonic=test_mnemonic,
+            backend=mock_backend,
+            network="regtest",
+            mixdepth_count=5,
+            gap_limit=20,
+        )
+
+        ws.utxo_cache = {
+            0: [
+                UTXOInfo(
+                    txid="a" * 64,
+                    vout=0,
+                    value=100_000,
+                    address="bcrt1test1",
+                    confirmations=10,
+                    scriptpubkey="0014" + "aa" * 20,
+                    path="m/84'/0'/0'/0/0",
+                    mixdepth=0,
+                    frozen=True,  # Frozen regular UTXO
+                ),
+                UTXOInfo(
+                    txid="b" * 64,
+                    vout=0,
+                    value=500_000,
+                    address="bcrt1timelocked",
+                    confirmations=100,
+                    scriptpubkey="0020" + "bb" * 32,
+                    path="m/84'/0'/0'/2/0:1893456000",
+                    mixdepth=0,
+                    locktime=1893456000,  # Fidelity bond
+                ),
+                UTXOInfo(
+                    txid="c" * 64,
+                    vout=0,
+                    value=50_000,
+                    address="bcrt1test3",
+                    confirmations=5,
+                    scriptpubkey="0014" + "cc" * 20,
+                    path="m/84'/0'/0'/0/2",
+                    mixdepth=0,
+                ),
+            ],
+            1: [],
+        }
+
+        return ws
+
+    @pytest.mark.asyncio
+    async def test_balance_excludes_both_frozen_and_fb(self, wallet_frozen_and_fb: WalletService):
+        """Balance excluding FBs also excludes frozen UTXOs."""
+        balance = await wallet_frozen_and_fb.get_balance(0, include_fidelity_bonds=False)
+        # Only the 50k unfrozen, non-FB UTXO
+        assert balance == 50_000
+
+    @pytest.mark.asyncio
+    async def test_balance_includes_fb_but_excludes_frozen(
+        self, wallet_frozen_and_fb: WalletService
+    ):
+        """Balance including FBs still excludes frozen UTXOs."""
+        balance = await wallet_frozen_and_fb.get_balance(0, include_fidelity_bonds=True)
+        # 500k FB + 50k unfrozen = 550k (not the 100k frozen)
+        assert balance == 550_000
+
+    def test_select_excludes_both(self, wallet_frozen_and_fb: WalletService):
+        """select_utxos() excludes both frozen and FB UTXOs."""
+        selected = wallet_frozen_and_fb.select_utxos(0, 40_000, min_confirmations=1)
+        assert len(selected) == 1
+        assert selected[0].value == 50_000
+        assert not selected[0].frozen
+        assert not selected[0].is_fidelity_bond

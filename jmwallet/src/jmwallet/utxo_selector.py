@@ -39,13 +39,19 @@ def format_utxo_line(utxo: UTXOInfo, max_width: int = 80) -> str:
         else:
             fb_indicator = " [FB]"
 
+    # Frozen indicator
+    frozen_indicator = " [FROZEN]" if utxo.frozen else ""
+
     # Truncate txid for display
     outpoint = f"{utxo.txid[:8]}...:{utxo.vout}"
 
     # Label/note for UTXO type
     label_str = f" ({utxo.label})" if utxo.label else ""
 
-    line = f"{md_str:>3} | {amount_str:>18} | {conf_str} | {outpoint}{fb_indicator}{label_str}"
+    line = (
+        f"{md_str:>3} | {amount_str:>18} | {conf_str} | "
+        f"{outpoint}{fb_indicator}{frozen_indicator}{label_str}"
+    )
 
     if len(line) > max_width:
         line = line[: max_width - 3] + "..."
@@ -76,7 +82,7 @@ def _run_selector(
     curses.init_pair(1, curses.COLOR_GREEN, -1)  # Selected items
     curses.init_pair(2, curses.COLOR_YELLOW, -1)  # Current cursor
     curses.init_pair(3, curses.COLOR_CYAN, -1)  # Header
-    curses.init_pair(4, curses.COLOR_RED, -1)  # Locked fidelity bonds (cannot be spent)
+    curses.init_pair(4, curses.COLOR_RED, -1)  # Locked fidelity bonds / frozen UTXOs
     curses.init_pair(5, curses.COLOR_MAGENTA, -1)  # Unlocked fidelity bonds (can be spent)
 
     selected: set[int] = set()
@@ -129,6 +135,9 @@ def _run_selector(
                 attr = curses.color_pair(2) | curses.A_REVERSE
             elif is_selected:
                 attr = curses.color_pair(1) | curses.A_BOLD
+            elif utxo.frozen:
+                # Frozen UTXOs - red, dimmed (excluded from automatic selection)
+                attr = curses.color_pair(4) | curses.A_DIM
             elif utxo.is_fidelity_bond:
                 if utxo.is_locked:
                     # Locked FB - red, dimmed (cannot be spent yet)
@@ -214,8 +223,8 @@ def _run_selector(
         elif key == ord("G"):  # Go to bottom
             cursor_pos = len(utxos) - 1
 
-        elif key == ord("a"):  # Select all
-            selected = set(range(len(utxos)))
+        elif key == ord("a"):  # Select all (skip frozen UTXOs)
+            selected = {i for i, u in enumerate(utxos) if not u.frozen}
 
         elif key == ord("n"):  # Deselect all
             selected = set()

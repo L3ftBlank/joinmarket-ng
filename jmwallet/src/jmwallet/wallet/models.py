@@ -59,6 +59,12 @@ class UTXOInfo:
     height: int | None = None  # Block height where UTXO was confirmed (for Neutrino)
     locktime: int | None = None  # Locktime for fidelity bond UTXOs (None for regular UTXOs)
     label: str | None = None  # Human-readable label/note (e.g., "cj-out", "deposit", "change")
+    frozen: bool = False  # Whether this UTXO is frozen (excluded from automatic coin selection)
+
+    @property
+    def outpoint(self) -> str:
+        """Get the outpoint string (txid:vout) for this UTXO."""
+        return f"{self.txid}:{self.vout}"
 
     @property
     def is_fidelity_bond(self) -> bool:

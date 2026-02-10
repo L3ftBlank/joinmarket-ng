@@ -181,6 +181,30 @@ def remove_nick_state(data_dir: Path | str | None, component: str) -> bool:
     return False
 
 
+def get_wallet_metadata_path(data_dir: Path | None = None) -> Path:
+    """
+    Get the path to the wallet metadata file (BIP-329 JSONL format).
+
+    This file stores UTXO-level metadata such as frozen state and labels
+    using the BIP-329 wallet labels export format (JSON Lines). Each line
+    is a JSON object with a ``type``, ``ref``, and optional fields like
+    ``spendable`` (for frozen/unfrozen state) and ``label``.
+
+    The BIP-329 format enables interoperability with external wallets like
+    Sparrow for coin control and labeling.
+
+    Args:
+        data_dir: Optional data directory (defaults to get_default_data_dir())
+
+    Returns:
+        Path to wallet_metadata.jsonl
+    """
+    if data_dir is None:
+        data_dir = get_default_data_dir()
+
+    return data_dir / "wallet_metadata.jsonl"
+
+
 def get_all_nick_states(data_dir: Path | str | None = None) -> dict[str, str]:
     """
     Read all component nick state files from the data directory.

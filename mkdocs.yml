@@ -12,16 +12,16 @@ nav:
   - Installation: install.md
   - Protocol Documentation:
     - Concepts: DOCS01-Concepts.md
-#    - JoinMarket-NG: DOCS02-JoinMarket-NG.md
-#    - Architecture: DOCS03-Architecture.md
-#    - Protocol: DOCS04-Protocol.md
-#    - Privacy Mechanisms: DOCS05-Privacy Mechanisms.md
-#    - Wallet: DOCS06-Wallet.md
-#    - Configuration: DOCS07-Configuration.md
-#    - Security: DOCS08-Security.md
-#    - Development: DOCS09-Development.md
-#    - Best Practices: DOCS10-Best Practices.md
-#    - References: DOCS11-References.md
+    - JoinMarket-NG: DOCS02-JoinMarket-NG.md
+    - Architecture: DOCS03-Architecture.md
+    - Protocol: DOCS04-Protocol.md
+    - Privacy Mechanisms: DOCS05-Privacy Mechanisms.md
+    - Wallet: DOCS06-Wallet.md
+    - Configuration: DOCS07-Configuration.md
+    - Security: DOCS08-Security.md
+    - Development: DOCS09-Development.md
+    - Best Practices: DOCS10-Best Practices.md
+    - References: DOCS11-References.md
 
 #  - Module:
 #    - Wallet: jmwallet.md

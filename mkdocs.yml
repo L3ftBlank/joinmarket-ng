@@ -24,9 +24,9 @@ nav:
     - References: DOCS11-References.md
 
   - Module:
-    - Wallet: jmwallet.md
-#    - Scripts: scripts.md
-#    - Maker: maker.md
-#    - Taker: taker.md
+    - Wallet: README_jmwallet.md
+    - Scripts: README_scripts.md
+    - Maker: README_maker.md
+    - Taker: README_taker.md
 #    - Directory Server: directory_server.md
 #    - OrderbookWatcher: orderbook_watcher.md

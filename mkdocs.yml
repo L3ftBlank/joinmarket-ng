@@ -9,7 +9,7 @@ markdown_extensions:
   - pymdownx.inlinehilite
 nav:
   - Home: index.md
-  - Installation: INSTALL.md
+  - Installation: ../INSTALL.md
   - Protocol Documentation:
     - Concepts: DOCS01-Concepts.md
     - JoinMarket-NG: DOCS02-JoinMarket-NG.md
@@ -24,9 +24,9 @@ nav:
     - References: DOCS11-References.md
 
   - Module:
-    - Wallet: jmwallet/README.md
-    - Scripts: scripts/README.md
-    - Maker: maker/README.md
-    - Taker: taker/README.md
-    - Directory Server: directory_server/README.md
-    - OrderbookWatcher: orderbook_watcher/README.md
+    - Wallet: ../jmwallet/README.md
+    - Scripts: ../scripts/README.md
+    - Maker: ../maker/README.md
+    - Taker: ../taker/README.md
+    - Directory Server: ../directory_server/README.md
+    - OrderbookWatcher: ../orderbook_watcher/README.md

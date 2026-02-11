@@ -849,17 +849,19 @@ async def test_taker_signing_integration(funded_taker_wallet: WalletService):
         assert len(sig_bytes) > 64  # DER signatures are variable length
         assert sig_bytes[-1] == 1  # SIGHASH_ALL
 
-        # Test that signatures can be added to transaction
+        # Test that add_signatures rejects incomplete signatures.
+        # A CoinJoin transaction is invalid unless every input is signed,
+        # so providing only the taker's signature while maker signatures
+        # are missing must raise ValueError.
         all_signatures = {
             "taker": signatures,
-            "maker1": [],  # Mock empty maker signatures for now
+            "maker1": [],  # Missing maker signature
         }
 
-        # This should not raise even with empty maker sigs
-        signed_tx = builder.add_signatures(tx_bytes, all_signatures, metadata)
-        assert len(signed_tx) > len(tx_bytes)
-        print(f"Signed transaction: {len(signed_tx)} bytes (was {len(tx_bytes)})")
+        with pytest.raises(ValueError, match="missing signatures"):
+            builder.add_signatures(tx_bytes, all_signatures, metadata)
 
+        print("Correctly rejected incomplete signatures")
         print("Taker signing integration test PASSED")
 
 

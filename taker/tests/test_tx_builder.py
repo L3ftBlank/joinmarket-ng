@@ -511,3 +511,150 @@ class TestBuildCoinjoinTx:
         # Both changes are below 50000, so no change outputs
         change_outputs = [o for o in metadata["output_owners"] if o[1] == "change"]
         assert len(change_outputs) == 0
+
+
+class TestAddSignaturesValidation:
+    """Tests that add_signatures enforces complete signature coverage.
+
+    A CoinJoin transaction is only valid when every input has a signature.
+    The add_signatures method must reject any attempt to assemble a
+    transaction with missing signatures rather than silently producing
+    an invalid transaction.
+    """
+
+    @pytest.fixture
+    def builder(self) -> CoinJoinTxBuilder:
+        return CoinJoinTxBuilder(network="regtest")
+
+    @pytest.fixture
+    def two_maker_tx(self, builder: CoinJoinTxBuilder) -> tuple[bytes, dict]:
+        """Build a transaction with 1 taker + 2 makers (3 inputs)."""
+        tx_data = CoinJoinTxData(
+            taker_inputs=[TxInput(txid="a" * 64, vout=0, value=2_000_000)],
+            taker_cj_output=TxOutput(
+                address="bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
+                value=1_000_000,
+            ),
+            taker_change_output=TxOutput(
+                address="bcrt1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qzf4jry",
+                value=990_000,
+            ),
+            maker_inputs={
+                "maker1": [TxInput(txid="b" * 64, vout=1, value=1_500_000)],
+                "maker2": [TxInput(txid="c" * 64, vout=2, value=1_200_000)],
+            },
+            maker_cj_outputs={
+                "maker1": TxOutput(
+                    address="bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
+                    value=1_000_000,
+                ),
+                "maker2": TxOutput(
+                    address="bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
+                    value=1_000_000,
+                ),
+            },
+            maker_change_outputs={
+                "maker1": TxOutput(
+                    address="bcrt1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qzf4jry",
+                    value=501_000,
+                ),
+                "maker2": TxOutput(
+                    address="bcrt1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qzf4jry",
+                    value=201_000,
+                ),
+            },
+            cj_amount=1_000_000,
+            total_maker_fee=2_000,
+            tx_fee=8_000,
+        )
+        return builder.build_unsigned_tx(tx_data)
+
+    def _make_fake_sig(self, txid: str, vout: int) -> dict:
+        """Create a fake signature dict for testing assembly logic."""
+        fake_sig = "30" + "44" * 35  # fake DER-ish hex
+        fake_pubkey = "02" + "ab" * 32  # fake compressed pubkey hex
+        return {
+            "txid": txid,
+            "vout": vout,
+            "witness": [fake_sig, fake_pubkey],
+        }
+
+    def test_raises_when_no_signatures_provided(
+        self, builder: CoinJoinTxBuilder, two_maker_tx: tuple[bytes, dict]
+    ) -> None:
+        """Empty signature dict must be rejected."""
+        tx_bytes, metadata = two_maker_tx
+        with pytest.raises(ValueError, match="missing signatures"):
+            builder.add_signatures(tx_bytes, {}, metadata)
+
+    def test_raises_when_maker_missing(
+        self, builder: CoinJoinTxBuilder, two_maker_tx: tuple[bytes, dict]
+    ) -> None:
+        """Transaction with one maker's signatures missing must be rejected."""
+        tx_bytes, metadata = two_maker_tx
+
+        # Provide taker + maker1 only, maker2 is missing
+        signatures = {
+            "taker": [self._make_fake_sig("a" * 64, 0)],
+            "maker1": [self._make_fake_sig("b" * 64, 1)],
+            # maker2 deliberately omitted
+        }
+        with pytest.raises(ValueError, match="missing signatures"):
+            builder.add_signatures(tx_bytes, signatures, metadata)
+
+    def test_raises_when_taker_missing(
+        self, builder: CoinJoinTxBuilder, two_maker_tx: tuple[bytes, dict]
+    ) -> None:
+        """Transaction with taker's signature missing must be rejected."""
+        tx_bytes, metadata = two_maker_tx
+
+        signatures = {
+            # taker deliberately omitted
+            "maker1": [self._make_fake_sig("b" * 64, 1)],
+            "maker2": [self._make_fake_sig("c" * 64, 2)],
+        }
+        with pytest.raises(ValueError, match="missing signatures"):
+            builder.add_signatures(tx_bytes, signatures, metadata)
+
+    def test_raises_when_maker_provides_empty_list(
+        self, builder: CoinJoinTxBuilder, two_maker_tx: tuple[bytes, dict]
+    ) -> None:
+        """Maker present in dict but with empty signature list must be rejected."""
+        tx_bytes, metadata = two_maker_tx
+
+        signatures = {
+            "taker": [self._make_fake_sig("a" * 64, 0)],
+            "maker1": [self._make_fake_sig("b" * 64, 1)],
+            "maker2": [],  # present but empty
+        }
+        with pytest.raises(ValueError, match="missing signatures"):
+            builder.add_signatures(tx_bytes, signatures, metadata)
+
+    def test_raises_when_maker_provides_wrong_utxo(
+        self, builder: CoinJoinTxBuilder, two_maker_tx: tuple[bytes, dict]
+    ) -> None:
+        """Maker signature for a different UTXO (not in the transaction) must be rejected."""
+        tx_bytes, metadata = two_maker_tx
+
+        signatures = {
+            "taker": [self._make_fake_sig("a" * 64, 0)],
+            "maker1": [self._make_fake_sig("b" * 64, 1)],
+            "maker2": [self._make_fake_sig("f" * 64, 99)],  # wrong UTXO
+        }
+        with pytest.raises(ValueError, match="missing signatures"):
+            builder.add_signatures(tx_bytes, signatures, metadata)
+
+    def test_succeeds_when_all_signatures_present(
+        self, builder: CoinJoinTxBuilder, two_maker_tx: tuple[bytes, dict]
+    ) -> None:
+        """Transaction with all signatures present must succeed."""
+        tx_bytes, metadata = two_maker_tx
+
+        signatures = {
+            "taker": [self._make_fake_sig("a" * 64, 0)],
+            "maker1": [self._make_fake_sig("b" * 64, 1)],
+            "maker2": [self._make_fake_sig("c" * 64, 2)],
+        }
+        signed_tx = builder.add_signatures(tx_bytes, signatures, metadata)
+        assert isinstance(signed_tx, bytes)
+        assert len(signed_tx) > len(tx_bytes)

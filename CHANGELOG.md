@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Taker Signature Completeness Check**: Fixed a bug in `_phase_collect_signatures` where the taker used `minimum_makers` to decide if enough signatures were collected. Once a transaction is built with specific maker inputs, every maker must provide valid signatures -- `minimum_makers` is only relevant during the filling phase. The old check could allow proceeding with missing signatures if `minimum_makers` was set lower than the actual number of makers in the transaction, producing an invalid (partially signed) transaction. The `add_signatures` method in `CoinJoinTxBuilder` now also raises `ValueError` if any input is missing a signature, as defense-in-depth.
+
 ### Added
 
 - **UTXO Freezing** ([#104](../../issues/104)): Added `jm-wallet freeze` command to freeze/unfreeze individual UTXOs, preventing them from being used in automatic coin selection (taker, maker, and sweep operations). This is critical for privacy — preserving specific UTXO sizes, preventing dust attacks, and excluding newly deposited coins from being mixed.

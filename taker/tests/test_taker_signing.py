@@ -344,12 +344,17 @@ class TestTakerSigning:
 class TestSignatureIntegration:
     """Integration tests for signature creation and application."""
 
-    def test_signatures_can_be_added_to_transaction(
+    def test_add_signatures_raises_on_incomplete(
         self,
         test_master_key: HDKey,
         sample_coinjoin_tx_data: CoinJoinTxData,
     ) -> None:
-        """Test that created signatures can be added to the transaction."""
+        """Test that add_signatures raises ValueError when signatures are incomplete.
+
+        A CoinJoin transaction is invalid unless every input is signed.
+        Providing only the taker's signature while maker signatures are missing
+        must be rejected.
+        """
         from jmwallet.wallet.signing import (
             create_p2wpkh_script_code,
             create_witness_stack,
@@ -368,52 +373,48 @@ class TestSignatureIntegration:
             txid_hex = tx_input.txid_le[::-1].hex()
             input_index_map[(txid_hex, tx_input.vout)] = idx
 
-        # Get taker key and sign
+        # Get taker key and sign only the taker's first input
         key0 = test_master_key.derive("m/84'/1'/0'/0/0")
         pubkey_bytes = key0.get_public_key_bytes(compressed=True)
         script_code = create_p2wpkh_script_code(pubkey_bytes)
 
-        # Find the first taker input (txid "a" * 64)
         taker_txid = "a" * 64
-        if (taker_txid, 0) in input_index_map:
-            input_index = input_index_map[(taker_txid, 0)]
+        assert (taker_txid, 0) in input_index_map
+        input_index = input_index_map[(taker_txid, 0)]
 
-            signature = sign_p2wpkh_input(
-                tx=tx,
-                input_index=input_index,
-                script_code=script_code,
-                value=1_000_000,
-                private_key=key0.private_key,
-            )
+        signature = sign_p2wpkh_input(
+            tx=tx,
+            input_index=input_index,
+            script_code=script_code,
+            value=1_000_000,
+            private_key=key0.private_key,
+        )
 
-            witness = create_witness_stack(signature, pubkey_bytes)
+        witness = create_witness_stack(signature, pubkey_bytes)
 
-            # Signature should be valid DER + sighash
-            assert len(signature) > 64
-            assert signature[-1] == 1  # SIGHASH_ALL
+        # Signature should be valid DER + sighash
+        assert len(signature) > 64
+        assert signature[-1] == 1  # SIGHASH_ALL
 
-            # Witness stack should have 2 items
-            assert len(witness) == 2
+        # Witness stack should have 2 items
+        assert len(witness) == 2
 
-            # Prepare signature info for add_signatures
-            signatures = {
-                "taker": [
-                    {
-                        "txid": taker_txid,
-                        "vout": 0,
-                        "signature": signature.hex(),
-                        "pubkey": pubkey_bytes.hex(),
-                        "witness": [item.hex() for item in witness],
-                    }
-                ]
-            }
+        # Only provide taker signature -- maker signatures are missing
+        signatures = {
+            "taker": [
+                {
+                    "txid": taker_txid,
+                    "vout": 0,
+                    "signature": signature.hex(),
+                    "pubkey": pubkey_bytes.hex(),
+                    "witness": [item.hex() for item in witness],
+                }
+            ]
+        }
 
-            # This should not raise an error
-            signed_tx = builder.add_signatures(tx_bytes, signatures, metadata)
-
-            # Signed tx should be different (has witness data)
-            assert signed_tx != tx_bytes
-            assert len(signed_tx) > len(tx_bytes)
+        # Must raise because maker inputs are unsigned
+        with pytest.raises(ValueError, match="missing signatures"):
+            builder.add_signatures(tx_bytes, signatures, metadata)
 
 
 class TestEdgeCases:
@@ -511,6 +512,268 @@ class TestEdgeCases:
             signatures = await taker._sign_our_inputs()
 
             assert signatures == []
+
+
+class TestPhaseCollectSignaturesCompleteness:
+    """Tests that _phase_collect_signatures requires ALL maker signatures.
+
+    Once a transaction is built with specific maker inputs, every single
+    maker must provide valid signatures. The transaction is cryptographically
+    invalid if any input is unsigned. The minimum_makers threshold only
+    applies during the initial maker selection (filling phase), not here.
+    """
+
+    @pytest.fixture
+    def two_maker_tx_data(self) -> CoinJoinTxData:
+        """CoinJoin with 2 makers (3 inputs total)."""
+        return CoinJoinTxData(
+            taker_inputs=[TxInput(txid="a" * 64, vout=0, value=2_000_000)],
+            taker_cj_output=TxOutput(
+                address="bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
+                value=1_000_000,
+            ),
+            taker_change_output=TxOutput(
+                address="bcrt1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qzf4jry",
+                value=990_000,
+            ),
+            maker_inputs={
+                "maker1": [TxInput(txid="b" * 64, vout=0, value=1_500_000)],
+                "maker2": [TxInput(txid="c" * 64, vout=0, value=1_200_000)],
+            },
+            maker_cj_outputs={
+                "maker1": TxOutput(
+                    address="bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
+                    value=1_000_000,
+                ),
+                "maker2": TxOutput(
+                    address="bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
+                    value=1_000_000,
+                ),
+            },
+            maker_change_outputs={
+                "maker1": TxOutput(
+                    address="bcrt1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qzf4jry",
+                    value=501_000,
+                ),
+                "maker2": TxOutput(
+                    address="bcrt1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qzf4jry",
+                    value=201_000,
+                ),
+            },
+            cj_amount=1_000_000,
+            total_maker_fee=2_000,
+            tx_fee=8_000,
+        )
+
+    @staticmethod
+    def _make_maker_session(nick: str, offer: Any, utxos: list[dict[str, Any]]) -> Any:
+        """Create a MakerSession with a mocked crypto field.
+
+        MakerSession is a Pydantic dataclass that validates `crypto` as
+        CryptoSession | None. We construct with crypto=None then monkey-patch
+        it to a MagicMock so the encryption calls in _phase_collect_signatures
+        work without real NaCl keys.
+        """
+        from taker.taker import MakerSession
+
+        session = MakerSession(nick=nick, offer=offer, utxos=utxos)
+        crypto = MagicMock()
+        crypto.encrypt = MagicMock(return_value="encrypted")
+        crypto.decrypt = MagicMock(return_value="decrypted")
+        object.__setattr__(session, "crypto", crypto)
+        return session
+
+    def _build_taker_with_tx(
+        self,
+        tx_data: CoinJoinTxData,
+        *,
+        maker_sessions: dict[str, Any] | None = None,
+    ) -> Any:
+        """Create a Taker instance with a built transaction and mocked dependencies."""
+        from taker.taker import Taker
+
+        builder = CoinJoinTxBuilder(network="regtest")
+        tx_bytes, metadata = builder.build_unsigned_tx(tx_data)
+
+        with patch.object(Taker, "__init__", lambda self, *args, **kwargs: None):
+            taker = Taker.__new__(Taker)
+            taker.wallet = MagicMock()
+            taker.backend = AsyncMock()
+            taker.config = MagicMock()
+            taker.config.network.value = "regtest"
+            taker.config.maker_timeout_sec = 5
+            taker.config.minimum_makers = 1  # Low threshold -- should NOT matter
+            taker.config.data_dir = "/tmp/test"
+            taker.unsigned_tx = tx_bytes
+            taker.tx_metadata = metadata
+            taker.selected_utxos = []
+            taker.cj_amount = tx_data.cj_amount
+            taker.cj_destination = "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080"
+            taker.taker_change_address = ""
+
+            # Set up directory client mock
+            taker.directory_client = MagicMock()
+            taker.directory_client.send_privmsg = AsyncMock()
+
+            if maker_sessions is not None:
+                taker.maker_sessions = maker_sessions
+            else:
+                taker.maker_sessions = {}
+
+            return taker
+
+    @pytest.mark.asyncio
+    async def test_rejects_when_one_maker_fails_to_respond(
+        self,
+        two_maker_tx_data: CoinJoinTxData,
+    ) -> None:
+        """Must fail if one maker doesn't respond, even if minimum_makers is met.
+
+        Even with minimum_makers=1, once the tx is built with 2 makers,
+        both must sign. A single missing maker means an invalid transaction.
+        """
+        from jmcore.models import NetworkType, Offer, OfferType
+
+        offer = Offer(
+            counterparty="maker1",
+            oid=0,
+            ordertype=OfferType.SW0_RELATIVE,
+            minsize=100_000,
+            maxsize=10_000_000,
+            txfee=0,
+            cjfee="0.001",
+            fidelity_bond_value=0,
+        )
+
+        maker_sessions = {
+            "maker1": self._make_maker_session(
+                "maker1", offer, [{"txid": "b" * 64, "vout": 0, "value": 1_500_000}]
+            ),
+            "maker2": self._make_maker_session(
+                "maker2", offer, [{"txid": "c" * 64, "vout": 0, "value": 1_200_000}]
+            ),
+        }
+
+        taker = self._build_taker_with_tx(two_maker_tx_data, maker_sessions=maker_sessions)
+        taker.config.network = NetworkType.REGTEST
+
+        # Neither maker responds
+        taker.directory_client.wait_for_responses = AsyncMock(return_value={})
+
+        result = await taker._phase_collect_signatures()
+        assert result is False, (
+            "_phase_collect_signatures must fail when a maker whose inputs are "
+            "in the transaction doesn't respond"
+        )
+
+    @pytest.mark.asyncio
+    async def test_rejects_when_maker_provides_invalid_signature(
+        self,
+        two_maker_tx_data: CoinJoinTxData,
+    ) -> None:
+        """Must fail when a maker's signature fails verification.
+
+        Even if both makers respond, if one provides an invalid signature
+        that fails cryptographic verification, the transaction cannot proceed.
+        """
+        import base64
+
+        from jmcore.models import NetworkType, Offer, OfferType
+
+        offer = Offer(
+            counterparty="maker1",
+            oid=0,
+            ordertype=OfferType.SW0_RELATIVE,
+            minsize=100_000,
+            maxsize=10_000_000,
+            txfee=0,
+            cjfee="0.001",
+            fidelity_bond_value=0,
+        )
+
+        # Build a fake !sig response that will fail verification.
+        # Format: sig_len(1) + sig + pub_len(1) + pubkey
+        fake_sig = b"\x30" + b"\x44" * 70  # 71 bytes
+        fake_pubkey = b"\x02" + b"\xab" * 32  # 33 bytes
+        fake_payload = bytes([len(fake_sig)]) + fake_sig + bytes([len(fake_pubkey)]) + fake_pubkey
+        fake_b64 = base64.b64encode(fake_payload).decode()
+
+        maker_sessions = {
+            "maker1": self._make_maker_session(
+                "maker1", offer, [{"txid": "b" * 64, "vout": 0, "value": 1_500_000}]
+            ),
+            "maker2": self._make_maker_session(
+                "maker2", offer, [{"txid": "c" * 64, "vout": 0, "value": 1_200_000}]
+            ),
+        }
+        # Override decrypt to return the fake payload
+        for session in maker_sessions.values():
+            session.crypto.decrypt = MagicMock(return_value=fake_b64)
+
+        taker = self._build_taker_with_tx(two_maker_tx_data, maker_sessions=maker_sessions)
+        taker.config.network = NetworkType.REGTEST
+
+        # Both makers respond, but their signatures are garbage
+        taker.directory_client.wait_for_responses = AsyncMock(
+            return_value={
+                "maker1": {"data": [fake_b64]},
+                "maker2": {"data": [fake_b64]},
+            }
+        )
+
+        result = await taker._phase_collect_signatures()
+        assert result is False, (
+            "_phase_collect_signatures must fail when maker signatures "
+            "fail cryptographic verification"
+        )
+
+    @pytest.mark.asyncio
+    async def test_minimum_makers_is_irrelevant_after_tx_built(
+        self,
+        two_maker_tx_data: CoinJoinTxData,
+    ) -> None:
+        """minimum_makers=1 must not allow proceeding with only 1 of 2 makers.
+
+        This is the core bug scenario: the old code checked
+        len(maker_sessions) >= minimum_makers, which would pass with
+        minimum_makers=1 even when 2 makers are needed.
+        """
+        from jmcore.models import NetworkType, Offer, OfferType
+
+        offer = Offer(
+            counterparty="maker1",
+            oid=0,
+            ordertype=OfferType.SW0_RELATIVE,
+            minsize=100_000,
+            maxsize=10_000_000,
+            txfee=0,
+            cjfee="0.001",
+            fidelity_bond_value=0,
+        )
+
+        maker_sessions = {
+            "maker1": self._make_maker_session(
+                "maker1", offer, [{"txid": "b" * 64, "vout": 0, "value": 1_500_000}]
+            ),
+            "maker2": self._make_maker_session(
+                "maker2", offer, [{"txid": "c" * 64, "vout": 0, "value": 1_200_000}]
+            ),
+        }
+
+        taker = self._build_taker_with_tx(two_maker_tx_data, maker_sessions=maker_sessions)
+        taker.config.network = NetworkType.REGTEST
+        taker.config.minimum_makers = 1  # Explicitly low threshold
+
+        # Neither maker responds
+        taker.directory_client.wait_for_responses = AsyncMock(return_value={})
+
+        result = await taker._phase_collect_signatures()
+        assert result is False, (
+            "With minimum_makers=1 and 2 makers in the transaction, "
+            "_phase_collect_signatures must still fail when one maker "
+            "doesn't respond. The old minimum_makers check would have "
+            "incorrectly allowed this."
+        )
 
 
 # Re-export fixtures for use in conftest

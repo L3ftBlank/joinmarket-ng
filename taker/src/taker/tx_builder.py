@@ -201,6 +201,9 @@ class CoinJoinTxBuilder:
         """
         Add signatures to transaction.
 
+        Every input must have a matching signature. A CoinJoin transaction with
+        any unsigned input is invalid and must never be broadcast.
+
         Args:
             tx_bytes: Unsigned transaction
             signatures: Dict of nick -> list of signature info
@@ -208,6 +211,9 @@ class CoinJoinTxBuilder:
 
         Returns:
             Signed transaction bytes
+
+        Raises:
+            ValueError: If any input is missing a signature
         """
         from loguru import logger as log
 
@@ -221,6 +227,7 @@ class CoinJoinTxBuilder:
         # Build witness data
         new_witnesses: list[list[bytes]] = []
         input_owners = metadata["input_owners"]
+        unsigned_inputs: list[str] = []
 
         for i, owner in enumerate(input_owners):
             inp = inputs[i]
@@ -235,11 +242,22 @@ class CoinJoinTxBuilder:
                         log.debug(f"  -> Found matching signature, witness len={len(witness)}")
                         break
                 else:
+                    unsigned_inputs.append(
+                        f"input {i} (owner={owner}, txid={inp['txid'][:16]}...:{inp['vout']})"
+                    )
                     new_witnesses.append([])
-                    log.warning(f"  -> No matching signature found for {owner}")
             else:
+                unsigned_inputs.append(
+                    f"input {i} (owner={owner}, txid={inp['txid'][:16]}...:{inp['vout']})"
+                )
                 new_witnesses.append([])
-                log.warning(f"  -> Owner {owner} not in signatures dict")
+
+        if unsigned_inputs:
+            raise ValueError(
+                f"Cannot assemble transaction: {len(unsigned_inputs)} input(s) missing "
+                f"signatures: {', '.join(unsigned_inputs)}. "
+                f"All inputs must be signed for a valid transaction."
+            )
 
         # Reserialize with witnesses
         return self._serialize_with_witnesses(version, inputs, outputs, new_witnesses, locktime)

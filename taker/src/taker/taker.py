@@ -3365,8 +3365,22 @@ class Taker:
                 logger.warning(f"No !sig response from {nick}")
                 del self.maker_sessions[nick]
 
-        if len(self.maker_sessions) < self.config.minimum_makers:
-            logger.error(f"Not enough signatures: {len(self.maker_sessions)}")
+        # Every maker whose inputs are in the transaction MUST provide valid
+        # signatures. Unlike the filling phase where minimum_makers is relevant for
+        # selecting counterparties, once the transaction is built with specific inputs,
+        # ALL those inputs need signatures or the transaction is invalid.
+        required_makers = {
+            owner for owner in self.tx_metadata.get("input_owners", []) if owner != "taker"
+        }
+        signed_makers = set(signatures.keys())
+        missing_makers = required_makers - signed_makers
+
+        if missing_makers:
+            logger.error(
+                f"Missing signatures from {len(missing_makers)} maker(s) "
+                f"whose inputs are in the transaction: {missing_makers}. "
+                f"Cannot proceed - transaction would be invalid."
+            )
             return False
 
         # Add signatures to transaction

@@ -89,6 +89,7 @@ def reference_maker_with_bond(reference_services):
     addr = get_jam_wallet_address(maker, wallet_name, password)
     if not addr:
         pytest.skip("Failed to get address for reference maker")
+    assert addr is not None  # mypy: pytest.skip is NoReturn
 
     logger.info(f"Funding {maker} wallet address {addr}...")
     fund_address(addr, 1.0)
@@ -141,6 +142,7 @@ def reference_maker_with_bond(reference_services):
             )
             return False
         pytest.skip("Could not generate fidelity bond address for reference maker")
+    assert bond_address is not None  # mypy: pytest.skip is NoReturn
 
     logger.info(f"Generated fidelity bond address: {bond_address}")
 

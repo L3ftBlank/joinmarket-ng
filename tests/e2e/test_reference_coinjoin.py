@@ -583,6 +583,7 @@ def funded_jam_wallet(reference_services):
     if not address:
         logger.error("Failed to get wallet address")
         pytest.skip("Could not get wallet address")
+    assert address is not None  # mypy: pytest.skip is NoReturn
 
     logger.info(f"Got wallet address: {address}")
 

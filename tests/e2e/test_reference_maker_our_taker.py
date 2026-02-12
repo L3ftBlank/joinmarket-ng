@@ -695,6 +695,7 @@ def funded_jam_makers(reference_maker_services):
         address = get_jam_maker_address(maker_id, wallet_name, password)
         if not address:
             pytest.skip(f"Failed to get address for jam-maker{maker_id}")
+        assert address is not None  # mypy: pytest.skip is NoReturn
 
         # Fund wallet
         funded = fund_jam_maker_wallet(address, 2.0)

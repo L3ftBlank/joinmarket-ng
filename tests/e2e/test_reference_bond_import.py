@@ -532,6 +532,7 @@ def funded_reference_wallet(reference_services) -> dict[str, Any]:
         address = get_jam_wallet_address(REF_WALLET_NAME, WALLET_PASSWORD, mixdepth)
         if not address:
             pytest.skip(f"Could not get address for mixdepth {mixdepth}")
+        assert address is not None  # mypy: pytest.skip is NoReturn
 
         if not fund_address(address, amount):
             pytest.skip(f"Could not fund mixdepth {mixdepth}")
@@ -553,6 +554,7 @@ def funded_reference_wallet(reference_services) -> dict[str, Any]:
     )
     if not bond_address:
         pytest.skip("Could not get fidelity bond address")
+    assert bond_address is not None  # mypy: pytest.skip is NoReturn
 
     logger.info(f"Fidelity bond address: {bond_address}")
 

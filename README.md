@@ -58,17 +58,6 @@ jm-taker coinjoin --amount 1000000 --mixdepth 0 --destination INTERNAL
 jm-maker start
 ```
 
-## Documentation
-
-| Document | Description |
-|----------|-------------|
-| [INSTALL.md](./INSTALL.md) | Full installation guide, backends, Tor setup |
-| [DOCS.md](./DOCS.md) | Protocol, architecture, security, development |
-| [maker/README.md](./maker/README.md) | Maker bot configuration and operation |
-| [taker/README.md](./taker/README.md) | Taker options, schedules, tumbler mode |
-| [directory_server/README.md](./directory_server/README.md) | Directory server setup |
-| [orderbook_watcher/README.md](./orderbook_watcher/README.md) | Orderbook monitoring |
-
 ## Why JoinMarket-NG?
 
 This is a modern alternative to the reference implementation, fully compatible but with key improvements:

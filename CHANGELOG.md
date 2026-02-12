@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-02-12
+
 ### Fixed
 
 - **Taker Signature Completeness Check**: Fixed a bug in `_phase_collect_signatures` where the taker used `minimum_makers` to decide if enough signatures were collected. Once a transaction is built with specific maker inputs, every maker must provide valid signatures -- `minimum_makers` is only relevant during the filling phase. The old check could allow proceeding with missing signatures if `minimum_makers` was set lower than the actual number of makers in the transaction, producing an invalid (partially signed) transaction. The `add_signatures` method in `CoinJoinTxBuilder` now also raises `ValueError` if any input is missing a signature, as defense-in-depth.
@@ -878,7 +880,8 @@ Releases prior to these changes (including 0.13.5, 0.13.6, and 0.13.7) cannot be
 - Pre-built image support for directory server compose.
 - Tor configuration instructions.
 
-[Unreleased]: ../../compare/0.13.12...HEAD
+[Unreleased]: ../../compare/0.14.0...HEAD
+[0.14.0]: ../../compare/0.13.12...0.14.0
 [0.13.12]: ../../compare/0.13.11...0.13.12
 [0.13.11]: ../../compare/0.13.10...0.13.11
 [0.13.10]: ../../compare/0.13.9...0.13.10

@@ -264,8 +264,18 @@ main() {
     log_info "Starting at $(date)"
     echo
 
-    # Ensure we cleanup on exit
-    trap 'log_info "Cleaning up on exit..."; cleanup_all' EXIT
+    # Clean up on success only; on failure, leave containers for debugging.
+    # The EXIT trap checks the exit code ($?) to decide.
+    trap '
+        exit_code=$?
+        if [ $exit_code -eq 0 ]; then
+            log_info "Cleaning up on success..."
+            cleanup_all
+        else
+            log_warning "Skipping cleanup so you can inspect containers."
+            log_info "Run: $0 --cleanup-only"
+        fi
+    ' EXIT
 
     # Initial cleanup
     cleanup_all

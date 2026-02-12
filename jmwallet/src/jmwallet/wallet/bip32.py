@@ -9,9 +9,9 @@ import hashlib
 import hmac
 
 from coincurve import PrivateKey, PublicKey
-
-# secp256k1 curve order
-SECP256K1_N = int("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141", 16)
+from jmcore.constants import SECP256K1_N
+from jmcore.crypto import base58check_encode as _base58check_encode
+from jmcore.crypto import mnemonic_to_seed
 
 # BIP32 version bytes for extended keys
 # Note: For BIP84 (native segwit), we should use zpub/zprv but Bitcoin Core
@@ -27,33 +27,6 @@ ZPUB_MAINNET = bytes.fromhex("04B24746")  # zpub
 ZPRV_MAINNET = bytes.fromhex("04B2430C")  # zprv
 VPUB_TESTNET = bytes.fromhex("045F1CF6")  # vpub
 VPRV_TESTNET = bytes.fromhex("045F18BC")  # vprv
-
-
-def _base58check_encode(payload: bytes) -> str:
-    """Encode bytes with Base58Check (with checksum)."""
-    checksum = hashlib.sha256(hashlib.sha256(payload).digest()).digest()[:4]
-    data = payload + checksum
-
-    # Base58 alphabet (Bitcoin)
-    alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
-
-    # Convert to integer
-    num = int.from_bytes(data, "big")
-
-    # Encode
-    result = ""
-    while num > 0:
-        num, remainder = divmod(num, 58)
-        result = alphabet[remainder] + result
-
-    # Add leading '1's for leading zero bytes
-    for byte in data:
-        if byte == 0:
-            result = "1" + result
-        else:
-            break
-
-    return result
 
 
 class HDKey:
@@ -292,15 +265,6 @@ class HDKey:
         return _base58check_encode(payload)
 
 
-def mnemonic_to_seed(mnemonic: str, passphrase: str = "") -> bytes:
-    """
-    Convert BIP39 mnemonic to seed.
-    Simple implementation - for production use python-mnemonic library.
-    """
-    from hashlib import pbkdf2_hmac
-
-    mnemonic_bytes = mnemonic.encode("utf-8")
-    salt = ("mnemonic" + passphrase).encode("utf-8")
-
-    seed = pbkdf2_hmac("sha512", mnemonic_bytes, salt, 2048, dklen=64)
-    return seed
+# Re-export mnemonic_to_seed for backward compatibility - the canonical
+# implementation now lives in jmcore.crypto
+__all__ = ["HDKey", "mnemonic_to_seed"]

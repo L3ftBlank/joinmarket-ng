@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import base64
-import hashlib
 import struct
 
 from coincurve import PrivateKey
 from jmcore.bond_calc import calculate_timelocked_fidelity_bond_value
+from jmcore.crypto import bitcoin_message_hash_bytes
 from jmwallet.wallet.service import WalletService
 from loguru import logger
 from pydantic import ConfigDict
@@ -241,21 +241,10 @@ def _bitcoin_message_hash(message: bytes) -> bytes:
 
     Format: SHA256(SHA256("\\x18Bitcoin Signed Message:\\n" + varint(len) + message))
 
-    This matches the reference implementation's signing format.
+    This delegates to jmcore.crypto.bitcoin_message_hash_bytes.
+    Kept as a private alias for backward compatibility with tests.
     """
-    prefix = b"\x18Bitcoin Signed Message:\n"
-    msg_len = len(message)
-    if msg_len < 253:
-        varint = bytes([msg_len])
-    elif msg_len < 0x10000:
-        varint = b"\xfd" + msg_len.to_bytes(2, "little")
-    elif msg_len < 0x100000000:
-        varint = b"\xfe" + msg_len.to_bytes(4, "little")
-    else:
-        varint = b"\xff" + msg_len.to_bytes(8, "little")
-
-    full_msg = prefix + varint + message
-    return hashlib.sha256(hashlib.sha256(full_msg).digest()).digest()
+    return bitcoin_message_hash_bytes(message)
 
 
 def _sign_message_bitcoin(private_key: PrivateKey, message: bytes) -> bytes:

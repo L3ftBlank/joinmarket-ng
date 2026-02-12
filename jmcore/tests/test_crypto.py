@@ -12,6 +12,7 @@ from coincurve import PrivateKey
 from jmcore.crypto import (
     KeyPair,
     base58_encode,
+    bitcoin_message_hash_bytes,
     ecdsa_sign,
     ecdsa_verify,
     generate_jm_nick,
@@ -227,17 +228,8 @@ def test_verify_fidelity_bond_proof_wrong_length():
 
 
 def _bitcoin_message_hash(message: bytes) -> bytes:
-    """Helper: compute Bitcoin message hash for testing."""
-    prefix = b"\x18Bitcoin Signed Message:\n"
-    msg_len = len(message)
-    if msg_len < 253:
-        varint = bytes([msg_len])
-    elif msg_len < 0x10000:
-        varint = b"\xfd" + msg_len.to_bytes(2, "little")
-    else:
-        varint = b"\xfe" + msg_len.to_bytes(4, "little")
-    full_msg = prefix + varint + message
-    return hashlib.sha256(hashlib.sha256(full_msg).digest()).digest()
+    """Helper: delegates to jmcore.crypto.bitcoin_message_hash_bytes."""
+    return bitcoin_message_hash_bytes(message)
 
 
 def test_verify_fidelity_bond_proof_roundtrip():

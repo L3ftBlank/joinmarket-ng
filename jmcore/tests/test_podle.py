@@ -8,12 +8,12 @@ import hashlib
 
 import pytest
 
+from jmcore.constants import SECP256K1_P
 from jmcore.podle import (
     G_COMPRESSED,
     G_UNCOMPRESSED,
     NUMS_TEST_VECTORS,
     SECP256K1_N,
-    SECP256K1_P,
     PoDLECommitment,
     PoDLEError,
     deserialize_revelation,

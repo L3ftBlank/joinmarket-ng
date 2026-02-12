@@ -34,3 +34,9 @@ DUST_THRESHOLD = 10 * BITCOIN_DUST_THRESHOLD  # 27300 satoshis
 # Can use the lower BITCOIN_DUST_THRESHOLD for direct payments
 # This allows flexibility while maintaining safety for CoinJoin outputs
 DEFAULT_DUST_THRESHOLD = DUST_THRESHOLD  # 27300 satoshis (conservative default)
+
+# secp256k1 elliptic curve constants
+# Order of the generator point G (number of points on the curve)
+SECP256K1_N = int("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141", 16)
+# Field prime (defines the finite field F_p)
+SECP256K1_P = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F

@@ -99,11 +99,13 @@ class TestDeserializeTransaction:
         tx_bytes = bytes.fromhex(self.SAMPLE_TX_HEX)
         tx = deserialize_transaction(tx_bytes)
 
-        assert tx.version == bytes.fromhex("02000000")
-        assert tx.marker_flag is True
+        assert tx.version == 2
+        assert tx.version_bytes == bytes.fromhex("02000000")
+        assert tx.has_witness is True
         assert len(tx.inputs) == 1
         assert len(tx.outputs) == 1
-        assert tx.locktime == bytes.fromhex("00000000")
+        assert tx.locktime == 0
+        assert tx.locktime_bytes == bytes.fromhex("00000000")
 
     def test_deserialize_input_fields(self):
         tx_bytes = bytes.fromhex(self.SAMPLE_TX_HEX)
@@ -112,7 +114,8 @@ class TestDeserializeTransaction:
         inp = tx.inputs[0]
         assert len(inp.txid_le) == 32
         assert inp.vout == 0
-        assert inp.sequence == b"\xff\xff\xff\xff"
+        assert inp.sequence == 0xFFFFFFFF
+        assert inp.sequence_bytes == b"\xff\xff\xff\xff"
 
     def test_deserialize_output_fields(self):
         tx_bytes = bytes.fromhex(self.SAMPLE_TX_HEX)
@@ -167,19 +170,19 @@ class TestSigning:
     def test_compute_sighash_segwit(self, test_key):
         """Test BIP143 sighash computation."""
         tx = Transaction(
-            version=bytes.fromhex("02000000"),
-            marker_flag=True,
+            version=2,
+            has_witness=True,
             inputs=[
                 TxInput(
                     txid_le=bytes(32),
                     vout=0,
-                    script=b"",
-                    sequence=b"\xff\xff\xff\xff",
+                    scriptsig=b"",
+                    sequence=0xFFFFFFFF,
                 )
             ],
             outputs=[TxOutput(value=50000, script=bytes.fromhex("0014" + "00" * 20))],
-            locktime=bytes(4),
-            raw=b"",
+            locktime=0,
+            witnesses=[],
         )
 
         pubkey = test_key.get_public_key_bytes(compressed=True)
@@ -199,19 +202,19 @@ class TestSigning:
     def test_sign_p2wpkh_input(self, test_key):
         """Test actual signing of a P2WPKH input."""
         tx = Transaction(
-            version=bytes.fromhex("02000000"),
-            marker_flag=True,
+            version=2,
+            has_witness=True,
             inputs=[
                 TxInput(
                     txid_le=bytes(32),
                     vout=0,
-                    script=b"",
-                    sequence=b"\xff\xff\xff\xff",
+                    scriptsig=b"",
+                    sequence=0xFFFFFFFF,
                 )
             ],
             outputs=[TxOutput(value=50000, script=bytes.fromhex("0014" + "00" * 20))],
-            locktime=bytes(4),
-            raw=b"",
+            locktime=0,
+            witnesses=[],
         )
 
         pubkey = test_key.get_public_key_bytes(compressed=True)
@@ -234,12 +237,12 @@ class TestSigning:
     def test_sign_invalid_input_index(self, test_key):
         """Test that invalid input index raises error."""
         tx = Transaction(
-            version=bytes.fromhex("02000000"),
-            marker_flag=True,
+            version=2,
+            has_witness=True,
             inputs=[],
             outputs=[],
-            locktime=bytes(4),
-            raw=b"",
+            locktime=0,
+            witnesses=[],
         )
 
         pubkey = test_key.get_public_key_bytes(compressed=True)
@@ -266,19 +269,19 @@ class TestSignatureVerification:
         key = master.derive("m/84'/0'/0'/0/0")
 
         tx = Transaction(
-            version=bytes.fromhex("02000000"),
-            marker_flag=True,
+            version=2,
+            has_witness=True,
             inputs=[
                 TxInput(
                     txid_le=bytes(32),
                     vout=0,
-                    script=b"",
-                    sequence=b"\xff\xff\xff\xff",
+                    scriptsig=b"",
+                    sequence=0xFFFFFFFF,
                 )
             ],
             outputs=[TxOutput(value=50000, script=bytes.fromhex("0014" + "00" * 20))],
-            locktime=bytes(4),
-            raw=b"",
+            locktime=0,
+            witnesses=[],
         )
 
         pubkey = key.get_public_key_bytes(compressed=True)
@@ -298,19 +301,19 @@ class TestSignatureVerification:
         key = master.derive("m/84'/0'/0'/0/0")
 
         tx = Transaction(
-            version=bytes.fromhex("02000000"),
-            marker_flag=True,
+            version=2,
+            has_witness=True,
             inputs=[
                 TxInput(
                     txid_le=bytes(32),
                     vout=0,
-                    script=b"",
-                    sequence=b"\xff\xff\xff\xff",
+                    scriptsig=b"",
+                    sequence=0xFFFFFFFF,
                 )
             ],
             outputs=[TxOutput(value=50000, script=bytes.fromhex("0014" + "00" * 20))],
-            locktime=bytes(4),
-            raw=b"",
+            locktime=0,
+            witnesses=[],
         )
 
         pubkey = key.get_public_key_bytes(compressed=True)
@@ -360,19 +363,19 @@ class TestP2WSHSigning:
     def test_sign_p2wsh_input(self, test_key, freeze_script):
         """Test signing a P2WSH input with a timelocked script."""
         tx = Transaction(
-            version=bytes.fromhex("02000000"),
-            marker_flag=True,
+            version=2,
+            has_witness=True,
             inputs=[
                 TxInput(
                     txid_le=bytes(32),
                     vout=0,
-                    script=b"",
-                    sequence=b"\xfe\xff\xff\xff",  # Enable locktime
+                    scriptsig=b"",
+                    sequence=0xFFFFFFFE,  # Enable locktime
                 )
             ],
             outputs=[TxOutput(value=50000, script=bytes.fromhex("0014" + "00" * 20))],
-            locktime=(1700000000).to_bytes(4, "little"),  # Must be >= CLTV locktime
-            raw=b"",
+            locktime=1700000000,  # Must be >= CLTV locktime
+            witnesses=[],
         )
 
         signature = sign_p2wsh_input(
@@ -401,19 +404,19 @@ class TestP2WSHSigning:
     def test_p2wsh_signature_deterministic(self, test_key, freeze_script):
         """Signing same P2WSH transaction twice should produce same signature."""
         tx = Transaction(
-            version=bytes.fromhex("02000000"),
-            marker_flag=True,
+            version=2,
+            has_witness=True,
             inputs=[
                 TxInput(
                     txid_le=bytes(32),
                     vout=0,
-                    script=b"",
-                    sequence=b"\xfe\xff\xff\xff",
+                    scriptsig=b"",
+                    sequence=0xFFFFFFFE,
                 )
             ],
             outputs=[TxOutput(value=50000, script=bytes.fromhex("0014" + "00" * 20))],
-            locktime=(1700000000).to_bytes(4, "little"),
-            raw=b"",
+            locktime=1700000000,
+            witnesses=[],
         )
 
         sig1 = sign_p2wsh_input(tx, 0, freeze_script, 100000, test_key.private_key)
@@ -426,19 +429,19 @@ class TestP2WSHSigning:
     def test_p2wsh_vs_p2wpkh_different_sighash(self, test_key, freeze_script):
         """P2WSH and P2WPKH signatures for same tx should differ (different script_code)."""
         tx = Transaction(
-            version=bytes.fromhex("02000000"),
-            marker_flag=True,
+            version=2,
+            has_witness=True,
             inputs=[
                 TxInput(
                     txid_le=bytes(32),
                     vout=0,
-                    script=b"",
-                    sequence=b"\xfe\xff\xff\xff",
+                    scriptsig=b"",
+                    sequence=0xFFFFFFFE,
                 )
             ],
             outputs=[TxOutput(value=50000, script=bytes.fromhex("0014" + "00" * 20))],
-            locktime=(1700000000).to_bytes(4, "little"),
-            raw=b"",
+            locktime=1700000000,
+            witnesses=[],
         )
 
         pubkey = test_key.get_public_key_bytes(compressed=True)

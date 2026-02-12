@@ -683,10 +683,10 @@ async def test_taker_podle_generation(funded_taker_wallet: WalletService):
 @pytest.mark.asyncio
 async def test_taker_tx_builder():
     """Test taker transaction builder utilities."""
+    from jmcore.bitcoin import address_to_scriptpubkey
     from taker.tx_builder import (
         TxInput,
         TxOutput,
-        address_to_scriptpubkey,
         calculate_tx_fee,
         varint,
     )
@@ -704,7 +704,7 @@ async def test_taker_tx_builder():
     assert fee == expected_vsize * 10
 
     # Test TxInput/TxOutput dataclasses
-    tx_in = TxInput(
+    tx_in = TxInput.from_hex(
         txid="a" * 64,
         vout=0,
         value=100_000,
@@ -712,9 +712,9 @@ async def test_taker_tx_builder():
     )
     assert tx_in.sequence == 0xFFFFFFFF  # Default sequence (final)
 
-    tx_out = TxOutput(
-        address="bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
-        value=50_000,
+    tx_out = TxOutput.from_address(
+        "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
+        50_000,
     )
     assert tx_out.value == 50_000
 
@@ -762,36 +762,36 @@ async def test_taker_signing_integration(funded_taker_wallet: WalletService):
     # Build CoinJoin transaction data
     tx_data = CoinJoinTxData(
         taker_inputs=[
-            TxInput(
+            TxInput.from_hex(
                 txid=taker_utxo.txid,
                 vout=taker_utxo.vout,
                 value=taker_utxo.value,
             )
         ],
-        taker_cj_output=TxOutput(
-            address="bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
-            value=cj_amount,
+        taker_cj_output=TxOutput.from_address(
+            "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
+            cj_amount,
         ),
-        taker_change_output=TxOutput(
-            address="bcrt1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qzf4jry",
-            value=taker_utxo.value - cj_amount - 5000,  # Minus fee
+        taker_change_output=TxOutput.from_address(
+            "bcrt1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qzf4jry",
+            taker_utxo.value - cj_amount - 5000,  # Minus fee
         ),
         maker_inputs={
             "maker1": [
-                TxInput(txid=u["txid"], vout=u["vout"], value=u["value"])
+                TxInput.from_hex(txid=u["txid"], vout=u["vout"], value=u["value"])
                 for u in maker_utxos
             ],
         },
         maker_cj_outputs={
-            "maker1": TxOutput(
-                address="bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
-                value=cj_amount,
+            "maker1": TxOutput.from_address(
+                "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
+                cj_amount,
             ),
         },
         maker_change_outputs={
-            "maker1": TxOutput(
-                address="bcrt1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qzf4jry",
-                value=1_200_000 - cj_amount + 1000,  # Maker gets fee
+            "maker1": TxOutput.from_address(
+                "bcrt1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qzf4jry",
+                1_200_000 - cj_amount + 1000,  # Maker gets fee
             ),
         },
         cj_amount=cj_amount,
@@ -1296,14 +1296,14 @@ async def test_signing_produces_valid_witness(funded_taker_wallet: WalletService
 
     # Create a simple test transaction
     tx = Transaction(
-        version=bytes.fromhex("02000000"),
-        marker_flag=True,
+        version=2,
+        has_witness=True,
         inputs=[
             TxInput(
                 txid_le=bytes.fromhex(utxo.txid)[::-1],  # Convert to LE
                 vout=utxo.vout,
-                script=b"",
-                sequence=b"\xff\xff\xff\xff",
+                scriptsig=b"",
+                sequence=0xFFFFFFFF,
             )
         ],
         outputs=[
@@ -1312,8 +1312,8 @@ async def test_signing_produces_valid_witness(funded_taker_wallet: WalletService
                 script=bytes.fromhex("0014" + "00" * 20),  # P2WPKH
             )
         ],
-        locktime=bytes(4),
-        raw=b"",
+        locktime=0,
+        witnesses=[],
     )
 
     # Create script code

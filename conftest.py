@@ -7,6 +7,8 @@ all tests across the project.
 
 from __future__ import annotations
 
+import os
+
 import pytest
 from pytest import StashKey
 
@@ -25,8 +27,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Store global options in config stash."""
+    """Store global options in config stash and set default environment variables."""
     config.stash[_fail_on_skip_key] = config.getoption("--fail-on-skip", default=False)
+
+    # Set default test environment variables (equivalent to pytest-env plugin).
+    # Only set if not already defined so CI/shell overrides still take precedence.
+    os.environ.setdefault("JM_ORDERBOOK_WAIT_TIME", "10.0")
 
 
 @pytest.hookimpl(tryfirst=True)

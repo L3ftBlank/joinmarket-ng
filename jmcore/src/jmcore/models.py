@@ -206,6 +206,31 @@ class OfferType(StrEnum):
     SWA_RELATIVE = "swreloffer"
 
 
+def is_absolute_offer_type(offer_type: OfferType) -> bool:
+    """Check if an offer type uses absolute fees."""
+    return offer_type in (OfferType.SW0_ABSOLUTE, OfferType.SWA_ABSOLUTE)
+
+
+def calculate_cj_fee(offer_type: OfferType, cjfee: str | int, amount: int) -> int:
+    """
+    Calculate actual CoinJoin fee based on offer type.
+
+    This is the canonical fee calculation used by both makers and takers.
+
+    Args:
+        offer_type: Absolute or relative offer type
+        cjfee: Fee value (int for absolute, string decimal for relative)
+        amount: CoinJoin amount in satoshis
+
+    Returns:
+        Actual fee in satoshis
+    """
+    if is_absolute_offer_type(offer_type):
+        return int(cjfee)
+    else:
+        return calculate_relative_fee(amount, str(cjfee))
+
+
 class Offer(BaseModel):
     counterparty: str = Field(..., min_length=1)
     oid: int = Field(..., ge=0)
@@ -243,14 +268,10 @@ class Offer(BaseModel):
         return str(v)
 
     def is_absolute_fee(self) -> bool:
-        return self.ordertype in (OfferType.SW0_ABSOLUTE, OfferType.SWA_ABSOLUTE)
+        return is_absolute_offer_type(self.ordertype)
 
     def calculate_fee(self, amount: int) -> int:
-        if self.is_absolute_fee():
-            return int(self.cjfee)
-        else:
-            # cjfee is guaranteed to be str for relative fee types by validation
-            return calculate_relative_fee(amount, str(self.cjfee))
+        return calculate_cj_fee(self.ordertype, self.cjfee, amount)
 
 
 class FidelityBond(BaseModel):
@@ -275,7 +296,7 @@ class FidelityBond(BaseModel):
 class OrderBook(BaseModel):
     offers: list[Offer] = Field(default_factory=list)
     fidelity_bonds: list[FidelityBond] = Field(default_factory=list)
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     directory_nodes: list[str] = Field(default_factory=list)
 
     def add_offers(self, offers: list[Offer], directory_node: str) -> None:

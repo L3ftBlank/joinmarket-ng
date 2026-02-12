@@ -5,16 +5,15 @@ Tests for transaction builder module.
 from __future__ import annotations
 
 import pytest
+from jmcore.bitcoin import address_to_scriptpubkey, serialize_outpoint
 
 from taker.tx_builder import (
     CoinJoinTxBuilder,
     CoinJoinTxData,
     TxInput,
     TxOutput,
-    address_to_scriptpubkey,
     build_coinjoin_tx,
     calculate_tx_fee,
-    serialize_outpoint,
     varint,
 )
 
@@ -155,13 +154,13 @@ class TestTxInput:
 
     def test_default_values(self) -> None:
         """Test default values."""
-        inp = TxInput(txid="a" * 64, vout=0, value=100000)
-        assert inp.scriptpubkey == ""
+        inp = TxInput.from_hex(txid="a" * 64, vout=0, value=100000)
+        assert inp.scriptpubkey_hex == ""
         assert inp.sequence == 0xFFFFFFFF
 
     def test_custom_sequence(self) -> None:
         """Test custom sequence number."""
-        inp = TxInput(txid="a" * 64, vout=1, value=50000, sequence=0xFFFFFFFE)
+        inp = TxInput.from_hex(txid="a" * 64, vout=1, value=50000, sequence=0xFFFFFFFE)
         assert inp.sequence == 0xFFFFFFFE
 
 
@@ -170,10 +169,9 @@ class TestTxOutput:
 
     def test_basic_output(self) -> None:
         """Test basic output creation."""
-        out = TxOutput(address="bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", value=100000)
-        assert out.address == "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"
+        out = TxOutput.from_address("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", 100000)
+        assert out.address("mainnet") == "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"
         assert out.value == 100000
-        assert out.scriptpubkey == ""
 
 
 class TestCalculateTxFee:
@@ -221,38 +219,38 @@ class TestCoinJoinTxBuilder:
         """Create sample transaction data."""
         return CoinJoinTxData(
             taker_inputs=[
-                TxInput(txid="a" * 64, vout=0, value=2_000_000),
+                TxInput.from_hex(txid="a" * 64, vout=0, value=2_000_000),
             ],
-            taker_cj_output=TxOutput(
-                address="bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
-                value=1_000_000,
+            taker_cj_output=TxOutput.from_address(
+                "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
+                1_000_000,
             ),
-            taker_change_output=TxOutput(
-                address="bcrt1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qzf4jry",
-                value=990_000,
+            taker_change_output=TxOutput.from_address(
+                "bcrt1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qzf4jry",
+                990_000,
             ),
             maker_inputs={
-                "maker1": [TxInput(txid="b" * 64, vout=1, value=1_500_000)],
-                "maker2": [TxInput(txid="c" * 64, vout=2, value=1_200_000)],
+                "maker1": [TxInput.from_hex(txid="b" * 64, vout=1, value=1_500_000)],
+                "maker2": [TxInput.from_hex(txid="c" * 64, vout=2, value=1_200_000)],
             },
             maker_cj_outputs={
-                "maker1": TxOutput(
-                    address="bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
-                    value=1_000_000,
+                "maker1": TxOutput.from_address(
+                    "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
+                    1_000_000,
                 ),
-                "maker2": TxOutput(
-                    address="bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
-                    value=1_000_000,
+                "maker2": TxOutput.from_address(
+                    "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
+                    1_000_000,
                 ),
             },
             maker_change_outputs={
-                "maker1": TxOutput(
-                    address="bcrt1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qzf4jry",
-                    value=501_000,
+                "maker1": TxOutput.from_address(
+                    "bcrt1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qzf4jry",
+                    501_000,
                 ),
-                "maker2": TxOutput(
-                    address="bcrt1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qzf4jry",
-                    value=201_000,
+                "maker2": TxOutput.from_address(
+                    "bcrt1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qzf4jry",
+                    201_000,
                 ),
             },
             cj_amount=1_000_000,
@@ -310,16 +308,18 @@ class TestCoinJoinTxBuilder:
         self, builder: CoinJoinTxBuilder, sample_tx_data: CoinJoinTxData
     ) -> None:
         """Test that parsing and re-serializing produces same result."""
+        from jmcore.bitcoin import parse_transaction_bytes
+
         tx_bytes, _ = builder.build_unsigned_tx(sample_tx_data)
 
         # Parse
-        version, marker, flag, inputs, outputs, witnesses, locktime = builder._parse_tx(tx_bytes)
+        parsed = parse_transaction_bytes(tx_bytes)
 
         # Verify counts
-        assert len(inputs) == 3
-        assert len(outputs) == 6
-        assert version == 2
-        assert locktime == 0
+        assert len(parsed.inputs) == 3
+        assert len(parsed.outputs) == 6
+        assert parsed.version == 2
+        assert parsed.locktime == 0
 
     def test_get_txid(self, builder: CoinJoinTxBuilder, sample_tx_data: CoinJoinTxData) -> None:
         """Test txid calculation."""
@@ -530,37 +530,37 @@ class TestAddSignaturesValidation:
     def two_maker_tx(self, builder: CoinJoinTxBuilder) -> tuple[bytes, dict]:
         """Build a transaction with 1 taker + 2 makers (3 inputs)."""
         tx_data = CoinJoinTxData(
-            taker_inputs=[TxInput(txid="a" * 64, vout=0, value=2_000_000)],
-            taker_cj_output=TxOutput(
-                address="bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
-                value=1_000_000,
+            taker_inputs=[TxInput.from_hex(txid="a" * 64, vout=0, value=2_000_000)],
+            taker_cj_output=TxOutput.from_address(
+                "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
+                1_000_000,
             ),
-            taker_change_output=TxOutput(
-                address="bcrt1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qzf4jry",
-                value=990_000,
+            taker_change_output=TxOutput.from_address(
+                "bcrt1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qzf4jry",
+                990_000,
             ),
             maker_inputs={
-                "maker1": [TxInput(txid="b" * 64, vout=1, value=1_500_000)],
-                "maker2": [TxInput(txid="c" * 64, vout=2, value=1_200_000)],
+                "maker1": [TxInput.from_hex(txid="b" * 64, vout=1, value=1_500_000)],
+                "maker2": [TxInput.from_hex(txid="c" * 64, vout=2, value=1_200_000)],
             },
             maker_cj_outputs={
-                "maker1": TxOutput(
-                    address="bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
-                    value=1_000_000,
+                "maker1": TxOutput.from_address(
+                    "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
+                    1_000_000,
                 ),
-                "maker2": TxOutput(
-                    address="bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
-                    value=1_000_000,
+                "maker2": TxOutput.from_address(
+                    "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
+                    1_000_000,
                 ),
             },
             maker_change_outputs={
-                "maker1": TxOutput(
-                    address="bcrt1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qzf4jry",
-                    value=501_000,
+                "maker1": TxOutput.from_address(
+                    "bcrt1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qzf4jry",
+                    501_000,
                 ),
-                "maker2": TxOutput(
-                    address="bcrt1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qzf4jry",
-                    value=201_000,
+                "maker2": TxOutput.from_address(
+                    "bcrt1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qzf4jry",
+                    201_000,
                 ),
             },
             cj_amount=1_000_000,

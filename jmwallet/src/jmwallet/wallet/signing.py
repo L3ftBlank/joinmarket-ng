@@ -1,12 +1,28 @@
 """
 Bitcoin transaction signing utilities for P2WPKH and P2WSH inputs.
+
+Uses the unified transaction models from jmcore.bitcoin.  The signing
+functions access byte-oriented properties (``txid_le``, ``sequence_bytes``,
+``version_bytes``, ``locktime_bytes``) to construct the exact BIP-143
+sighash preimage.
 """
 
 from __future__ import annotations
 
 from coincurve import PrivateKey
-from jmcore.bitcoin import create_p2wpkh_script_code, decode_varint, encode_varint, hash256
-from pydantic.dataclasses import dataclass
+from jmcore.bitcoin import (
+    ParsedTransaction,
+    TxInput,
+    TxOutput,
+    create_p2wpkh_script_code,
+    decode_varint,
+    encode_varint,
+    hash256,
+    parse_transaction_bytes,
+)
+
+# Backward-compat alias: old code imports ``Transaction`` from here.
+Transaction = ParsedTransaction
 
 # Alias for backward compatibility
 read_varint = decode_varint
@@ -16,89 +32,24 @@ class TransactionSigningError(Exception):
     pass
 
 
-@dataclass
-class TxInput:
-    txid_le: bytes
-    vout: int
-    script: bytes
-    sequence: bytes
+def deserialize_transaction(tx_bytes: bytes) -> ParsedTransaction:
+    """Deserialize a raw transaction for signing.
 
+    Delegates to :func:`jmcore.bitcoin.parse_transaction_bytes` which now
+    returns typed ``TxInput`` / ``TxOutput`` objects with the dual-accessor
+    API required by the signing code.
 
-@dataclass
-class TxOutput:
-    value: int
-    script: bytes
-
-
-@dataclass
-class Transaction:
-    version: bytes
-    marker_flag: bool
-    inputs: list[TxInput]
-    outputs: list[TxOutput]
-    locktime: bytes
-    raw: bytes
-
-
-def deserialize_transaction(tx_bytes: bytes) -> Transaction:
+    Raises:
+        TransactionSigningError: If the transaction bytes cannot be parsed.
+    """
     try:
-        offset = 0
-        version = tx_bytes[offset : offset + 4]
-        offset += 4
-
-        marker_flag = False
-        if tx_bytes[offset] == 0x00 and tx_bytes[offset + 1] == 0x01:
-            marker_flag = True
-            offset += 2
-
-        input_count, offset = decode_varint(tx_bytes, offset)
-        inputs: list[TxInput] = []
-
-        for _ in range(input_count):
-            txid_le = tx_bytes[offset : offset + 32]
-            offset += 32
-
-            vout = int.from_bytes(tx_bytes[offset : offset + 4], "little")
-            offset += 4
-
-            script_len, offset = decode_varint(tx_bytes, offset)
-            script = tx_bytes[offset : offset + script_len]
-            offset += script_len
-
-            sequence = tx_bytes[offset : offset + 4]
-            offset += 4
-
-            inputs.append(TxInput(txid_le, vout, script, sequence))
-
-        output_count, offset = decode_varint(tx_bytes, offset)
-        outputs: list[TxOutput] = []
-
-        for _ in range(output_count):
-            value = int.from_bytes(tx_bytes[offset : offset + 8], "little")
-            offset += 8
-
-            script_len, offset = decode_varint(tx_bytes, offset)
-            script = tx_bytes[offset : offset + script_len]
-            offset += script_len
-
-            outputs.append(TxOutput(value, script))
-
-        if marker_flag:
-            for _ in range(input_count):
-                stack_count, offset = decode_varint(tx_bytes, offset)
-                for _ in range(stack_count):
-                    item_len, offset = decode_varint(tx_bytes, offset)
-                    offset += item_len
-
-        locktime = tx_bytes[offset : offset + 4]
-        return Transaction(version, marker_flag, inputs, outputs, locktime, tx_bytes)
-
+        return parse_transaction_bytes(tx_bytes)
     except Exception as e:
         raise TransactionSigningError(f"Failed to parse transaction: {e}") from e
 
 
 def compute_sighash_segwit(
-    tx: Transaction,
+    tx: ParsedTransaction,
     input_index: int,
     script_code: bytes,
     value: int,
@@ -111,7 +62,7 @@ def compute_sighash_segwit(
         hash_prevouts = hash256(
             b"".join(inp.txid_le + inp.vout.to_bytes(4, "little") for inp in tx.inputs)
         )
-        hash_sequence = hash256(b"".join(inp.sequence for inp in tx.inputs))
+        hash_sequence = hash256(b"".join(inp.sequence_bytes for inp in tx.inputs))
         hash_outputs = hash256(
             b"".join(
                 out.value.to_bytes(8, "little") + encode_varint(len(out.script)) + out.script
@@ -122,7 +73,7 @@ def compute_sighash_segwit(
         target_input = tx.inputs[input_index]
 
         preimage = (
-            tx.version
+            tx.version_bytes
             + hash_prevouts
             + hash_sequence
             + target_input.txid_le
@@ -130,9 +81,9 @@ def compute_sighash_segwit(
             + encode_varint(len(script_code))
             + script_code
             + value.to_bytes(8, "little")
-            + target_input.sequence
+            + target_input.sequence_bytes
             + hash_outputs
-            + tx.locktime
+            + tx.locktime_bytes
             + sighash_type.to_bytes(4, "little")
         )
 
@@ -143,7 +94,7 @@ def compute_sighash_segwit(
 
 
 def sign_p2wpkh_input(
-    tx: Transaction,
+    tx: ParsedTransaction,
     input_index: int,
     script_code: bytes,
     value: int,
@@ -173,7 +124,7 @@ def sign_p2wpkh_input(
 
 
 def verify_p2wpkh_signature(
-    tx: Transaction,
+    tx: ParsedTransaction,
     input_index: int,
     script_code: bytes,
     value: int,
@@ -217,7 +168,7 @@ def create_witness_stack(signature: bytes, pubkey_bytes: bytes) -> list[bytes]:
 
 
 def sign_p2wsh_input(
-    tx: Transaction,
+    tx: ParsedTransaction,
     input_index: int,
     witness_script: bytes,
     value: int,
@@ -265,6 +216,7 @@ def create_p2wsh_witness_stack(signature: bytes, witness_script: bytes) -> list[
 
 # Re-export from jmcore for backward compatibility
 __all__ = [
+    "ParsedTransaction",
     "Transaction",
     "TransactionSigningError",
     "TxInput",

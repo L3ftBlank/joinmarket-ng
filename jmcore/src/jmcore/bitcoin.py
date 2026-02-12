@@ -544,35 +544,216 @@ def scriptpubkey_to_address(scriptpubkey: bytes, network: str | NetworkType = "m
 
 @dataclass
 class TxInput:
-    """Transaction input."""
+    """Unified transaction input model.
 
-    txid: str  # In RPC format (big-endian hex)
+    Stores data in canonical byte form internally.  Provides dual accessors for
+    the two dominant usage patterns in the codebase:
+
+    * **String pattern** (RPC / human-readable): ``txid`` (big-endian hex),
+      ``scriptsig_hex``, ``scriptpubkey_hex``, ``sequence`` (int).
+    * **Bytes pattern** (BIP-143 signing): ``txid_le`` (little-endian bytes),
+      ``scriptsig`` (bytes), ``sequence_bytes`` (4-byte LE bytes).
+
+    Construction helpers
+    --------------------
+    * ``TxInput.from_hex(txid_hex, vout, ...)`` — build from big-endian hex
+      txid (the format returned by Bitcoin Core RPC).
+    * Direct ``TxInput(txid_le=..., vout=..., ...)`` — build from raw LE bytes
+      (the format found inside serialised transactions).
+    """
+
+    # --- canonical fields (stored as-is) ------------------------------------
+    txid_le: bytes  # 32-byte txid in little-endian (wire / internal format)
     vout: int
-    value: int = 0
-    scriptpubkey: str = ""
-    scriptsig: str = ""
+    scriptsig: bytes = b""
     sequence: int = 0xFFFFFFFF
+    value: int = 0  # Optional: UTXO value (needed by tx builder / sighash)
+    scriptpubkey: bytes = b""  # Optional: prevout scriptPubKey
+
+    # --- string accessors (big-endian hex) ----------------------------------
+
+    @property
+    def txid(self) -> str:
+        """Transaction ID as big-endian hex (RPC / display format)."""
+        return self.txid_le[::-1].hex()
+
+    @property
+    def scriptsig_hex(self) -> str:
+        """ScriptSig as hex string."""
+        return self.scriptsig.hex()
+
+    @property
+    def scriptpubkey_hex(self) -> str:
+        """ScriptPubKey of the prevout as hex string."""
+        return self.scriptpubkey.hex()
+
+    # --- bytes accessors (for BIP-143 sighash) ------------------------------
+
+    @property
+    def sequence_bytes(self) -> bytes:
+        """Sequence as 4-byte little-endian bytes (for BIP-143 preimage)."""
+        return struct.pack("<I", self.sequence)
+
+    # --- dict-like access (backward compat during migration) ----------------
+
+    def __getitem__(self, key: str) -> Any:
+        """Allow ``inp["txid"]`` style access for backward compatibility."""
+        if key == "txid":
+            return self.txid
+        if key == "vout":
+            return self.vout
+        if key == "scriptsig":
+            return self.scriptsig_hex
+        if key == "sequence":
+            return self.sequence
+        if key == "value":
+            return self.value
+        if key == "scriptpubkey":
+            return self.scriptpubkey_hex
+        raise KeyError(key)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Allow ``inp.get("key", default)`` for backward compatibility."""
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    # --- factories ----------------------------------------------------------
+
+    @classmethod
+    def from_hex(
+        cls,
+        txid: str,
+        vout: int,
+        *,
+        scriptsig: str = "",
+        sequence: int = 0xFFFFFFFF,
+        value: int = 0,
+        scriptpubkey: str = "",
+    ) -> TxInput:
+        """Create from big-endian hex txid (the RPC / display format).
+
+        Args:
+            txid: 64-char hex string (big-endian, as returned by RPC)
+            vout: Output index
+            scriptsig: ScriptSig hex (default empty)
+            sequence: Sequence number (default 0xFFFFFFFF)
+            value: UTXO value in satoshis (optional, for tx builder)
+            scriptpubkey: Prevout scriptPubKey hex (optional)
+        """
+        return cls(
+            txid_le=bytes.fromhex(txid)[::-1],
+            vout=vout,
+            scriptsig=bytes.fromhex(scriptsig) if scriptsig else b"",
+            sequence=sequence,
+            value=value,
+            scriptpubkey=bytes.fromhex(scriptpubkey) if scriptpubkey else b"",
+        )
 
 
 @dataclass
 class TxOutput:
-    """Transaction output."""
+    """Unified transaction output model.
 
-    address: str
+    Stores ``value`` and ``script`` (scriptPubKey) in canonical byte form.
+    Provides convenience accessors for hex and address representations.
+    """
+
     value: int
-    scriptpubkey: str = ""
+    script: bytes  # scriptPubKey bytes
+
+    # --- string accessors ---------------------------------------------------
+
+    @property
+    def scriptpubkey(self) -> str:
+        """ScriptPubKey as hex string (backward compat alias)."""
+        return self.script.hex()
+
+    def address(self, network: str | NetworkType = "mainnet") -> str:
+        """Derive address from scriptPubKey.
+
+        Args:
+            network: Network type for bech32/base58 encoding.
+
+        Returns:
+            Address string.
+
+        Raises:
+            ValueError: If scriptPubKey is an unsupported type.
+        """
+        return scriptpubkey_to_address(self.script, network)
+
+    # --- dict-like access (backward compat during migration) ----------------
+
+    def __getitem__(self, key: str) -> Any:
+        """Allow ``out["value"]`` style access for backward compatibility."""
+        if key == "value":
+            return self.value
+        if key == "scriptpubkey":
+            return self.scriptpubkey
+        raise KeyError(key)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Allow ``out.get("key", default)`` for backward compatibility."""
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    # --- factories ----------------------------------------------------------
+
+    @classmethod
+    def from_address(
+        cls,
+        address: str,
+        value: int,
+    ) -> TxOutput:
+        """Create from address string (resolves to scriptPubKey).
+
+        Args:
+            address: Bitcoin address (any supported format)
+            value: Output value in satoshis
+        """
+        return cls(value=value, script=address_to_scriptpubkey(address))
+
+    @classmethod
+    def from_hex(cls, scriptpubkey: str, value: int) -> TxOutput:
+        """Create from hex scriptPubKey.
+
+        Args:
+            scriptpubkey: ScriptPubKey as hex string
+            value: Output value in satoshis
+        """
+        return cls(value=value, script=bytes.fromhex(scriptpubkey))
 
 
 @dataclass
 class ParsedTransaction:
-    """Parsed Bitcoin transaction."""
+    """Parsed Bitcoin transaction with typed inputs and outputs.
+
+    Provides dual accessors for int and bytes representations of version
+    and locktime (needed by BIP-143 sighash construction).
+    """
 
     version: int
-    inputs: list[dict[str, Any]]
-    outputs: list[dict[str, Any]]
+    inputs: list[TxInput]
+    outputs: list[TxOutput]
     witnesses: list[list[bytes]]
     locktime: int
     has_witness: bool
+
+    # --- bytes accessors (for BIP-143 sighash) ------------------------------
+
+    @property
+    def version_bytes(self) -> bytes:
+        """Version as 4-byte little-endian bytes."""
+        return struct.pack("<I", self.version)
+
+    @property
+    def locktime_bytes(self) -> bytes:
+        """Locktime as 4-byte little-endian bytes."""
+        return struct.pack("<I", self.locktime)
 
 
 # =============================================================================
@@ -600,17 +781,16 @@ def serialize_input(inp: TxInput, include_scriptsig: bool = True) -> bytes:
     Serialize a transaction input.
 
     Args:
-        inp: Transaction input
+        inp: TxInput instance
         include_scriptsig: Whether to include scriptSig
 
     Returns:
         Serialized input bytes
     """
-    result = serialize_outpoint(inp.txid, inp.vout)
+    result = inp.txid_le + struct.pack("<I", inp.vout)
 
     if include_scriptsig and inp.scriptsig:
-        scriptsig = bytes.fromhex(inp.scriptsig)
-        result += encode_varint(len(scriptsig)) + scriptsig
+        result += encode_varint(len(inp.scriptsig)) + inp.scriptsig
     else:
         result += bytes([0x00])  # Empty scriptSig
 
@@ -623,20 +803,14 @@ def serialize_output(out: TxOutput) -> bytes:
     Serialize a transaction output.
 
     Args:
-        out: Transaction output
+        out: TxOutput instance
 
     Returns:
         Serialized output bytes
     """
     result = struct.pack("<Q", out.value)
-
-    scriptpubkey = (
-        bytes.fromhex(out.scriptpubkey)
-        if out.scriptpubkey
-        else address_to_scriptpubkey(out.address)
-    )
-    result += encode_varint(len(scriptpubkey))
-    result += scriptpubkey
+    result += encode_varint(len(out.script))
+    result += out.script
     return result
 
 
@@ -650,9 +824,24 @@ def parse_transaction(tx_hex: str) -> ParsedTransaction:
         tx_hex: Transaction hex string
 
     Returns:
-        ParsedTransaction object
+        ParsedTransaction object with typed TxInput/TxOutput lists
     """
     tx_bytes = bytes.fromhex(tx_hex)
+    return parse_transaction_bytes(tx_bytes)
+
+
+def parse_transaction_bytes(tx_bytes: bytes) -> ParsedTransaction:
+    """
+    Parse a Bitcoin transaction from raw bytes.
+
+    Handles both SegWit and non-SegWit formats.
+
+    Args:
+        tx_bytes: Raw transaction bytes
+
+    Returns:
+        ParsedTransaction object with typed TxInput/TxOutput lists
+    """
     offset = 0
 
     # Version
@@ -668,29 +857,29 @@ def parse_transaction(tx_hex: str) -> ParsedTransaction:
 
     # Inputs
     input_count, offset = decode_varint(tx_bytes, offset)
-    inputs = []
+    inputs: list[TxInput] = []
     for _ in range(input_count):
-        txid = tx_bytes[offset : offset + 32][::-1].hex()
+        txid_le = tx_bytes[offset : offset + 32]
         offset += 32
         vout = struct.unpack("<I", tx_bytes[offset : offset + 4])[0]
         offset += 4
         script_len, offset = decode_varint(tx_bytes, offset)
-        scriptsig = tx_bytes[offset : offset + script_len].hex()
+        scriptsig = tx_bytes[offset : offset + script_len]
         offset += script_len
         sequence = struct.unpack("<I", tx_bytes[offset : offset + 4])[0]
         offset += 4
-        inputs.append({"txid": txid, "vout": vout, "scriptsig": scriptsig, "sequence": sequence})
+        inputs.append(TxInput(txid_le=txid_le, vout=vout, scriptsig=scriptsig, sequence=sequence))
 
     # Outputs
     output_count, offset = decode_varint(tx_bytes, offset)
-    outputs = []
+    outputs: list[TxOutput] = []
     for _ in range(output_count):
         value = struct.unpack("<Q", tx_bytes[offset : offset + 8])[0]
         offset += 8
         script_len, offset = decode_varint(tx_bytes, offset)
-        scriptpubkey = tx_bytes[offset : offset + script_len].hex()
+        script = tx_bytes[offset : offset + script_len]
         offset += script_len
-        outputs.append({"value": value, "scriptpubkey": scriptpubkey})
+        outputs.append(TxOutput(value=value, script=script))
 
     # Witnesses
     witnesses: list[list[bytes]] = []
@@ -719,8 +908,8 @@ def parse_transaction(tx_hex: str) -> ParsedTransaction:
 
 def serialize_transaction(
     version: int,
-    inputs: list[dict[str, Any]],
-    outputs: list[dict[str, Any]],
+    inputs: list[TxInput],
+    outputs: list[TxOutput],
     locktime: int,
     witnesses: list[list[bytes]] | None = None,
 ) -> bytes:
@@ -729,8 +918,8 @@ def serialize_transaction(
 
     Args:
         version: Transaction version
-        inputs: List of input dicts
-        outputs: List of output dicts
+        inputs: List of TxInput objects
+        outputs: List of TxOutput objects
         locktime: Transaction locktime
         witnesses: Optional list of witness stacks
 
@@ -747,20 +936,12 @@ def serialize_transaction(
     # Inputs
     result += encode_varint(len(inputs))
     for inp in inputs:
-        result += bytes.fromhex(inp["txid"])[::-1]
-        result += struct.pack("<I", inp["vout"])
-        scriptsig = bytes.fromhex(inp.get("scriptsig", ""))
-        result += encode_varint(len(scriptsig))
-        result += scriptsig
-        result += struct.pack("<I", inp.get("sequence", 0xFFFFFFFF))
+        result += serialize_input(inp)
 
     # Outputs
     result += encode_varint(len(outputs))
     for out in outputs:
-        result += struct.pack("<Q", out["value"])
-        scriptpubkey = bytes.fromhex(out["scriptpubkey"])
-        result += encode_varint(len(scriptpubkey))
-        result += scriptpubkey
+        result += serialize_output(out)
 
     # Witnesses
     if has_witness and witnesses:

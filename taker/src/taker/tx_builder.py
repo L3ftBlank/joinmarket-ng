@@ -10,39 +10,23 @@ Builds the unsigned CoinJoin transaction from:
 from __future__ import annotations
 
 import logging
-import struct
 from typing import Any
 
 from jmcore.bitcoin import (
-    address_to_scriptpubkey,
-    decode_varint,
+    TxInput,
+    TxOutput,
     encode_varint,
     hash256,
-    serialize_outpoint,
+    parse_transaction_bytes,
+    serialize_transaction,
 )
 from pydantic.dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class TxInput:
-    """Transaction input."""
-
-    txid: str
-    vout: int
-    value: int
-    scriptpubkey: str = ""
-    sequence: int = 0xFFFFFFFF
-
-
-@dataclass
-class TxOutput:
-    """Transaction output."""
-
-    address: str
-    value: int
-    scriptpubkey: str = ""
+# Alias for backward compatibility
+varint = encode_varint
 
 
 @dataclass
@@ -63,32 +47,6 @@ class CoinJoinTxData:
     cj_amount: int
     total_maker_fee: int
     tx_fee: int
-
-
-# Alias for backward compatibility
-varint = encode_varint
-
-
-def serialize_input(inp: TxInput) -> bytes:
-    """Serialize a transaction input for unsigned tx."""
-    result = serialize_outpoint(inp.txid, inp.vout)
-    # Empty scriptSig for unsigned SegWit
-    result += bytes([0x00])
-    result += struct.pack("<I", inp.sequence)
-    return result
-
-
-def serialize_output(out: TxOutput) -> bytes:
-    """Serialize a transaction output."""
-    result = struct.pack("<Q", out.value)
-    scriptpubkey = (
-        bytes.fromhex(out.scriptpubkey)
-        if out.scriptpubkey
-        else address_to_scriptpubkey(out.address)
-    )
-    result += encode_varint(len(scriptpubkey))
-    result += scriptpubkey
-    return result
 
 
 class CoinJoinTxBuilder:
@@ -165,32 +123,13 @@ class CoinJoinTxBuilder:
         For unsigned transactions, we use non-SegWit format (no marker/flag/witness).
         The SegWit marker (0x00, 0x01) is only added when witnesses are present.
         """
-        # Version (4 bytes, little-endian)
-        result = struct.pack("<I", 2)
-
-        # NO SegWit marker/flag for unsigned transactions!
-        # The marker is only added when there's actual witness data.
-
-        # Input count
-        result += encode_varint(len(inputs))
-
-        # Inputs
-        for inp in inputs:
-            result += serialize_input(inp)
-
-        # Output count
-        result += encode_varint(len(outputs))
-
-        # Outputs
-        for out in outputs:
-            result += serialize_output(out)
-
-        # NO witness data for unsigned transactions
-
-        # Locktime
-        result += struct.pack("<I", 0)
-
-        return result
+        return serialize_transaction(
+            version=2,
+            inputs=inputs,
+            outputs=outputs,
+            locktime=0,
+            witnesses=None,
+        )
 
     def add_signatures(
         self,
@@ -217,10 +156,10 @@ class CoinJoinTxBuilder:
         """
         from loguru import logger as log
 
-        # Parse unsigned tx
-        version, marker, flag, inputs, outputs, witnesses, locktime = self._parse_tx(tx_bytes)
+        # Parse unsigned tx using jmcore
+        parsed = parse_transaction_bytes(tx_bytes)
 
-        log.debug(f"add_signatures: {len(inputs)} inputs, {len(outputs)} outputs")
+        log.debug(f"add_signatures: {len(parsed.inputs)} inputs, {len(parsed.outputs)} outputs")
         log.debug(f"input_owners: {metadata.get('input_owners', [])}")
         log.debug(f"signatures keys: {list(signatures.keys())}")
 
@@ -230,25 +169,25 @@ class CoinJoinTxBuilder:
         unsigned_inputs: list[str] = []
 
         for i, owner in enumerate(input_owners):
-            inp = inputs[i]
-            log.debug(f"Input {i}: owner={owner}, txid={inp['txid'][:16]}..., vout={inp['vout']}")
+            inp = parsed.inputs[i]
+            log.debug(f"Input {i}: owner={owner}, txid={inp.txid[:16]}..., vout={inp.vout}")
 
             if owner in signatures:
                 # Find matching signature
                 for sig_info in signatures[owner]:
-                    if sig_info.get("txid") == inp["txid"] and sig_info.get("vout") == inp["vout"]:
+                    if sig_info.get("txid") == inp.txid and sig_info.get("vout") == inp.vout:
                         witness = sig_info.get("witness", [])
                         new_witnesses.append([bytes.fromhex(w) for w in witness])
                         log.debug(f"  -> Found matching signature, witness len={len(witness)}")
                         break
                 else:
                     unsigned_inputs.append(
-                        f"input {i} (owner={owner}, txid={inp['txid'][:16]}...:{inp['vout']})"
+                        f"input {i} (owner={owner}, txid={inp.txid[:16]}...:{inp.vout})"
                     )
                     new_witnesses.append([])
             else:
                 unsigned_inputs.append(
-                    f"input {i} (owner={owner}, txid={inp['txid'][:16]}...:{inp['vout']})"
+                    f"input {i} (owner={owner}, txid={inp.txid[:16]}...:{inp.vout})"
                 )
                 new_witnesses.append([])
 
@@ -259,152 +198,28 @@ class CoinJoinTxBuilder:
                 f"All inputs must be signed for a valid transaction."
             )
 
-        # Reserialize with witnesses
-        return self._serialize_with_witnesses(version, inputs, outputs, new_witnesses, locktime)
-
-    def _parse_tx(
-        self, tx_bytes: bytes
-    ) -> tuple[int, int, int, list[dict[str, Any]], list[dict[str, Any]], list[list[bytes]], int]:
-        """Parse a transaction from bytes.
-
-        Handles both SegWit (with marker/flag/witness) and non-SegWit formats.
-        Returns marker=0, flag=0 for non-SegWit transactions.
-        """
-        offset = 0
-
-        # Version
-        version = struct.unpack("<I", tx_bytes[offset : offset + 4])[0]
-        offset += 4
-
-        # Check for SegWit marker (0x00 followed by 0x01)
-        # Note: In non-SegWit, byte 4 is the input count which can't be 0x00
-        # (a transaction must have at least one input)
-        marker = tx_bytes[offset]
-        flag = tx_bytes[offset + 1]
-        if marker == 0x00 and flag == 0x01:
-            offset += 2
-            has_witness = True
-        else:
-            # Non-SegWit format - reset marker/flag to 0
-            marker = 0
-            flag = 0
-            has_witness = False
-
-        # Input count
-        input_count, offset = decode_varint(tx_bytes, offset)
-
-        # Inputs
-        inputs = []
-        for _ in range(input_count):
-            txid = tx_bytes[offset : offset + 32][::-1].hex()
-            offset += 32
-            vout = struct.unpack("<I", tx_bytes[offset : offset + 4])[0]
-            offset += 4
-            script_len, offset = decode_varint(tx_bytes, offset)
-            scriptsig = tx_bytes[offset : offset + script_len].hex()
-            offset += script_len
-            sequence = struct.unpack("<I", tx_bytes[offset : offset + 4])[0]
-            offset += 4
-            inputs.append(
-                {"txid": txid, "vout": vout, "scriptsig": scriptsig, "sequence": sequence}
-            )
-
-        # Output count
-        output_count, offset = decode_varint(tx_bytes, offset)
-
-        # Outputs
-        outputs = []
-        for _ in range(output_count):
-            value = struct.unpack("<Q", tx_bytes[offset : offset + 8])[0]
-            offset += 8
-            script_len, offset = decode_varint(tx_bytes, offset)
-            scriptpubkey = tx_bytes[offset : offset + script_len].hex()
-            offset += script_len
-            outputs.append({"value": value, "scriptpubkey": scriptpubkey})
-
-        # Witness data
-        witnesses: list[list[bytes]] = []
-        if has_witness:
-            for _ in range(input_count):
-                wit_count, offset = decode_varint(tx_bytes, offset)
-                wit_items = []
-                for _ in range(wit_count):
-                    item_len, offset = decode_varint(tx_bytes, offset)
-                    wit_items.append(tx_bytes[offset : offset + item_len])
-                    offset += item_len
-                witnesses.append(wit_items)
-
-        # Locktime
-        locktime = struct.unpack("<I", tx_bytes[offset : offset + 4])[0]
-
-        return version, marker, flag, inputs, outputs, witnesses, locktime
-
-    def _serialize_with_witnesses(
-        self,
-        version: int,
-        inputs: list[dict[str, Any]],
-        outputs: list[dict[str, Any]],
-        witnesses: list[list[bytes]],
-        locktime: int,
-    ) -> bytes:
-        """Serialize transaction with witness data."""
-        result = struct.pack("<I", version)
-        result += bytes([0x00, 0x01])  # SegWit marker and flag
-
-        # Inputs
-        result += encode_varint(len(inputs))
-        for inp in inputs:
-            result += bytes.fromhex(inp["txid"])[::-1]
-            result += struct.pack("<I", inp["vout"])
-            scriptsig = bytes.fromhex(inp["scriptsig"])
-            result += encode_varint(len(scriptsig))
-            result += scriptsig
-            result += struct.pack("<I", inp["sequence"])
-
-        # Outputs
-        result += encode_varint(len(outputs))
-        for out in outputs:
-            result += struct.pack("<Q", out["value"])
-            scriptpubkey = bytes.fromhex(out["scriptpubkey"])
-            result += encode_varint(len(scriptpubkey))
-            result += scriptpubkey
-
-        # Witnesses
-        for witness in witnesses:
-            result += encode_varint(len(witness))
-            for item in witness:
-                result += encode_varint(len(item))
-                result += item
-
-        result += struct.pack("<I", locktime)
-        return result
+        # Reserialize with witnesses using jmcore
+        return serialize_transaction(
+            version=parsed.version,
+            inputs=parsed.inputs,
+            outputs=parsed.outputs,
+            locktime=parsed.locktime,
+            witnesses=new_witnesses,
+        )
 
     def get_txid(self, tx_bytes: bytes) -> str:
         """Calculate txid (double SHA256 of non-witness data)."""
-        # For SegWit, txid excludes witness data
-        version, marker, flag, inputs, outputs, witnesses, locktime = self._parse_tx(tx_bytes)
+        parsed = parse_transaction_bytes(tx_bytes)
 
-        # Serialize without witness
-        data = struct.pack("<I", version)
-        data += encode_varint(len(inputs))
-        for inp in inputs:
-            data += bytes.fromhex(inp["txid"])[::-1]
-            data += struct.pack("<I", inp["vout"])
-            scriptsig = bytes.fromhex(inp["scriptsig"])
-            data += encode_varint(len(scriptsig))
-            data += scriptsig
-            data += struct.pack("<I", inp["sequence"])
+        # Serialize without witness for txid calculation
+        data = serialize_transaction(
+            version=parsed.version,
+            inputs=parsed.inputs,
+            outputs=parsed.outputs,
+            locktime=parsed.locktime,
+            witnesses=None,
+        )
 
-        data += encode_varint(len(outputs))
-        for out in outputs:
-            data += struct.pack("<Q", out["value"])
-            scriptpubkey = bytes.fromhex(out["scriptpubkey"])
-            data += encode_varint(len(scriptpubkey))
-            data += scriptpubkey
-
-        data += struct.pack("<I", locktime)
-
-        # Double SHA256
         return hash256(data)[::-1].hex()
 
 
@@ -475,7 +290,7 @@ def build_coinjoin_tx(
 
     # Build taker inputs
     taker_inputs = [
-        TxInput(
+        TxInput.from_hex(
             txid=u["txid"],
             vout=u["vout"],
             value=u["value"],
@@ -491,12 +306,12 @@ def build_coinjoin_tx(
     taker_change = taker_total_input - cj_amount - total_maker_fee - tx_fee
 
     # Taker CJ output
-    taker_cj_output = TxOutput(address=taker_cj_address, value=cj_amount)
+    taker_cj_output = TxOutput.from_address(taker_cj_address, cj_amount)
 
     # Taker change output (if any)
     taker_change_output = None
     if taker_change > dust_threshold and taker_change_address:
-        taker_change_output = TxOutput(address=taker_change_address, value=taker_change)
+        taker_change_output = TxOutput.from_address(taker_change_address, taker_change)
     elif taker_change > 0:
         logger.warning(
             f"Taker change {taker_change} sats "
@@ -516,7 +331,7 @@ def build_coinjoin_tx(
     for nick, data in maker_data.items():
         # Maker inputs
         maker_inputs[nick] = [
-            TxInput(
+            TxInput.from_hex(
                 txid=u["txid"],
                 vout=u["vout"],
                 value=u["value"],
@@ -526,7 +341,7 @@ def build_coinjoin_tx(
         ]
 
         # Maker CJ output (cj_amount)
-        maker_cj_outputs[nick] = TxOutput(address=data["cj_addr"], value=cj_amount)
+        maker_cj_outputs[nick] = TxOutput.from_address(data["cj_addr"], cj_amount)
 
         # Maker change output
         # Formula: change = inputs - cj_amount - txfee + cjfee
@@ -551,7 +366,7 @@ def build_coinjoin_tx(
                 f"change={maker_change} sats. Maker's UTXOs may have been spent."
             )
         elif maker_change > dust_threshold:
-            maker_change_outputs[nick] = TxOutput(address=data["change_addr"], value=maker_change)
+            maker_change_outputs[nick] = TxOutput.from_address(data["change_addr"], maker_change)
         else:
             logger.warning(
                 f"Maker {nick} change {maker_change} sats is below dust threshold "

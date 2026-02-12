@@ -24,6 +24,7 @@ class CryptoError(Exception):
 
 
 def base58_encode(data: bytes) -> str:
+    """Encode bytes as Base58 (no checksum)."""
     num = int.from_bytes(data, "big")
 
     result = ""
@@ -38,6 +39,30 @@ def base58_encode(data: bytes) -> str:
             break
 
     return result
+
+
+def base58check_encode(payload: bytes) -> str:
+    """Encode bytes with Base58Check (with double-SHA256 checksum)."""
+    checksum = hashlib.sha256(hashlib.sha256(payload).digest()).digest()[:4]
+    return base58_encode(payload + checksum)
+
+
+def mnemonic_to_seed(mnemonic: str, passphrase: str = "") -> bytes:
+    """
+    Convert BIP39 mnemonic to 64-byte seed using PBKDF2-HMAC-SHA512.
+
+    This follows the BIP39 specification for seed generation.
+
+    Args:
+        mnemonic: Space-separated mnemonic words
+        passphrase: Optional BIP39 passphrase (default empty)
+
+    Returns:
+        64-byte seed
+    """
+    mnemonic_bytes = mnemonic.encode("utf-8")
+    salt = ("mnemonic" + passphrase).encode("utf-8")
+    return hashlib.pbkdf2_hmac("sha512", mnemonic_bytes, salt, 2048, dklen=64)
 
 
 def generate_jm_nick(version: int = JM_VERSION) -> str:
@@ -379,22 +404,7 @@ def verify_bitcoin_message_signature(message: bytes, signature: bytes, pubkey_by
         True if signature is valid
     """
     try:
-        # Hash the message using Bitcoin message format
-        prefix = b"\x18Bitcoin Signed Message:\n"
-        msg_len = len(message)
-        if msg_len < 253:
-            varint = bytes([msg_len])
-        elif msg_len < 0x10000:
-            varint = b"\xfd" + msg_len.to_bytes(2, "little")
-        elif msg_len < 0x100000000:
-            varint = b"\xfe" + msg_len.to_bytes(4, "little")
-        else:
-            varint = b"\xff" + msg_len.to_bytes(8, "little")
-
-        full_msg = prefix + varint + message
-        msg_hash = hashlib.sha256(hashlib.sha256(full_msg).digest()).digest()
-
-        # Verify using raw ECDSA
+        msg_hash = bitcoin_message_hash_bytes(message)
         return verify_raw_ecdsa(msg_hash, signature, pubkey_bytes)
     except Exception:
         return False

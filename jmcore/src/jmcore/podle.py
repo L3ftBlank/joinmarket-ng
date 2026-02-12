@@ -32,10 +32,7 @@ from coincurve import PublicKey
 from loguru import logger
 from pydantic.dataclasses import dataclass
 
-# secp256k1 curve order
-SECP256K1_N = int("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141", 16)
-# secp256k1 field prime
-SECP256K1_P = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
+from jmcore.constants import SECP256K1_N
 
 # Generator point G (compressed)
 # Standard secp256k1 generator point as defined in SEC2 v2.0 section 2.4.1

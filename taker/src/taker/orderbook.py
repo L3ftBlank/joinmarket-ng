@@ -19,6 +19,7 @@ from jmcore.bitcoin import (
     calculate_sweep_amount,
 )
 from jmcore.models import Offer, OfferType
+from jmcore.models import calculate_cj_fee as _calculate_cj_fee_raw
 from jmcore.paths import get_ignored_makers_path
 from jmcore.protocol import get_nick_version
 from loguru import logger
@@ -30,6 +31,9 @@ def calculate_cj_fee(offer: Offer, cj_amount: int) -> int:
     """
     Calculate the CoinJoin fee for a specific offer and amount.
 
+    Convenience wrapper around jmcore.models.calculate_cj_fee that accepts
+    an Offer object directly.
+
     Args:
         offer: The maker's offer
         cj_amount: The CoinJoin amount in satoshis
@@ -37,10 +41,7 @@ def calculate_cj_fee(offer: Offer, cj_amount: int) -> int:
     Returns:
         Fee in satoshis
     """
-    if offer.ordertype in (OfferType.SW0_ABSOLUTE, OfferType.SWA_ABSOLUTE):
-        return int(offer.cjfee)
-    else:
-        return calculate_relative_fee(cj_amount, str(offer.cjfee))
+    return _calculate_cj_fee_raw(offer.ordertype, offer.cjfee, cj_amount)
 
 
 def is_fee_within_limits(offer: Offer, cj_amount: int, max_cj_fee: MaxCjFee) -> bool:

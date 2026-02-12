@@ -18,6 +18,7 @@ from jmcore.bitcoin import (
     hash160,
     hash256,
     parse_transaction,
+    parse_transaction_bytes,
     pubkey_to_p2wpkh_address,
     pubkey_to_p2wpkh_script,
     script_to_p2wsh_address,
@@ -46,6 +47,8 @@ from jmcore.constants import (
     BITCOIN_DUST_THRESHOLD,
     DEFAULT_DUST_THRESHOLD,
     DUST_THRESHOLD,
+    SECP256K1_N,
+    SECP256K1_P,
     STANDARD_DUST_LIMIT,
 )
 from jmcore.deduplication import (
@@ -65,6 +68,7 @@ from jmcore.models import (
     DIRECTORY_NODES_TESTNET,
     MessageEnvelope,
     PeerInfo,
+    calculate_cj_fee,
     get_default_directory_nodes,
 )
 from jmcore.nick_tracker import NickTracker
@@ -170,6 +174,8 @@ __all__ = [
     "BITCOIN_DUST_THRESHOLD",
     "DEFAULT_DUST_THRESHOLD",
     "DUST_THRESHOLD",
+    "SECP256K1_N",
+    "SECP256K1_P",
     "STANDARD_DUST_LIMIT",
     # Deduplication
     "DeduplicationStats",
@@ -202,6 +208,7 @@ __all__ = [
     # Models
     "MessageEnvelope",
     "PeerInfo",
+    "calculate_cj_fee",
     # Nick tracking
     "NickTracker",
     # Notifications
@@ -283,6 +290,7 @@ __all__ = [
     "hash160",
     "hash256",
     "parse_transaction",
+    "parse_transaction_bytes",
     "pubkey_to_p2wpkh_address",
     "pubkey_to_p2wpkh_script",
     "script_to_p2wsh_address",

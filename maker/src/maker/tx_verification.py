@@ -19,12 +19,12 @@ from __future__ import annotations
 from typing import Any
 
 from jmcore.bitcoin import (
-    calculate_relative_fee,
     decode_varint,
     get_hrp,
     scriptpubkey_to_address,
 )
 from jmcore.models import NetworkType, OfferType
+from jmcore.models import calculate_cj_fee as calculate_cj_fee
 from jmwallet.wallet.models import UTXOInfo
 from loguru import logger
 
@@ -37,25 +37,6 @@ class TransactionVerificationError(Exception):
     """Raised when transaction verification fails"""
 
     pass
-
-
-def calculate_cj_fee(offer_type: OfferType, cjfee: str | int, amount: int) -> int:
-    """
-    Calculate actual CoinJoin fee based on offer type.
-
-    Args:
-        offer_type: Absolute or relative offer type
-        cjfee: Fee (int for absolute, string decimal for relative)
-        amount: CoinJoin amount in satoshis
-
-    Returns:
-        Actual fee in satoshis
-    """
-    if offer_type in (OfferType.SW0_ABSOLUTE, OfferType.SWA_ABSOLUTE):
-        return int(cjfee)
-    else:
-        # cjfee is guaranteed to be str for relative fee types
-        return calculate_relative_fee(amount, str(cjfee))
 
 
 def verify_unsigned_transaction(

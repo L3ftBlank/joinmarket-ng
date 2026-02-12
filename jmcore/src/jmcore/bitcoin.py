@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import struct
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 import base58
@@ -27,7 +27,7 @@ from pydantic.dataclasses import dataclass
 from jmcore.constants import SATS_PER_BTC
 
 
-class NetworkType(str, Enum):
+class NetworkType(StrEnum):
     """Bitcoin network types."""
 
     MAINNET = "mainnet"

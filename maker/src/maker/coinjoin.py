@@ -13,7 +13,7 @@ Manages the maker side of the CoinJoin protocol:
 from __future__ import annotations
 
 import time
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from jmcore.encryption import CryptoSession
@@ -37,7 +37,7 @@ from maker.podle import parse_podle_revelation, verify_podle
 from maker.tx_verification import verify_unsigned_transaction
 
 
-class CoinJoinState(str, Enum):
+class CoinJoinState(StrEnum):
     """CoinJoin session states"""
 
     IDLE = "idle"

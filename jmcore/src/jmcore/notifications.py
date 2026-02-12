@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -47,7 +47,7 @@ if TYPE_CHECKING:
     from jmcore.settings import JoinMarketSettings
 
 
-class NotificationPriority(str, Enum):
+class NotificationPriority(StrEnum):
     """Notification priority levels (maps to Apprise NotifyType)."""
 
     INFO = "info"

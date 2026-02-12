@@ -4,14 +4,14 @@ Configuration for JoinMarket Taker.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from jmcore.config import WalletConfig
 from jmcore.models import OfferType
 from pydantic import BaseModel, Field, SecretStr, model_validator
 
 
-class BroadcastPolicy(str, Enum):
+class BroadcastPolicy(StrEnum):
     """
     Policy for how to broadcast the final CoinJoin transaction.
 

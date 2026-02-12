@@ -5,7 +5,7 @@ Maker bot configuration.
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
-from enum import Enum
+from enum import StrEnum
 
 from jmcore.config import TorControlConfig, WalletConfig
 from jmcore.constants import DUST_THRESHOLD
@@ -103,7 +103,7 @@ class OfferConfig(BaseModel):
     model_config = {"frozen": False}
 
 
-class MergeAlgorithm(str, Enum):
+class MergeAlgorithm(StrEnum):
     """
     UTXO selection algorithm for makers.
 

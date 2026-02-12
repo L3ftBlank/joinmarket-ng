@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from jmcore.bitcoin import calculate_tx_vsize, get_txid
@@ -771,7 +771,7 @@ class MultiDirectoryClient:
         return responses.get(from_nick)
 
 
-class TakerState(str, Enum):
+class TakerState(StrEnum):
     """Taker protocol states."""
 
     IDLE = "idle"

@@ -5,7 +5,7 @@ Core data models using Pydantic for validation and serialization.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from functools import cached_property
 from typing import Any
 
@@ -71,14 +71,14 @@ def get_default_directory_nodes(network: NetworkType) -> list[str]:
     return []
 
 
-class PeerStatus(str, Enum):
+class PeerStatus(StrEnum):
     UNCONNECTED = "unconnected"
     CONNECTED = "connected"
     HANDSHAKED = "handshaked"
     DISCONNECTED = "disconnected"
 
 
-class NetworkType(str, Enum):
+class NetworkType(StrEnum):
     MAINNET = "mainnet"
     TESTNET = "testnet"
     SIGNET = "signet"
@@ -199,7 +199,7 @@ class HandshakeResponse(BaseModel):
     motd: str = "JoinMarket Directory Server"
 
 
-class OfferType(str, Enum):
+class OfferType(StrEnum):
     SW0_ABSOLUTE = "sw0absoffer"
     SW0_RELATIVE = "sw0reloffer"
     SWA_ABSOLUTE = "swabsoffer"

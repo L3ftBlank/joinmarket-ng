@@ -2,14 +2,25 @@ site_name: JoinMarket NG
 theme:
   name: material
   features:
-    - content.code.copy # <--- Das ist der EINZIGE Weg, den Button zu aktivieren
+    - content.code.copy
+    - navigation.expand
 markdown_extensions:
   - pymdownx.highlight
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format  
   - pymdownx.inlinehilite
+
+
 nav:
   - Home: index.md
   - Installation: install.md
+  - Modules:
+    - Wallet: README_jmwallet.md
+    - Taker: README_taker.md
+    - Maker: README_maker.md
   - Protocol Documentation:
     - Concepts: DOCS01-Concepts.md
     - JoinMarket-NG: DOCS02-JoinMarket-NG.md
@@ -22,11 +33,8 @@ nav:
     - Development: DOCS09-Development.md
     - Best Practices: DOCS10-Best Practices.md
     - References: DOCS11-References.md
-
-  - Module:
-    - Wallet: README_jmwallet.md
     - Scripts: README_scripts.md
-    - Maker: README_maker.md
-    - Taker: README_taker.md
+
+  - Helpful Tools:
     - Directory Server: README_directory_server.md
-    - OrderbookWatcher: README_orderbook_watcher.md
+    - Orderbook Watcher: README_orderbook_watcher.md

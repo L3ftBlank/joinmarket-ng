@@ -2,6 +2,11 @@
 
 ### System Overview
 
+
+
+
+
+
 ```
                     ┌──────────────────────┐
                     │   Directory Server   │
@@ -23,6 +28,27 @@
                     │  Bitcoin Core / SPV  │
                     │  (Neutrino Option)   │
                     └──────────────────────┘
+```
+
+
+
+``` mermaid
+flowchart TD
+    DS["Directory Server<br/>(Message Routing)"]
+    
+    DS --> M1["Maker 1<br/>Wallet"]
+    DS --> M2["Maker 2<br/>Wallet"]
+    DS --> TK["Taker<br/>Wallet"]
+    
+    M1 --> BC["Bitcoin Core / SPV<br/>(Neutrino Option)"]
+    M2 --> BC
+    TK --> BC
+    
+    style DS fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    style M1 fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    style M2 fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    style TK fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+    style BC fill:#fff3e0,stroke:#e65100,stroke-width:2px
 ```
 
 ### Components

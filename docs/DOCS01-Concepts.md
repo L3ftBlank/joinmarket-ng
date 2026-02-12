@@ -1,8 +1,3 @@
----
-title: Concepts
-description: Was ist CoinJoin und JoinMarket
-icon: material/help-circle
----
 ## Concepts
 
 ### What is CoinJoin

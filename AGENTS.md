@@ -53,6 +53,7 @@ Tests use pytest markers to organize by Docker profile:
 - Don't break backwards compatibility even with the reference implementation. Use feature flags if needed.
 - Don't use real mainnet transactions or addresses in tests or examples for privacy reasons.
 - Use external reputable libraries when appropriate, avoid reinventing the wheel.
+- If you add or change settings, update config.toml.template
 - Finally, update CHANGELOG.md with a summary of your changes.
 
 ## Project Structure

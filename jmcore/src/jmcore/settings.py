@@ -282,7 +282,7 @@ class NotificationSettings(BaseModel):
     notify_rate_limit: bool = Field(default=True, description="Notify on rate limit bans")
     notify_startup: bool = Field(default=True, description="Notify on component startup")
     notify_summary: bool = Field(
-        default=False,
+        default=True,
         description="Send periodic summary notifications with CoinJoin stats",
     )
     summary_interval_hours: int = Field(

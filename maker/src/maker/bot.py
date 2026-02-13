@@ -608,6 +608,8 @@ class MakerBot(BackgroundTasksMixin, ProtocolHandlersMixin, DirectConnectionMixi
             if notifier.config.notify_summary:
                 summary_task = asyncio.create_task(self._periodic_summary())
                 self.listen_tasks.append(summary_task)
+            else:
+                logger.info("Periodic summary notifications disabled (notify_summary=false)")
 
             # Wait for all listening tasks to complete
             await asyncio.gather(*self.listen_tasks, return_exceptions=True)

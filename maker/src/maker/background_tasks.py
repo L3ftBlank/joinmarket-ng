@@ -624,13 +624,23 @@ class BackgroundTasksMixin:
                 if not self.running:
                     break
 
+                logger.debug(f"Collecting {period_label.lower()} summary stats...")
                 stats = get_history_stats_for_period(
                     hours=interval_hours,
                     role_filter="maker",
                     data_dir=self.config.data_dir,
                 )
 
-                await notifier.notify_summary(
+                logger.info(
+                    f"{period_label} summary: "
+                    f"coinjoins={int(stats['total_coinjoins'])}, "
+                    f"successful={int(stats['successful_coinjoins'])}, "
+                    f"failed={int(stats['failed_coinjoins'])}, "
+                    f"fees={int(stats['total_fees_earned'])} sats, "
+                    f"volume={int(stats['total_volume'])} sats"
+                )
+
+                sent = await notifier.notify_summary(
                     period_label=period_label,
                     total_requests=int(stats["total_coinjoins"]),
                     successful=int(stats["successful_coinjoins"]),
@@ -638,6 +648,11 @@ class BackgroundTasksMixin:
                     total_earnings=int(stats["total_fees_earned"]),
                     total_volume=int(stats["total_volume"]),
                 )
+
+                if sent:
+                    logger.debug(f"{period_label} summary notification sent")
+                else:
+                    logger.warning(f"{period_label} summary notification failed to send")
 
             except asyncio.CancelledError:
                 logger.info("Periodic summary task cancelled")

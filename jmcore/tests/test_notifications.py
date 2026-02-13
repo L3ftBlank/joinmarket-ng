@@ -1118,6 +1118,44 @@ class TestConvertSettingsToNotificationConfig:
         assert config.retry_max_attempts == 3
         assert config.retry_base_delay == 5.0
 
+    def test_defaults_match_between_settings_and_config(self) -> None:
+        """Guard against default value drift between NotificationSettings and NotificationConfig.
+
+        NotificationSettings (in settings.py) is the canonical source of defaults.
+        NotificationConfig (in notifications.py) must have matching defaults for all
+        shared fields. A mismatch means the runtime behavior (which goes through
+        settings) will differ from direct NotificationConfig() construction (used in tests),
+        leading to subtle bugs like notify_summary silently being disabled.
+        """
+        from jmcore.settings import NotificationSettings
+
+        settings_fields = NotificationSettings.model_fields
+        config_fields = NotificationConfig.model_fields
+
+        # Fields that exist in NotificationConfig but NOT in NotificationSettings
+        # (they come from other sources like TorSettings)
+        config_only_fields = {"tor_socks_host", "tor_socks_port"}
+
+        shared_fields = set(settings_fields) & set(config_fields) - config_only_fields
+
+        mismatches = []
+        for field_name in sorted(shared_fields):
+            settings_default = settings_fields[field_name].default
+            config_default = config_fields[field_name].default
+
+            if settings_default != config_default:
+                mismatches.append(
+                    f"  {field_name}: "
+                    f"NotificationSettings={settings_default!r}, "
+                    f"NotificationConfig={config_default!r}"
+                )
+
+        assert not mismatches, (
+            "Default value mismatch between NotificationSettings and NotificationConfig.\n"
+            "NotificationSettings (settings.py) is the canonical source of defaults.\n"
+            "Update NotificationConfig to match:\n" + "\n".join(mismatches)
+        )
+
 
 class TestNotificationRetry:
     """Tests for notification retry with exponential backoff."""

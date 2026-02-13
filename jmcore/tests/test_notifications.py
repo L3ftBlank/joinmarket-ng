@@ -4,6 +4,7 @@ Tests for the notification module.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -1081,3 +1082,401 @@ class TestConvertSettingsToNotificationConfig:
 
         assert config.notify_summary is True
         assert config.summary_interval_hours == 168
+
+    def test_convert_retry_settings(self) -> None:
+        """Test that retry settings are converted correctly."""
+        from jmcore.settings import JoinMarketSettings, NotificationSettings
+
+        settings = JoinMarketSettings(
+            notifications=NotificationSettings(
+                urls=["gotify://host/token"],
+                retry_enabled=False,
+                retry_max_attempts=5,
+                retry_base_delay=10.0,
+            )
+        )
+
+        config = convert_settings_to_notification_config(settings)
+
+        assert config.retry_enabled is False
+        assert config.retry_max_attempts == 5
+        assert config.retry_base_delay == 10.0
+
+    def test_convert_retry_settings_defaults(self) -> None:
+        """Test that retry settings use sensible defaults."""
+        from jmcore.settings import JoinMarketSettings, NotificationSettings
+
+        settings = JoinMarketSettings(
+            notifications=NotificationSettings(
+                urls=["gotify://host/token"],
+            )
+        )
+
+        config = convert_settings_to_notification_config(settings)
+
+        assert config.retry_enabled is True
+        assert config.retry_max_attempts == 3
+        assert config.retry_base_delay == 5.0
+
+
+class TestNotificationRetry:
+    """Tests for notification retry with exponential backoff."""
+
+    def test_retry_config_defaults(self) -> None:
+        """Test default retry configuration values."""
+        config = NotificationConfig()
+
+        assert config.retry_enabled is True
+        assert config.retry_max_attempts == 3
+        assert config.retry_base_delay == 5.0
+
+    def test_retry_config_validation(self) -> None:
+        """Test retry config validation bounds."""
+        # Valid bounds
+        config = NotificationConfig(retry_max_attempts=1, retry_base_delay=1.0)
+        assert config.retry_max_attempts == 1
+        assert config.retry_base_delay == 1.0
+
+        config = NotificationConfig(retry_max_attempts=10, retry_base_delay=60.0)
+        assert config.retry_max_attempts == 10
+        assert config.retry_base_delay == 60.0
+
+        # Out of bounds
+        with pytest.raises(ValueError):
+            NotificationConfig(retry_max_attempts=0)
+
+        with pytest.raises(ValueError):
+            NotificationConfig(retry_max_attempts=11)
+
+        with pytest.raises(ValueError):
+            NotificationConfig(retry_base_delay=0.5)
+
+        with pytest.raises(ValueError):
+            NotificationConfig(retry_base_delay=61.0)
+
+    @pytest.mark.asyncio
+    async def test_retry_scheduled_on_failure(self) -> None:
+        """Test that a background retry task is spawned when _send fails."""
+        config = NotificationConfig(
+            enabled=True,
+            urls=["gotify://host/token"],
+            retry_enabled=True,
+            retry_max_attempts=2,
+            retry_base_delay=1.0,
+        )
+        notifier = Notifier(config)
+
+        # Pre-initialize so _ensure_initialized passes
+        notifier._initialized = True
+        notifier._apprise = MagicMock()
+
+        # First call fails, second call (retry) succeeds
+        notifier._try_send = AsyncMock(side_effect=[False, True])
+
+        with patch("jmcore.notifications.asyncio.sleep", new_callable=AsyncMock):
+            result = await notifier._send("Test", "Body")
+
+            # First attempt returned False
+            assert result is False
+
+            # A retry task should have been scheduled
+            assert len(notifier._retry_tasks) == 1
+
+            # Wait for retry tasks to complete
+            await asyncio.gather(*notifier._retry_tasks)
+
+        # Retry should have called _try_send a second time
+        assert notifier._try_send.call_count == 2
+
+        # Task should be cleaned up after completion
+        assert len(notifier._retry_tasks) == 0
+
+    @pytest.mark.asyncio
+    async def test_retry_not_scheduled_when_disabled(self) -> None:
+        """Test that no retry is scheduled when retry_enabled is False."""
+        config = NotificationConfig(
+            enabled=True,
+            urls=["gotify://host/token"],
+            retry_enabled=False,
+        )
+        notifier = Notifier(config)
+
+        notifier._initialized = True
+        notifier._apprise = MagicMock()
+        notifier._try_send = AsyncMock(return_value=False)
+
+        result = await notifier._send("Test", "Body")
+
+        assert result is False
+        assert len(notifier._retry_tasks) == 0
+
+    @pytest.mark.asyncio
+    async def test_no_retry_when_notifier_disabled(self) -> None:
+        """Test that no retry is scheduled when notifications are disabled entirely."""
+        config = NotificationConfig(
+            enabled=False,
+            retry_enabled=True,
+        )
+        notifier = Notifier(config)
+
+        result = await notifier._send("Test", "Body")
+
+        assert result is False
+        assert len(notifier._retry_tasks) == 0
+
+    @pytest.mark.asyncio
+    async def test_no_retry_when_no_urls(self) -> None:
+        """Test that no retry is scheduled when no URLs are configured."""
+        config = NotificationConfig(
+            enabled=True,
+            urls=[],
+            retry_enabled=True,
+        )
+        notifier = Notifier(config)
+
+        result = await notifier._send("Test", "Body")
+
+        assert result is False
+        assert len(notifier._retry_tasks) == 0
+
+    @pytest.mark.asyncio
+    async def test_no_retry_on_success(self) -> None:
+        """Test that no retry is scheduled when the first send succeeds."""
+        config = NotificationConfig(
+            enabled=True,
+            urls=["gotify://host/token"],
+            retry_enabled=True,
+        )
+        notifier = Notifier(config)
+
+        notifier._initialized = True
+        notifier._apprise = MagicMock()
+        notifier._try_send = AsyncMock(return_value=True)
+
+        result = await notifier._send("Test", "Body")
+
+        assert result is True
+        assert len(notifier._retry_tasks) == 0
+
+    @pytest.mark.asyncio
+    async def test_retry_gives_up_after_max_attempts(self) -> None:
+        """Test that retry gives up after max_attempts."""
+        config = NotificationConfig(
+            enabled=True,
+            urls=["gotify://host/token"],
+            retry_enabled=True,
+            retry_max_attempts=2,
+            retry_base_delay=1.0,
+        )
+        notifier = Notifier(config)
+
+        notifier._initialized = True
+        notifier._apprise = MagicMock()
+        # All attempts fail
+        notifier._try_send = AsyncMock(return_value=False)
+
+        with patch("jmcore.notifications.asyncio.sleep", new_callable=AsyncMock):
+            result = await notifier._send("Test", "Body")
+            assert result is False
+
+            # Wait for all retries to complete
+            tasks = list(notifier._retry_tasks)
+            await asyncio.gather(*tasks)
+
+        # Initial call + 2 retries = 3 calls total
+        assert notifier._try_send.call_count == 3
+        assert len(notifier._retry_tasks) == 0
+
+    @pytest.mark.asyncio
+    async def test_retry_succeeds_on_second_attempt(self) -> None:
+        """Test that retry stops after a successful attempt."""
+        config = NotificationConfig(
+            enabled=True,
+            urls=["gotify://host/token"],
+            retry_enabled=True,
+            retry_max_attempts=3,
+            retry_base_delay=1.0,
+        )
+        notifier = Notifier(config)
+
+        notifier._initialized = True
+        notifier._apprise = MagicMock()
+        # First call (from _send) fails, first retry fails, second retry succeeds
+        notifier._try_send = AsyncMock(side_effect=[False, False, True])
+
+        with patch("jmcore.notifications.asyncio.sleep", new_callable=AsyncMock):
+            await notifier._send("Test", "Body")
+
+            # Wait for retries to complete
+            tasks = list(notifier._retry_tasks)
+            await asyncio.gather(*tasks)
+
+        # Initial + 2 retries (stopped early because 2nd retry succeeded)
+        assert notifier._try_send.call_count == 3
+        assert len(notifier._retry_tasks) == 0
+
+    @pytest.mark.asyncio
+    async def test_retry_exponential_backoff(self) -> None:
+        """Test that retry uses exponential backoff (delay doubles each attempt)."""
+        config = NotificationConfig(
+            enabled=True,
+            urls=["gotify://host/token"],
+            retry_enabled=True,
+            retry_max_attempts=3,
+            retry_base_delay=5.0,
+        )
+        notifier = Notifier(config)
+
+        notifier._initialized = True
+        notifier._apprise = MagicMock()
+        notifier._try_send = AsyncMock(return_value=False)
+
+        sleep_delays: list[float] = []
+
+        async def mock_sleep(delay: float) -> None:
+            sleep_delays.append(delay)
+
+        with patch("jmcore.notifications.asyncio.sleep", side_effect=mock_sleep):
+            await notifier._send("Test", "Body")
+            # Wait for background task
+            tasks = list(notifier._retry_tasks)
+            await asyncio.gather(*tasks)
+
+        # Should have 3 delays: base, base*2, base*4
+        assert len(sleep_delays) == 3
+        assert sleep_delays[0] == pytest.approx(5.0)
+        assert sleep_delays[1] == pytest.approx(10.0)
+        assert sleep_delays[2] == pytest.approx(20.0)
+
+    @pytest.mark.asyncio
+    async def test_retry_exception_does_not_crash(self) -> None:
+        """Test that exceptions during retry don't crash the background task."""
+        config = NotificationConfig(
+            enabled=True,
+            urls=["gotify://host/token"],
+            retry_enabled=True,
+            retry_max_attempts=2,
+            retry_base_delay=1.0,
+        )
+        notifier = Notifier(config)
+
+        notifier._initialized = True
+        notifier._apprise = MagicMock()
+        # First call fails normally, retries raise exceptions
+        notifier._try_send = AsyncMock(
+            side_effect=[False, ConnectionError("Tor circuit failed"), True]
+        )
+
+        with patch("jmcore.notifications.asyncio.sleep", new_callable=AsyncMock):
+            await notifier._send("Test", "Body")
+
+            # Wait for retries
+            tasks = list(notifier._retry_tasks)
+            await asyncio.gather(*tasks)
+
+        # All 3 calls should have been made (exception didn't stop retries)
+        assert notifier._try_send.call_count == 3
+        assert len(notifier._retry_tasks) == 0
+
+    @pytest.mark.asyncio
+    async def test_retry_task_cleanup_on_completion(self) -> None:
+        """Test that retry tasks are removed from _retry_tasks set after completion."""
+        config = NotificationConfig(
+            enabled=True,
+            urls=["gotify://host/token"],
+            retry_enabled=True,
+            retry_max_attempts=1,
+            retry_base_delay=1.0,
+        )
+        notifier = Notifier(config)
+
+        notifier._initialized = True
+        notifier._apprise = MagicMock()
+        notifier._try_send = AsyncMock(return_value=False)
+
+        with patch("jmcore.notifications.asyncio.sleep", new_callable=AsyncMock):
+            await notifier._send("Test1", "Body")
+            await notifier._send("Test2", "Body")
+
+            # Two retry tasks should be pending
+            assert len(notifier._retry_tasks) == 2
+
+            # Wait for retries to complete
+            tasks = list(notifier._retry_tasks)
+            await asyncio.gather(*tasks)
+
+        # All tasks should be cleaned up
+        assert len(notifier._retry_tasks) == 0
+
+    @pytest.mark.asyncio
+    async def test_retry_does_not_block_caller(self) -> None:
+        """Test that _send returns immediately even when retry is pending."""
+        import time
+
+        config = NotificationConfig(
+            enabled=True,
+            urls=["gotify://host/token"],
+            retry_enabled=True,
+            retry_max_attempts=3,
+            retry_base_delay=1.0,  # Long delay
+        )
+        notifier = Notifier(config)
+
+        notifier._initialized = True
+        notifier._apprise = MagicMock()
+        notifier._try_send = AsyncMock(return_value=False)
+
+        start = time.monotonic()
+        result = await notifier._send("Test", "Body")
+        elapsed = time.monotonic() - start
+
+        # _send should return almost immediately (well under the retry delay)
+        assert result is False
+        assert elapsed < 0.5  # Much less than the 1.0s retry delay
+        assert len(notifier._retry_tasks) == 1
+
+        # Clean up: cancel the pending task
+        for task in notifier._retry_tasks:
+            task.cancel()
+
+    @pytest.mark.asyncio
+    async def test_retry_with_real_apprise_mock(self) -> None:
+        """Test retry integrates correctly with the full _send/_try_send flow."""
+        config = NotificationConfig(
+            enabled=True,
+            urls=["gotify://host/token"],
+            retry_enabled=True,
+            retry_max_attempts=2,
+            retry_base_delay=1.0,
+        )
+        notifier = Notifier(config)
+
+        # Mock the apprise module with failing then succeeding sends
+        mock_apprise_instance = MagicMock()
+        mock_apprise_instance.add.return_value = True
+        mock_apprise_instance.__len__ = lambda self: 1
+        mock_apprise_instance.async_notify = AsyncMock(side_effect=[False, False, True])
+
+        mock_apprise_module = MagicMock()
+        mock_apprise_module.Apprise.return_value = mock_apprise_instance
+        mock_apprise_module.NotifyType.INFO = "info"
+
+        with (
+            patch.dict("sys.modules", {"apprise": mock_apprise_module}),
+            patch("jmcore.notifications.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            notifier._initialized = False
+            notifier._apprise = None
+
+            result = await notifier._send("Test Event", "Test body")
+
+            # First attempt failed
+            assert result is False
+
+            # Wait for retries
+            tasks = list(notifier._retry_tasks)
+            await asyncio.gather(*tasks)
+
+        # 1 initial + 2 retries = 3 calls, last one succeeded
+        assert mock_apprise_instance.async_notify.call_count == 3
+        assert len(notifier._retry_tasks) == 0

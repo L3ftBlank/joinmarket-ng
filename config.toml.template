@@ -146,6 +146,11 @@
 # notify_summary = true  # Send periodic CoinJoin stats summary (set to false to disable)
 # summary_interval_hours = 24  # Interval: 24 (daily), 168 (weekly), or custom (1-168)
 
+# Retry failed notifications in the background (recommended for Tor)
+# retry_enabled = true       # Retry with exponential backoff (default: true)
+# retry_max_attempts = 3     # Max retries per notification (1-10)
+# retry_base_delay = 5.0     # Base delay in seconds, doubles each retry (1-60)
+
 # ============================================================================
 # Maker Settings (Yield Generator)
 # ============================================================================

@@ -283,6 +283,29 @@ class NotificationSettings(BaseModel):
             "Common values: 24 (daily), 168 (weekly)"
         ),
     )
+    # Retry settings
+    retry_enabled: bool = Field(
+        default=True,
+        description=(
+            "Retry failed notifications in the background with exponential backoff. "
+            "Recommended when routing through Tor where transient failures are common."
+        ),
+    )
+    retry_max_attempts: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Maximum number of retry attempts for a failed notification (1-10)",
+    )
+    retry_base_delay: float = Field(
+        default=5.0,
+        ge=1.0,
+        le=60.0,
+        description=(
+            "Base delay in seconds before the first retry (1-60). "
+            "Subsequent retries double this delay (exponential backoff)."
+        ),
+    )
 
 
 class MakerSettings(BaseModel):

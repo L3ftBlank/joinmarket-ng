@@ -31,6 +31,9 @@ The module is designed to be:
 2. Async-first: All notifications are sent asynchronously
 3. Privacy-aware: Sensitive data (txids, amounts) can be optionally excluded
 4. Configurable: Per-event type enable/disable through environment variables
+5. Resilient: Failed notifications are retried in the background with exponential
+   backoff (configurable, enabled by default). This is critical for Tor-routed
+   notifications where transient circuit failures are common.
 """
 
 from __future__ import annotations
@@ -109,6 +112,30 @@ class NotificationConfig(BaseModel):
         ge=1,
         le=65535,
         description="Tor SOCKS5 proxy port (only used if use_tor=True)",
+    )
+
+    # Retry settings for failed notifications (Tor is unreliable)
+    retry_enabled: bool = Field(
+        default=True,
+        description=(
+            "Retry failed notifications in the background. "
+            "Retries use exponential backoff and never block the main process."
+        ),
+    )
+    retry_max_attempts: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Maximum number of retry attempts for a failed notification (1-10)",
+    )
+    retry_base_delay: float = Field(
+        default=5.0,
+        ge=1.0,
+        le=60.0,
+        description=(
+            "Base delay in seconds before the first retry (1-60). "
+            "Subsequent retries double this delay (exponential backoff)."
+        ),
     )
 
     # Event type toggles (all enabled by default if notifications are enabled)
@@ -232,6 +259,9 @@ def convert_settings_to_notification_config(
         notify_startup=ns.notify_startup,
         notify_summary=ns.notify_summary,
         summary_interval_hours=ns.summary_interval_hours,
+        retry_enabled=ns.retry_enabled,
+        retry_max_attempts=ns.retry_max_attempts,
+        retry_base_delay=ns.retry_base_delay,
     )
 
 
@@ -241,6 +271,11 @@ class Notifier:
 
     Thread-safe and async-friendly. Notification failures are logged but
     don't raise exceptions - notifications should never block protocol operations.
+
+    Failed notifications are automatically retried in the background with
+    exponential backoff when retry_enabled is True (the default). This is
+    important for Tor-routed notifications where transient circuit failures
+    are common.
     """
 
     def __init__(self, config: NotificationConfig | None = None):
@@ -254,6 +289,7 @@ class Notifier:
         self._apprise: Any | None = None
         self._initialized = False
         self._lock = asyncio.Lock()
+        self._retry_tasks: set[asyncio.Task[None]] = set()
 
     async def _ensure_initialized(self) -> bool:
         """Lazily initialize Apprise. Returns True if ready to send."""
@@ -333,6 +369,35 @@ class Notifier:
         """
         Send a notification via Apprise.
 
+        On failure, if retry is enabled, spawns a background task that retries
+        with exponential backoff. The background task never blocks the caller.
+
+        Args:
+            title: Notification title (will be prefixed)
+            body: Notification body
+            priority: Notification priority
+
+        Returns:
+            True if sent successfully on the first attempt
+        """
+        # Don't attempt (or retry) if not initialized / disabled
+        if not await self._ensure_initialized():
+            return False
+
+        result = await self._try_send(title, body, priority)
+        if not result and self.config.retry_enabled:
+            self._schedule_retry(title, body, priority)
+        return result
+
+    async def _try_send(
+        self,
+        title: str,
+        body: str,
+        priority: NotificationPriority = NotificationPriority.INFO,
+    ) -> bool:
+        """
+        Attempt a single notification send via Apprise.
+
         Args:
             title: Notification title (will be prefixed)
             body: Notification body
@@ -397,6 +462,60 @@ class Notifier:
         except Exception as e:
             logger.warning(f"Failed to send notification '{title}': {e}")
             return False
+
+    def _schedule_retry(
+        self,
+        title: str,
+        body: str,
+        priority: NotificationPriority,
+    ) -> None:
+        """
+        Schedule background retries for a failed notification.
+
+        Spawns an asyncio task that retries with exponential backoff.
+        The task is tracked in _retry_tasks and cleaned up on completion.
+        """
+        task = asyncio.create_task(self._retry_send(title, body, priority))
+        self._retry_tasks.add(task)
+        task.add_done_callback(self._retry_tasks.discard)
+
+    async def _retry_send(
+        self,
+        title: str,
+        body: str,
+        priority: NotificationPriority,
+    ) -> None:
+        """
+        Retry sending a notification with exponential backoff.
+
+        Runs in the background as an asyncio task. Logs each attempt
+        and gives up after max_attempts retries.
+        """
+        delay = self.config.retry_base_delay
+        max_attempts = self.config.retry_max_attempts
+
+        for attempt in range(1, max_attempts + 1):
+            await asyncio.sleep(delay)
+
+            logger.debug(
+                f"Retrying notification '{title}' "
+                f"(attempt {attempt}/{max_attempts}, delay={delay:.0f}s)"
+            )
+
+            try:
+                result = await self._try_send(title, body, priority)
+                if result:
+                    logger.info(
+                        f"Notification '{title}' delivered on retry "
+                        f"(attempt {attempt}/{max_attempts})"
+                    )
+                    return
+            except Exception as e:
+                logger.debug(f"Retry attempt {attempt} for '{title}' raised: {e}")
+
+            delay *= 2  # Exponential backoff
+
+        logger.warning(f"Notification '{title}' failed after {max_attempts} retries, giving up")
 
     def _format_amount(self, sats: int) -> str:
         """Format satoshi amount for display."""

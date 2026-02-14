@@ -69,10 +69,17 @@ class OrderbookServer:
         offers_by_directory = orderbook.get_offers_by_directory()
         directory_stats: dict[str, dict[str, Any]] = {}
         for node, offers in offers_by_directory.items():
-            bond_offers = [o for o in offers if o.fidelity_bond_data]
+            # Count unique bonds per directory (deduplicate by UTXO)
+            unique_bond_utxos: set[str] = set()
+            for o in offers:
+                if o.fidelity_bond_data:
+                    utxo_key = (
+                        f"{o.fidelity_bond_data['utxo_txid']}:{o.fidelity_bond_data['utxo_vout']}"
+                    )
+                    unique_bond_utxos.add(utxo_key)
             directory_stats[node] = {
                 "offer_count": len(offers),
-                "bond_offer_count": len(bond_offers),
+                "bond_offer_count": len(unique_bond_utxos),
             }
 
         for node_tuple in self.aggregator.directory_nodes:

@@ -64,7 +64,7 @@ async function fetchOrderbook() {
 function updateStats() {
     if (!orderbookData) return;
 
-    const bondsCount = orderbookData.offers.filter(o => o.fidelity_bond_data).length;
+    const bondsCount = (orderbookData.fidelitybonds || []).length;
     const uniqueMakers = new Set(orderbookData.offers.map(o => o.counterparty)).size;
 
     document.getElementById('total-offers').textContent = orderbookData.offers.length;

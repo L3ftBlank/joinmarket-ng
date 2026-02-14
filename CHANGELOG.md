@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Orderbook Watcher: Inflated Fidelity Bond Count**: The "Fidelity Bonds" stat and per-directory bond counts were counting offers-with-bonds instead of unique bonds (by UTXO). Makers with dual offers (relative + absolute) backed by the same bond were counted twice. The frontend now uses the already-deduplicated `fidelitybonds` array for the total count, and the backend deduplicates by UTXO key per directory.
+
 - **Maker Handshake Protocol Incompatibility**: Fixed maker sending DN_HANDSHAKE (type 795, directory server format) instead of HANDSHAKE (type 793, peer client format) when responding to direct peer connections. The reference taker rejected these with "Unexpected dn-handshake from non-dn node", causing CoinJoin failures on direct connections. The maker now correctly responds with HANDSHAKE (793) using client format fields (`proto-ver`, `location-string`, `directory: false`). The orderbook watcher health checker was also updated to handle both response formats. Added regression tests that replicate the reference taker's validation logic.
 
 - **Frozen UTXO Selector Crash** ([#125](../../issues/125)): Fixed `IndexError: list index out of range` when selecting frozen UTXOs in `jm-wallet send --select-utxos`. Frozen and locked fidelity bond UTXOs are now visible but unselectable in the interactive TUI, shown with `[-]` prefix. Toggle (Space/Tab) and "select all" (`a`) skip unselectable UTXOs. The footer displays selectable count accurately. Single-UTXO auto-selection respects frozen/locked status.

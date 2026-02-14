@@ -37,26 +37,62 @@ def mock_connection() -> MagicMock:
     return conn
 
 
-def create_handshake_response(
-    accepted: bool = True,
+def create_peer_handshake_response(
     features: dict[str, bool] | None = None,
 ) -> bytes:
-    """Create a mock handshake response."""
+    """Create a mock peer (maker) handshake response in client format.
+
+    Non-directory peers respond with HANDSHAKE (793) using the client format,
+    which does NOT contain "accepted" -- receiving a valid response implicitly
+    means acceptance.
+    """
     if features is None:
         features = {}
 
     response_data = {
         "app-name": "joinmarket",
         "directory": False,
+        "location-string": "testmaker1234567890abcdef1234567890abcdef12345678.onion:5222",
         "proto-ver": 5,
         "features": features,
-        "accepted": accepted,
         "nick": "J5maker",
         "network": "regtest",
     }
 
     response = {
         "type": MessageType.HANDSHAKE.value,
+        "line": json.dumps(response_data),
+    }
+
+    return json.dumps(response).encode("utf-8")
+
+
+def create_dn_handshake_response(
+    accepted: bool = True,
+    features: dict[str, bool] | None = None,
+) -> bytes:
+    """Create a mock directory node handshake response.
+
+    Directory nodes respond with DN_HANDSHAKE (795) which includes an explicit
+    "accepted" field and server-format fields like proto-ver-min/max and motd.
+    """
+    if features is None:
+        features = {}
+
+    response_data = {
+        "app-name": "joinmarket",
+        "directory": True,
+        "proto-ver-min": 5,
+        "proto-ver-max": 5,
+        "features": features,
+        "accepted": accepted,
+        "nick": "J5directory",
+        "network": "regtest",
+        "motd": "Welcome",
+    }
+
+    response = {
+        "type": MessageType.DN_HANDSHAKE.value,
         "line": json.dumps(response_data),
     }
 
@@ -91,8 +127,7 @@ class TestMakerHealthChecker:
     ) -> None:
         """Test successful maker health check."""
         # Mock successful connection and handshake
-        mock_connection.receive.return_value = create_handshake_response(
-            accepted=True,
+        mock_connection.receive.return_value = create_peer_handshake_response(
             features={FEATURE_NEUTRINO_COMPAT: True},
         )
 
@@ -133,11 +168,11 @@ class TestMakerHealthChecker:
         mock_connection.close.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_handshake_rejected(
+    async def test_handshake_rejected_by_directory(
         self, health_checker: MakerHealthChecker, mock_connection: MagicMock
     ) -> None:
-        """Test health check when handshake is rejected."""
-        mock_connection.receive.return_value = create_handshake_response(accepted=False)
+        """Test health check when DN_HANDSHAKE from a directory rejects us."""
+        mock_connection.receive.return_value = create_dn_handshake_response(accepted=False)
 
         with patch(
             "orderbook_watcher.health_checker.connect_via_tor", return_value=mock_connection
@@ -190,7 +225,7 @@ class TestMakerHealthChecker:
 
         # Then success
         mock_connection.receive.side_effect = None
-        mock_connection.receive.return_value = create_handshake_response(accepted=True)
+        mock_connection.receive.return_value = create_peer_handshake_response()
         with patch(
             "orderbook_watcher.health_checker.connect_via_tor", return_value=mock_connection
         ):
@@ -204,7 +239,7 @@ class TestMakerHealthChecker:
     ) -> None:
         """Test that health checks are rate-limited."""
         location = "test123456789012345678901234567890123456789012345678.onion:5222"
-        mock_connection.receive.return_value = create_handshake_response(accepted=True)
+        mock_connection.receive.return_value = create_peer_handshake_response()
 
         with patch(
             "orderbook_watcher.health_checker.connect_via_tor", return_value=mock_connection
@@ -234,9 +269,9 @@ class TestMakerHealthChecker:
 
         # Mock different responses for each maker
         mock_connection.receive.side_effect = [
-            create_handshake_response(accepted=True, features={FEATURE_NEUTRINO_COMPAT: True}),
+            create_peer_handshake_response(features={FEATURE_NEUTRINO_COMPAT: True}),
             TimeoutError(),
-            create_handshake_response(accepted=True, features={}),
+            create_peer_handshake_response(features={}),
         ]
 
         with patch(
@@ -269,7 +304,7 @@ class TestMakerHealthChecker:
             for i in range(10)  # More than max_concurrent_checks (5)
         ]
 
-        mock_connection.receive.return_value = create_handshake_response(accepted=True)
+        mock_connection.receive.return_value = create_peer_handshake_response()
 
         # Track concurrent connections
         concurrent_count = 0
@@ -324,7 +359,7 @@ class TestMakerHealthChecker:
 
         # Then maker2 succeeds
         mock_connection.receive.side_effect = None
-        mock_connection.receive.return_value = create_handshake_response(accepted=True)
+        mock_connection.receive.return_value = create_peer_handshake_response()
         with patch(
             "orderbook_watcher.health_checker.connect_via_tor", return_value=mock_connection
         ):
@@ -332,7 +367,7 @@ class TestMakerHealthChecker:
 
         # Maker3: Success (reachable)
         mock_connection.receive.side_effect = None
-        mock_connection.receive.return_value = create_handshake_response(accepted=True)
+        mock_connection.receive.return_value = create_peer_handshake_response()
         with patch(
             "orderbook_watcher.health_checker.connect_via_tor", return_value=mock_connection
         ):
@@ -355,8 +390,8 @@ class TestMakerHealthChecker:
         ]
 
         # Maker1: Success with features
-        mock_connection.receive.return_value = create_handshake_response(
-            accepted=True, features={FEATURE_NEUTRINO_COMPAT: True}
+        mock_connection.receive.return_value = create_peer_handshake_response(
+            features={FEATURE_NEUTRINO_COMPAT: True}
         )
         with patch(
             "orderbook_watcher.health_checker.connect_via_tor", return_value=mock_connection
@@ -384,7 +419,7 @@ class TestMakerHealthChecker:
         location = "test123456789012345678901234567890123456789012345678.onion:5222"
 
         # Create a status
-        mock_connection.receive.return_value = create_handshake_response(accepted=True)
+        mock_connection.receive.return_value = create_peer_handshake_response()
         with patch(
             "orderbook_watcher.health_checker.connect_via_tor", return_value=mock_connection
         ):
@@ -410,7 +445,7 @@ class TestMakerHealthChecker:
         # First maker raises exception
         mock_connection.receive.side_effect = [
             RuntimeError("Connection error"),
-            create_handshake_response(accepted=True),
+            create_peer_handshake_response(),
         ]
 
         with patch(
@@ -437,8 +472,8 @@ class TestMakerHealthChecker:
         location = "test123456789012345678901234567890123456789012345678.onion:5222"
 
         # First check: success with features
-        mock_connection.receive.return_value = create_handshake_response(
-            accepted=True, features={FEATURE_NEUTRINO_COMPAT: True}
+        mock_connection.receive.return_value = create_peer_handshake_response(
+            features={FEATURE_NEUTRINO_COMPAT: True}
         )
         with patch(
             "orderbook_watcher.health_checker.connect_via_tor", return_value=mock_connection

@@ -238,8 +238,8 @@ All messages use JSON-line envelopes terminated with `\r\n`:
 | 687 | PUBMSG | Public broadcast to all peers |
 | 789 | PEERLIST | Directory sends list of connected peers |
 | 791 | GETPEERLIST | Request peer list from directory |
-| 793 | HANDSHAKE | Client handshake request |
-| 795 | DN_HANDSHAKE | Directory handshake response |
+| 793 | HANDSHAKE | Peer handshake (sent by both sides) |
+| 795 | DN_HANDSHAKE | Directory-only handshake response |
 | 797 | PING | Keep-alive ping |
 | 799 | PONG | Ping response |
 | 801 | DISCONNECT | Graceful disconnect |
@@ -337,6 +337,20 @@ JoinMarket supports two routing modes:
 - Reliable fallback for restrictive networks
 
 **Channel Consistency:** Once a channel is established for a session, all subsequent messages must use the same channel. This prevents session confusion attacks.
+
+### Handshake Protocol
+
+There are two distinct handshake flows depending on whether the remote peer is a directory or a regular peer (maker):
+
+**Client -> Directory:**
+1. Client sends HANDSHAKE (793) with client format (`"directory": false`, `"proto-ver"`, `"location-string"`)
+2. Directory responds with DN_HANDSHAKE (795) with server format (`"directory": true`, `"proto-ver-min"`, `"proto-ver-max"`, `"accepted"`)
+
+**Taker -> Maker (Direct Connection):**
+1. Taker connects to maker's onion service
+2. Both sides send HANDSHAKE (793) to each other with client format -- this is a **symmetric** exchange
+3. Both sides process the received handshake and mark the peer as handshaked
+4. **Important:** Makers must NOT send DN_HANDSHAKE (795) -- only directories use that message type. The reference implementation taker rejects DN_HANDSHAKE from non-directory peers.
 
 ### Nick Format
 

@@ -19,7 +19,7 @@ from jmcore.protocol import (
     FEATURE_PEERLIST_FEATURES,
     FeatureSet,
     MessageType,
-    create_handshake_response,
+    create_handshake_request,
 )
 from jmwallet.backends.base import BlockchainBackend
 from loguru import logger
@@ -136,12 +136,18 @@ class DirectConnectionMixin:
     ) -> bool:
         """Try to handle a handshake request on a direct connection.
 
-        Health checkers and feature discovery tools connect directly to makers
-        and send a handshake request to discover features like neutrino_compat.
+        In the reference implementation, when a non-directory peer (maker) receives
+        a HANDSHAKE (793) from a connecting peer (taker), it responds with its own
+        HANDSHAKE (793) using the client handshake format -- NOT a DN_HANDSHAKE (795).
+        Only directory nodes respond with DN_HANDSHAKE.
 
-        The protocol mirrors the reference implementation:
-        - Client sends HANDSHAKE (793) with client_handshake_json format
-        - Server responds with DN_HANDSHAKE (795) with server_handshake_json format
+        Both sides send HANDSHAKE (793) to each other (symmetric handshake).
+        The taker sends first (on connection), the maker responds with its own.
+        Both sides then mark the peer as handshaked.
+
+        If the maker were to send DN_HANDSHAKE (795), the reference taker would
+        reject it with "Unexpected dn-handshake from non-dn node" because it only
+        accepts DN_HANDSHAKE from peers marked as directories.
 
         Args:
             connection: The TCP connection
@@ -191,50 +197,49 @@ class DirectConnectionMixin:
             f"features={peer_features.to_comma_string() or 'none'}"
         )
 
-        # Build our feature set
-        features = FeatureSet()
-        if self.backend.can_provide_neutrino_metadata():
-            features.features.add(FEATURE_NEUTRINO_COMPAT)
-        # We support peerlist_features protocol
-        features.features.add(FEATURE_PEERLIST_FEATURES)
-
         # Validate network
         if peer_network and peer_network != self.config.network.value:
             logger.warning(
-                f"Network mismatch from {peer_nick}: {peer_network} != {self.config.network.value}"
+                f"Network mismatch from {peer_nick}: "
+                f"{peer_network} != {self.config.network.value}. "
+                f"Not responding to handshake."
             )
-            # Still respond but mark as rejected
-            response_data = create_handshake_response(
-                nick=self.nick,
-                network=self.config.network.value,
-                accepted=False,
-                motd="Network mismatch",
-                features=features,
-            )
-        else:
-            response_data = create_handshake_response(
-                nick=self.nick,
-                network=self.config.network.value,
-                accepted=True,
-                motd="JoinMarket NG Maker",
-                features=features,
-            )
+            return True
 
-        # Send handshake response using DN_HANDSHAKE (795) type
-        # This matches the reference implementation protocol where the server
-        # (directory or maker accepting connections) responds with dn-handshake
+        # Build our feature set for the handshake
+        features = FeatureSet()
+        if self.backend.can_provide_neutrino_metadata():
+            features.features.add(FEATURE_NEUTRINO_COMPAT)
+        features.features.add(FEATURE_PEERLIST_FEATURES)
+
+        # Determine our location string (onion address or NOT-SERVING-ONION)
+        onion_host = self.config.onion_host
+        if onion_host:
+            our_location = f"{onion_host}:{self.config.onion_serving_port}"
+        else:
+            our_location = "NOT-SERVING-ONION"
+
+        # Respond with HANDSHAKE (793) using client handshake format.
+        # In the reference implementation, both peers send HANDSHAKE (793) to each
+        # other -- it is a symmetric exchange. Only directories use DN_HANDSHAKE (795).
+        response_data = create_handshake_request(
+            nick=self.nick,
+            location=our_location,
+            network=self.config.network.value,
+            directory=False,
+            features=features,
+        )
         response_msg = {
-            "type": MessageType.DN_HANDSHAKE.value,
+            "type": MessageType.HANDSHAKE.value,
             "line": json.dumps(response_data),
         }
         try:
             await connection.send(json.dumps(response_msg).encode("utf-8"))
             logger.info(
-                f"Sent handshake response to {peer_nick} "
-                f"(features: {features.to_comma_string() or 'none'})"
+                f"Sent handshake to {peer_nick} (features: {features.to_comma_string() or 'none'})"
             )
         except Exception as e:
-            logger.warning(f"Failed to send handshake response to {peer_str}: {e}")
+            logger.warning(f"Failed to send handshake to {peer_str}: {e}")
 
         return True
 

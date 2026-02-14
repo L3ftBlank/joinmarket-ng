@@ -975,8 +975,13 @@ class TestDirectConnectionHandshake:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_try_handle_handshake_responds_with_dn_handshake(self, maker_bot):
-        """Test that handshake request gets DN_HANDSHAKE response with features."""
+    async def test_try_handle_handshake_responds_with_peer_handshake(self, maker_bot):
+        """Test that handshake request gets HANDSHAKE (793) response with client format.
+
+        In the reference implementation, non-directory peers (makers) respond to
+        incoming handshakes with their own HANDSHAKE (793) using the client handshake
+        format -- NOT DN_HANDSHAKE (795). Only directories use DN_HANDSHAKE.
+        """
         mock_conn = MagicMock(spec=TCPConnection)
 
         # Create a handshake request (type 793)
@@ -1005,14 +1010,23 @@ class TestDirectConnectionHandshake:
         response_bytes = mock_conn.send.call_args[0][0]
         response = json.loads(response_bytes.decode("utf-8"))
 
-        # Should be DN_HANDSHAKE (795)
-        assert response["type"] == 795
+        # Should be HANDSHAKE (793), NOT DN_HANDSHAKE (795)
+        assert response["type"] == 793
 
-        # Parse the response data
+        # Parse the response data - should use client handshake format
         response_data = json.loads(response["line"])
-        assert response_data["accepted"] is True
+        assert response_data["directory"] is False
+        assert response_data["proto-ver"] == 5
         assert response_data["nick"] == maker_bot.nick
         assert response_data["network"] == "regtest"
+        assert "location-string" in response_data
+        assert response_data["app-name"] == "joinmarket"
+
+        # Should NOT have server-format fields
+        assert "accepted" not in response_data
+        assert "proto-ver-min" not in response_data
+        assert "proto-ver-max" not in response_data
+        assert "motd" not in response_data
 
         # Should include features
         features = response_data.get("features", {})
@@ -1022,8 +1036,8 @@ class TestDirectConnectionHandshake:
         assert features["peerlist_features"] is True
 
     @pytest.mark.asyncio
-    async def test_try_handle_handshake_rejects_wrong_network(self, maker_bot):
-        """Test that handshake from wrong network is rejected."""
+    async def test_try_handle_handshake_ignores_wrong_network(self, maker_bot):
+        """Test that handshake from wrong network is silently ignored (no response)."""
         mock_conn = MagicMock(spec=TCPConnection)
 
         # Create a handshake request with wrong network
@@ -1045,16 +1059,10 @@ class TestDirectConnectionHandshake:
 
         result = await maker_bot._try_handle_handshake(mock_conn, data, "test:1234")
 
+        # Should still return True (was a handshake message, handled)
         assert result is True
-        mock_conn.send.assert_called_once()
-
-        # Parse the response
-        response_bytes = mock_conn.send.call_args[0][0]
-        response = json.loads(response_bytes.decode("utf-8"))
-        response_data = json.loads(response["line"])
-
-        # Should be rejected
-        assert response_data["accepted"] is False
+        # Should NOT send any response for network mismatch
+        mock_conn.send.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_try_handle_handshake_neutrino_backend_no_neutrino_compat(self, maker_bot):
@@ -1084,13 +1092,282 @@ class TestDirectConnectionHandshake:
 
         response_bytes = mock_conn.send.call_args[0][0]
         response = json.loads(response_bytes.decode("utf-8"))
+
+        # Should be HANDSHAKE (793) with client format
+        assert response["type"] == 793
         response_data = json.loads(response["line"])
+        assert response_data["directory"] is False
 
         # Should NOT include neutrino_compat
         features = response_data.get("features", {})
         assert "neutrino_compat" not in features or features.get("neutrino_compat") is False
         # But should still have peerlist_features
         assert features.get("peerlist_features") is True
+
+
+class TestReferenceCompatHandshake:
+    """Regression tests verifying maker handshake is accepted by the reference implementation.
+
+    These tests replicate the reference implementation's taker-side handshake validation
+    logic from jmdaemon/onionmc.py:process_handshake(). If our maker's handshake response
+    would be rejected by the reference taker, these tests fail.
+
+    Background: The reference taker has TWO code paths for processing handshake responses:
+    - dn-handshake (type 795): Only accepted from peers marked as directory nodes.
+      If received from a non-directory peer, it logs "Unexpected dn-handshake from non-dn
+      node" and ignores the message entirely.
+    - handshake (type 793): Accepted from any non-directory peer. This is the symmetric
+      peer-to-peer handshake used between takers and makers.
+
+    Our maker previously sent DN_HANDSHAKE (795) which the reference taker rejected.
+    """
+
+    JM_APP_NAME = "joinmarket"
+    JM_VERSION = 5
+
+    @pytest.fixture
+    def mock_wallet(self):
+        wallet = MagicMock()
+        wallet.mixdepth_count = 5
+        wallet.utxo_cache = {}
+        return wallet
+
+    @pytest.fixture
+    def mock_backend(self):
+        backend = MagicMock()
+        backend.can_provide_neutrino_metadata.return_value = True
+        return backend
+
+    @pytest.fixture
+    def config(self):
+        return MakerConfig(
+            mnemonic="test " * 12,
+            directory_servers=["localhost:5222"],
+            network=NetworkType.REGTEST,
+        )
+
+    @pytest.fixture
+    def maker_bot(self, mock_wallet, mock_backend, config):
+        return MakerBot(
+            wallet=mock_wallet,
+            backend=mock_backend,
+            config=config,
+        )
+
+    def _reference_taker_validate_handshake(
+        self, msg_type: int, payload: dict, peer_is_directory: bool
+    ) -> tuple[bool, str]:
+        """Simulate the reference implementation's process_handshake() validation.
+
+        This replicates the critical logic from joinmarket-clientserver
+        src/jmdaemon/onionmc.py lines 1200-1322, specifically the checks
+        that determine whether a handshake response is accepted or rejected.
+
+        Returns (accepted, reason) tuple.
+        """
+        # Reference: process_control_message dispatches based on message type
+        if msg_type == 795:  # dn-handshake
+            # Reference: process_handshake(peerid, msgval, dn=True)
+            # Line 1220: if not peer.directory -> reject
+            if not peer_is_directory:
+                return False, "Unexpected dn-handshake from non-dn node"
+            # Directory validation (lines 1228-1268)
+            app_name = payload.get("app-name")
+            is_directory = payload.get("directory")
+            proto_min: int = payload.get("proto-ver-min", 0)
+            proto_max: int = payload.get("proto-ver-max", 0)
+            accepted = payload.get("accepted")
+            if not accepted:
+                return False, "Directory rejected our handshake"
+            if not (
+                app_name == self.JM_APP_NAME
+                and is_directory
+                and self.JM_VERSION <= proto_max
+                and self.JM_VERSION >= proto_min
+                and accepted
+            ):
+                return False, f"Incompatible or rejected: {payload}"
+            return True, "OK"
+
+        elif msg_type == 793:  # handshake
+            # Reference: process_handshake(peerid, msgval, dn=False)
+            # Lines 1270-1322: non-dn peer handshake
+            app_name = payload.get("app-name")
+            is_directory = payload.get("directory")
+            proto_ver = payload.get("proto-ver")
+            # Line 1295-1296
+            if not (
+                app_name == self.JM_APP_NAME and proto_ver == self.JM_VERSION and not is_directory
+            ):
+                return False, f"Invalid handshake name/version data: {payload}"
+            return True, "OK"
+
+        else:
+            return False, f"Unknown message type: {msg_type}"
+
+    @pytest.mark.asyncio
+    async def test_maker_handshake_accepted_by_reference_taker(self, maker_bot):
+        """Regression: maker's handshake response must pass reference taker validation.
+
+        The reference taker treats our maker as a non-directory peer. If we send
+        DN_HANDSHAKE (795), the reference taker rejects it with 'Unexpected dn-handshake
+        from non-dn node'. We must send HANDSHAKE (793) with client format.
+        """
+        mock_conn = MagicMock(spec=TCPConnection)
+
+        handshake_request = {
+            "type": 793,
+            "line": json.dumps(
+                {
+                    "app-name": "joinmarket",
+                    "directory": False,
+                    "location-string": "NOT-SERVING-ONION",
+                    "proto-ver": 5,
+                    "features": {},
+                    "nick": "J5RefTakerNick",
+                    "network": "regtest",
+                }
+            ),
+        }
+        data = json.dumps(handshake_request).encode("utf-8")
+
+        await maker_bot._try_handle_handshake(mock_conn, data, "test:1234")
+
+        response_bytes = mock_conn.send.call_args[0][0]
+        response = json.loads(response_bytes.decode("utf-8"))
+        response_data = json.loads(response["line"])
+
+        # Simulate reference taker validation: our maker is NOT a directory peer
+        accepted, reason = self._reference_taker_validate_handshake(
+            msg_type=response["type"],
+            payload=response_data,
+            peer_is_directory=False,
+        )
+        assert accepted, f"Reference taker would reject our handshake: {reason}"
+
+    @pytest.mark.asyncio
+    async def test_maker_handshake_must_not_use_dn_handshake_type(self, maker_bot):
+        """Regression: maker must never send DN_HANDSHAKE (795) to peers.
+
+        DN_HANDSHAKE is reserved for directory nodes. Non-directory peers that send
+        it are rejected by the reference implementation.
+        """
+        mock_conn = MagicMock(spec=TCPConnection)
+
+        handshake_request = {
+            "type": 793,
+            "line": json.dumps(
+                {
+                    "app-name": "joinmarket",
+                    "directory": False,
+                    "location-string": "NOT-SERVING-ONION",
+                    "proto-ver": 5,
+                    "features": {},
+                    "nick": "J5RefTakerNick",
+                    "network": "regtest",
+                }
+            ),
+        }
+        data = json.dumps(handshake_request).encode("utf-8")
+
+        await maker_bot._try_handle_handshake(mock_conn, data, "test:1234")
+
+        response_bytes = mock_conn.send.call_args[0][0]
+        response = json.loads(response_bytes.decode("utf-8"))
+
+        assert response["type"] != 795, (
+            "Maker must not send DN_HANDSHAKE (795). "
+            "Reference taker rejects dn-handshake from non-directory peers."
+        )
+        assert response["type"] == 793, (
+            "Maker must send HANDSHAKE (793) with client format for peer-to-peer handshake."
+        )
+
+    @pytest.mark.asyncio
+    async def test_maker_handshake_must_not_claim_directory(self, maker_bot):
+        """Regression: maker handshake must have directory=False.
+
+        The reference taker validates that non-directory peers have directory=False
+        in their handshake (line 1296: 'not is_directory').
+        """
+        mock_conn = MagicMock(spec=TCPConnection)
+
+        handshake_request = {
+            "type": 793,
+            "line": json.dumps(
+                {
+                    "app-name": "joinmarket",
+                    "directory": False,
+                    "location-string": "NOT-SERVING-ONION",
+                    "proto-ver": 5,
+                    "features": {},
+                    "nick": "J5RefTakerNick",
+                    "network": "regtest",
+                }
+            ),
+        }
+        data = json.dumps(handshake_request).encode("utf-8")
+
+        await maker_bot._try_handle_handshake(mock_conn, data, "test:1234")
+
+        response_bytes = mock_conn.send.call_args[0][0]
+        response = json.loads(response_bytes.decode("utf-8"))
+        response_data = json.loads(response["line"])
+
+        assert response_data.get("directory") is False, (
+            "Maker handshake must have directory=False. "
+            "Reference taker rejects handshakes with directory=True from non-dn peers."
+        )
+
+    @pytest.mark.asyncio
+    async def test_maker_handshake_uses_client_format(self, maker_bot):
+        """Regression: maker handshake must use client format, not server format.
+
+        Client format has: app-name, directory, location-string, proto-ver, features, nick, network
+        Server format has: app-name, directory, proto-ver-min/max, accepted, nick, network
+        """
+        mock_conn = MagicMock(spec=TCPConnection)
+
+        handshake_request = {
+            "type": 793,
+            "line": json.dumps(
+                {
+                    "app-name": "joinmarket",
+                    "directory": False,
+                    "location-string": "NOT-SERVING-ONION",
+                    "proto-ver": 5,
+                    "features": {},
+                    "nick": "J5RefTakerNick",
+                    "network": "regtest",
+                }
+            ),
+        }
+        data = json.dumps(handshake_request).encode("utf-8")
+
+        await maker_bot._try_handle_handshake(mock_conn, data, "test:1234")
+
+        response_bytes = mock_conn.send.call_args[0][0]
+        response = json.loads(response_bytes.decode("utf-8"))
+        response_data = json.loads(response["line"])
+
+        # Must have client format fields
+        assert "proto-ver" in response_data, "Missing proto-ver (client format field)"
+        assert "location-string" in response_data, "Missing location-string (client format field)"
+        assert response_data["proto-ver"] == 5
+
+        # Must NOT have server format fields
+        assert "proto-ver-min" not in response_data, (
+            "Has proto-ver-min (server format field) -- maker should use client format"
+        )
+        assert "proto-ver-max" not in response_data, (
+            "Has proto-ver-max (server format field) -- maker should use client format"
+        )
+        assert "accepted" not in response_data, (
+            "Has accepted (server format field) -- maker should use client format"
+        )
+        assert "motd" not in response_data, (
+            "Has motd (server format field) -- maker should use client format"
+        )
 
 
 if __name__ == "__main__":

@@ -208,8 +208,15 @@ class MakerHealthChecker:
                 raise Exception(f"Unexpected response type: {response.get('type')}")
 
             handshake_response = json.loads(response["line"])
-            if not handshake_response.get("accepted", False):
+
+            # DN_HANDSHAKE (795) responses from directories have an "accepted" field.
+            # HANDSHAKE (793) responses from non-directory peers (makers) use the
+            # client handshake format which does NOT have "accepted" -- receiving a
+            # valid handshake back implicitly means acceptance.
+            response_type = response.get("type")
+            if response_type == 795 and not handshake_response.get("accepted", False):
                 raise Exception("Handshake rejected")
+            # For type 793 (peer handshake), receiving a valid response = accepted
 
             # Extract features from handshake
             features = FeatureSet.from_handshake(handshake_response)

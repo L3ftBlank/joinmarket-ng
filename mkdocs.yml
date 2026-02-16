@@ -19,15 +19,17 @@ plugins:
             - directory_server/src
             - orderbook_watcher/src
           options:
+            extensions:
+              - docs/_extensions/hide_dataclass_init.py:HideDataclassInit
             show_source: true
             show_root_heading: true
             group_by_category: true
             show_category_heading: true
-            members_order: alphabetical 
+            members_order: alphabetical
             show_bases: true
             show_signature: true
             show_signature_annotations: true
-            show_if_no_docstring: true       
+            show_if_no_docstring: true
 
 markdown_extensions:
   - pymdownx.highlight

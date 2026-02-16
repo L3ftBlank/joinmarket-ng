@@ -67,9 +67,33 @@ nav:
       - jmcore:
           - Overview: api/jmcore/index.md
           - bitcoin: api/jmcore/bitcoin.md
+          - bond_calc: api/jmcore/bond_calc.md
+          - btc_script: api/jmcore/btc_script.md
           - cli_common: api/jmcore/cli_common.md
+          - commitment_blacklist: api/jmcore/commitment_blacklist.md
+          - config: api/jmcore/config.md
+          - confirmation: api/jmcore/confirmation.md
+          - constants: api/jmcore/constants.md
+          - crypto: api/jmcore/crypto.md
+          - deduplication: api/jmcore/deduplication.md
+          - directory_client: api/jmcore/directory_client.md
+          - encryption: api/jmcore/encryption.md
+          - mempool_api: api/jmcore/mempool_api.md
+          - models: api/jmcore/models.md
+          - network: api/jmcore/network.md
+          - nick_tracker: api/jmcore/nick_tracker.md
+          - notifications: api/jmcore/notifications.md
+          - paths: api/jmcore/paths.md
+          - podle: api/jmcore/podle.md
+          - protocol: api/jmcore/protocol.md
+          - rate_limiter: api/jmcore/rate_limiter.md
+          - settings: api/jmcore/settings.md
+          - timenumber: api/jmcore/timenumber.md
+          - tor_control: api/jmcore/tor_control.md
+          - version: api/jmcore/version.md
       - jmwallet: api/jmwallet.md
       - taker: api/taker.md
       - maker: api/maker.md
       - directory_server: api/directory_server.md
       - orderbook_watcher: api/orderbook_watcher.md
+  - Extension Documentation: extension-documentation.md

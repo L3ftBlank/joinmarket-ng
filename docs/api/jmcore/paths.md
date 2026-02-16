@@ -1,0 +1,3 @@
+# jmcore.paths
+
+::: jmcore.paths

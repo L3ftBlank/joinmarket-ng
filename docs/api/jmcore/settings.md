@@ -1,0 +1,3 @@
+# jmcore.settings
+
+::: jmcore.settings

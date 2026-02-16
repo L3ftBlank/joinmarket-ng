@@ -4,7 +4,7 @@ theme:
   name: material
   features:
     - content.code.copy
-#    - navigation.expand
+    - navigation.indexes
 
 plugins:
   - search
@@ -93,7 +93,7 @@ nav:
           - tor_control: api/jmcore/tor_control.md
           - version: api/jmcore/version.md
       - jmwallet:
-          - Overview: api/jmwallet.md
+          - Overview: api/jmwallet/index.md
           - history: api/jmwallet/history.md
           - utxo_selector: api/jmwallet/utxo_selector.md
           - cli:
@@ -124,7 +124,7 @@ nav:
               - mempool: api/jmwallet/backends/mempool.md
               - neutrino: api/jmwallet/backends/neutrino.md
       - taker:
-          - Overview: api/taker.md
+          - Overview: api/taker/index.md
           - cli: api/taker/cli.md
           - config: api/taker/config.md
           - models: api/taker/models.md
@@ -136,7 +136,7 @@ nav:
           - taker: api/taker/taker.md
           - tx_builder: api/taker/tx_builder.md
       - maker:
-          - Overview: api/maker.md
+          - Overview: api/maker/index.md
           - background_tasks: api/maker/background_tasks.md
           - bot: api/maker/bot.md
           - cli: api/maker/cli.md
@@ -151,7 +151,7 @@ nav:
           - rate_limiting: api/maker/rate_limiting.md
           - tx_verification: api/maker/tx_verification.md
       - directory_server:
-          - Overview: api/directory_server.md
+          - Overview: api/directory_server/index.md
           - cli: api/directory_server/cli.md
           - config: api/directory_server/config.md
           - handshake_handler: api/directory_server/handshake_handler.md
@@ -161,7 +161,7 @@ nav:
           - peer_registry: api/directory_server/peer_registry.md
           - server: api/directory_server/server.md
       - orderbook_watcher:
-          - Overview: api/orderbook_watcher.md
+          - Overview: api/orderbook_watcher/index.md
           - aggregator: api/orderbook_watcher/aggregator.md
           - config: api/orderbook_watcher/config.md
           - directory_client: api/orderbook_watcher/directory_client.md

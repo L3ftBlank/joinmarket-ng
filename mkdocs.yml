@@ -1,40 +1,73 @@
 site_name: JoinMarket NG
+
 theme:
   name: material
   features:
     - content.code.copy
     - navigation.expand
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths:
+            - jmcore/src
+            - jmwallet/src
+            - taker/src
+            - maker/src
+            - directory_server/src
+            - orderbook_watcher/src
+          options:
+            show_source: true
+            show_root_heading: true
+            group_by_category: true
+            show_category_heading: true
+            members_order: alphabetical 
+            show_bases: true
+            show_signature: true
+            show_signature_annotations: true
+            show_if_no_docstring: true       
+
 markdown_extensions:
   - pymdownx.highlight
   - pymdownx.superfences:
       custom_fences:
         - name: mermaid
           class: mermaid
-          format: !!python/name:pymdownx.superfences.fence_code_format  
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.inlinehilite
-
 
 nav:
   - Home: index.md
   - Installation: install.md
   - Modules:
-    - Wallet: README_jmwallet.md
-    - Taker: README_taker.md
-    - Maker: README_maker.md
+      - Wallet: README_jmwallet.md
+      - Taker: README_taker.md
+      - Maker: README_maker.md
   - Protocol Documentation:
-    - Concepts: DOCS01-Concepts.md
-    - JoinMarket-NG: DOCS02-JoinMarket-NG.md
-    - Architecture: DOCS03-Architecture.md
-    - Protocol: DOCS04-Protocol.md
-    - Privacy Mechanisms: DOCS05-Privacy Mechanisms.md
-    - Wallet: DOCS06-Wallet.md
-    - Configuration: DOCS07-Configuration.md
-    - Security: DOCS08-Security.md
-    - Development: DOCS09-Development.md
-    - Best Practices: DOCS10-Best Practices.md
-    - References: DOCS11-References.md
-    - Scripts: README_scripts.md
-
+      - Concepts: DOCS01-Concepts.md
+      - JoinMarket-NG: DOCS02-JoinMarket-NG.md
+      - Architecture: DOCS03-Architecture.md
+      - Protocol: DOCS04-Protocol.md
+      - Privacy Mechanisms: DOCS05-Privacy Mechanisms.md
+      - Wallet: DOCS06-Wallet.md
+      - Configuration: DOCS07-Configuration.md
+      - Security: DOCS08-Security.md
+      - Development: DOCS09-Development.md
+      - Best Practices: DOCS10-Best Practices.md
+      - References: DOCS11-References.md
+  - Scripts: README_scripts.md
   - Helpful Tools:
-    - Directory Server: README_directory_server.md
-    - Orderbook Watcher: README_orderbook_watcher.md
+      - Directory Server: README_directory_server.md
+      - Orderbook Watcher: README_orderbook_watcher.md
+  - API Reference:
+      - jmcore:
+          - Overview: api/jmcore/index.md
+          - bitcoin: api/jmcore/bitcoin.md
+          - cli_common: api/jmcore/cli_common.md
+      - jmwallet: api/jmwallet.md
+      - taker: api/taker.md
+      - maker: api/maker.md
+      - directory_server: api/directory_server.md
+      - orderbook_watcher: api/orderbook_watcher.md

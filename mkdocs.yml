@@ -4,7 +4,7 @@ theme:
   name: material
   features:
     - content.code.copy
-    - navigation.expand
+#    - navigation.expand
 
 plugins:
   - search
@@ -88,12 +88,84 @@ nav:
           - protocol: api/jmcore/protocol.md
           - rate_limiter: api/jmcore/rate_limiter.md
           - settings: api/jmcore/settings.md
+          - tasks: api/jmcore/tasks.md
           - timenumber: api/jmcore/timenumber.md
           - tor_control: api/jmcore/tor_control.md
           - version: api/jmcore/version.md
-      - jmwallet: api/jmwallet.md
-      - taker: api/taker.md
-      - maker: api/maker.md
-      - directory_server: api/directory_server.md
-      - orderbook_watcher: api/orderbook_watcher.md
+      - jmwallet:
+          - Overview: api/jmwallet.md
+          - history: api/jmwallet/history.md
+          - utxo_selector: api/jmwallet/utxo_selector.md
+          - cli:
+              - bonds: api/jmwallet/cli/bonds.md
+              - cold_wallet: api/jmwallet/cli/cold_wallet.md
+              - freeze: api/jmwallet/cli/freeze.md
+              - history_cmd: api/jmwallet/cli/history_cmd.md
+              - mnemonic: api/jmwallet/cli/mnemonic.md
+              - registry: api/jmwallet/cli/registry.md
+              - send: api/jmwallet/cli/send.md
+              - wallet: api/jmwallet/cli/wallet.md
+          - wallet:
+              - address: api/jmwallet/wallet/address.md
+              - bip32: api/jmwallet/wallet/bip32.md
+              - bond_registry: api/jmwallet/wallet/bond_registry.md
+              - coin_selection: api/jmwallet/wallet/coin_selection.md
+              - constants: api/jmwallet/wallet/constants.md
+              - display: api/jmwallet/wallet/display.md
+              - models: api/jmwallet/wallet/models.md
+              - service: api/jmwallet/wallet/service.md
+              - signing: api/jmwallet/wallet/signing.md
+              - sync: api/jmwallet/wallet/sync.md
+              - utxo_metadata: api/jmwallet/wallet/utxo_metadata.md
+          - backends:
+              - base: api/jmwallet/backends/base.md
+              - bitcoin_core: api/jmwallet/backends/bitcoin_core.md
+              - descriptor_wallet: api/jmwallet/backends/descriptor_wallet.md
+              - mempool: api/jmwallet/backends/mempool.md
+              - neutrino: api/jmwallet/backends/neutrino.md
+      - taker:
+          - Overview: api/taker.md
+          - cli: api/taker/cli.md
+          - config: api/taker/config.md
+          - models: api/taker/models.md
+          - monitoring: api/taker/monitoring.md
+          - multi_directory: api/taker/multi_directory.md
+          - orderbook: api/taker/orderbook.md
+          - podle: api/taker/podle.md
+          - podle_manager: api/taker/podle_manager.md
+          - taker: api/taker/taker.md
+          - tx_builder: api/taker/tx_builder.md
+      - maker:
+          - Overview: api/maker.md
+          - background_tasks: api/maker/background_tasks.md
+          - bot: api/maker/bot.md
+          - cli: api/maker/cli.md
+          - coinjoin: api/maker/coinjoin.md
+          - config: api/maker/config.md
+          - direct_connection: api/maker/direct_connection.md
+          - fidelity: api/maker/fidelity.md
+          - offers: api/maker/offers.md
+          - podle: api/maker/podle.md
+          - protocol_handlers: api/maker/protocol_handlers.md
+          - protocols: api/maker/protocols.md
+          - rate_limiting: api/maker/rate_limiting.md
+          - tx_verification: api/maker/tx_verification.md
+      - directory_server:
+          - Overview: api/directory_server.md
+          - cli: api/directory_server/cli.md
+          - config: api/directory_server/config.md
+          - handshake_handler: api/directory_server/handshake_handler.md
+          - health: api/directory_server/health.md
+          - main: api/directory_server/main.md
+          - message_router: api/directory_server/message_router.md
+          - peer_registry: api/directory_server/peer_registry.md
+          - server: api/directory_server/server.md
+      - orderbook_watcher:
+          - Overview: api/orderbook_watcher.md
+          - aggregator: api/orderbook_watcher/aggregator.md
+          - config: api/orderbook_watcher/config.md
+          - directory_client: api/orderbook_watcher/directory_client.md
+          - health_checker: api/orderbook_watcher/health_checker.md
+          - main: api/orderbook_watcher/main.md
+          - server: api/orderbook_watcher/server.md
   - Extension Documentation: extension-documentation.md

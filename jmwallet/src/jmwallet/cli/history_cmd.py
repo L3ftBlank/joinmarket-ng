@@ -49,9 +49,11 @@ def history(
         print(f"  As Maker:           {stats_data['maker_coinjoins']}")
         print(f"  As Taker:           {stats_data['taker_coinjoins']}")
         print(f"Success Rate:         {stats_data['success_rate']:.1f}%")
+        print(f"Successful Volume:    {stats_data['successful_volume']:,} sats")
         print(f"Total Volume:         {stats_data['total_volume']:,} sats")
         print(f"Total Fees Earned:    {stats_data['total_fees_earned']:,} sats")
         print(f"Total Fees Paid:      {stats_data['total_fees_paid']:,} sats")
+        print(f"UTXOs Disclosed:      {stats_data['utxos_disclosed']}")
         print("=" * 60 + "\n")
         return
 

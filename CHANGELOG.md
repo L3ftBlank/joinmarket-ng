@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Enhanced Periodic Summary Stats**: The periodic summary notification and CLI `history --stats` now include:
+  - **Volume split**: Volume is shown as "successful / total" to distinguish completed CoinJoin volume from total requested volume (including failed attempts).
+  - **UTXOs disclosed**: Tracks the number of UTXOs disclosed to takers via `!ioauth`. This counts all UTXOs exposed regardless of whether the CoinJoin completed, since UTXO disclosure is a privacy-relevant event even when transactions fail.
+
 ### Fixed
 
 - **Wallet Not Reloaded After Bitcoin Core Restart**: When Bitcoin Core restarts while a maker (or taker) is running, the descriptor wallet is unloaded. All subsequent wallet RPC calls (`listunspent`, `listdescriptors`, etc.) fail with error -18 ("Requested wallet does not exist or is not loaded"), causing the wallet to report zero balance and reject CoinJoin requests. The `_rpc_call` method now detects error -18 on wallet-scoped calls, transparently reloads the wallet via `loadwallet`, and retries the failed call once. This makes both periodic rescans and in-flight CoinJoin requests resilient to Bitcoin Core restarts.

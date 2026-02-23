@@ -637,7 +637,9 @@ class BackgroundTasksMixin:
                     f"successful={int(stats['successful_coinjoins'])}, "
                     f"failed={int(stats['failed_coinjoins'])}, "
                     f"fees={int(stats['total_fees_earned'])} sats, "
-                    f"volume={int(stats['total_volume'])} sats"
+                    f"volume={int(stats['successful_volume'])}"
+                    f"/{int(stats['total_volume'])} sats, "
+                    f"utxos_disclosed={int(stats['utxos_disclosed'])}"
                 )
 
                 sent = await notifier.notify_summary(
@@ -647,6 +649,8 @@ class BackgroundTasksMixin:
                     failed=int(stats["failed_coinjoins"]),
                     total_earnings=int(stats["total_fees_earned"]),
                     total_volume=int(stats["total_volume"]),
+                    successful_volume=int(stats["successful_volume"]),
+                    utxos_disclosed=int(stats["utxos_disclosed"]),
                 )
 
                 if sent:

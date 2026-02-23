@@ -216,6 +216,8 @@ Records all CoinJoin transactions with:
 - Pending transaction tracking (initially `success=False`, updated on confirmation)
 - Automatic txid discovery for makers who didn't receive the final transaction
 - Address blacklisting for privacy (addresses recorded before being shared with peers)
+- UTXO disclosure tracking (counts UTXOs exposed to takers via `!ioauth`)
+- Volume split (successful vs. total requested volume)
 - CSV format for analysis: `jm-wallet history --stats`
 
 ---

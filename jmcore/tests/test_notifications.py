@@ -661,6 +661,8 @@ class TestNotifySummary:
             failed=2,
             total_earnings=2500,
             total_volume=10_000_000,
+            successful_volume=8_000_000,
+            utxos_disclosed=15,
         )
 
         assert result is True
@@ -674,6 +676,7 @@ class TestNotifySummary:
         assert "Successful: 8" in body
         assert "Failed: 2" in body
         assert "80%" in body
+        assert "UTXOs disclosed: 15" in body
 
     @pytest.mark.asyncio
     async def test_summary_zero_activity(self) -> None:
@@ -758,6 +761,53 @@ class TestNotifySummary:
         call_kwargs = notifier._send.call_args
         title = call_kwargs[1].get("title", call_kwargs[0][0] if call_kwargs[0] else "")
         assert "Weekly Summary" in title
+
+    @pytest.mark.asyncio
+    async def test_summary_volume_split(self) -> None:
+        """Test that volume shows successful / total format."""
+        config = NotificationConfig(enabled=True, urls=["test://"], notify_summary=True)
+        notifier = Notifier(config)
+        notifier._send = AsyncMock(return_value=True)
+
+        await notifier.notify_summary(
+            period_label="Daily",
+            total_requests=5,
+            successful=3,
+            failed=2,
+            total_earnings=750,
+            total_volume=5_000_000,
+            successful_volume=3_000_000,
+            utxos_disclosed=8,
+        )
+
+        call_kwargs = notifier._send.call_args
+        body = call_kwargs[1].get("body", call_kwargs[0][1] if len(call_kwargs[0]) > 1 else "")
+        # Volume line should show "successful / total" format
+        assert "Volume:" in body
+        assert " / " in body
+        assert "UTXOs disclosed: 8" in body
+
+    @pytest.mark.asyncio
+    async def test_summary_backward_compatible(self) -> None:
+        """Test that notify_summary works without new optional parameters."""
+        config = NotificationConfig(enabled=True, urls=["test://"], notify_summary=True)
+        notifier = Notifier(config)
+        notifier._send = AsyncMock(return_value=True)
+
+        # Call without the new parameters (backward compatibility)
+        result = await notifier.notify_summary(
+            period_label="Daily",
+            total_requests=5,
+            successful=5,
+            failed=0,
+            total_earnings=1000,
+            total_volume=5_000_000,
+        )
+
+        assert result is True
+        call_kwargs = notifier._send.call_args
+        body = call_kwargs[1].get("body", call_kwargs[0][1] if len(call_kwargs[0]) > 1 else "")
+        assert "UTXOs disclosed: 0" in body
 
 
 class TestNotificationLogging:

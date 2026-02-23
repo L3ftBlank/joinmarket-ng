@@ -203,6 +203,20 @@ def read_history(
     return entries
 
 
+def _count_utxos(utxos_used: str) -> int:
+    """Count the number of UTXOs from a comma-separated utxos_used string.
+
+    Args:
+        utxos_used: Comma-separated string of "txid:vout" pairs
+
+    Returns:
+        Number of UTXOs (0 if empty)
+    """
+    if not utxos_used or not utxos_used.strip():
+        return 0
+    return len(utxos_used.split(","))
+
+
 def _compute_stats(entries: list[TransactionHistoryEntry]) -> dict[str, int | float]:
     """
     Compute aggregate statistics from a list of history entries.
@@ -217,10 +231,12 @@ def _compute_stats(entries: list[TransactionHistoryEntry]) -> dict[str, int | fl
         - taker_coinjoins: Number as taker
         - successful_coinjoins: Number of successful CoinJoins
         - failed_coinjoins: Number of failed CoinJoins
-        - total_volume: Total CJ amount in sats
+        - total_volume: Total CJ amount in sats (all requests)
+        - successful_volume: CJ amount in sats (successful only)
         - total_fees_earned: Total fees earned as maker
         - total_fees_paid: Total fees paid as taker
         - success_rate: Percentage of successful CoinJoins
+        - utxos_disclosed: Number of UTXOs disclosed to takers (via !ioauth)
     """
     if not entries:
         return {
@@ -230,9 +246,11 @@ def _compute_stats(entries: list[TransactionHistoryEntry]) -> dict[str, int | fl
             "successful_coinjoins": 0,
             "failed_coinjoins": 0,
             "total_volume": 0,
+            "successful_volume": 0,
             "total_fees_earned": 0,
             "total_fees_paid": 0,
             "success_rate": 0.0,
+            "utxos_disclosed": 0,
         }
 
     maker_entries = [e for e in entries if e.role == "maker"]
@@ -247,9 +265,11 @@ def _compute_stats(entries: list[TransactionHistoryEntry]) -> dict[str, int | fl
         "successful_coinjoins": len(successful),
         "failed_coinjoins": len(failed),
         "total_volume": sum(e.cj_amount for e in entries),
+        "successful_volume": sum(e.cj_amount for e in successful),
         "total_fees_earned": sum(e.fee_received for e in maker_entries),
         "total_fees_paid": sum(e.total_maker_fees_paid + e.mining_fee_paid for e in taker_entries),
         "success_rate": len(successful) / len(entries) * 100 if entries else 0.0,
+        "utxos_disclosed": sum(_count_utxos(e.utxos_used) for e in entries),
     }
 
 

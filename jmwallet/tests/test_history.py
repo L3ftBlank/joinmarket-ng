@@ -14,6 +14,7 @@ import pytest
 from jmwallet.backends.base import Transaction
 from jmwallet.history import (
     TransactionHistoryEntry,
+    _count_utxos,
     append_history_entry,
     cleanup_stale_pending_transactions,
     create_maker_history_entry,
@@ -222,6 +223,30 @@ class TestAppendAndReadHistory:
         assert entries == []
 
 
+class TestCountUtxos:
+    """Tests for _count_utxos helper."""
+
+    def test_empty_string(self) -> None:
+        """Test counting UTXOs from empty string."""
+        assert _count_utxos("") == 0
+
+    def test_whitespace_only(self) -> None:
+        """Test counting UTXOs from whitespace-only string."""
+        assert _count_utxos("  ") == 0
+
+    def test_single_utxo(self) -> None:
+        """Test counting a single UTXO."""
+        assert _count_utxos("aabb0011:0") == 1
+
+    def test_multiple_utxos(self) -> None:
+        """Test counting multiple UTXOs."""
+        assert _count_utxos("aabb0011:0,ccdd2233:1,eeff4455:2") == 3
+
+    def test_two_utxos(self) -> None:
+        """Test counting two UTXOs."""
+        assert _count_utxos("aabb0011:0,ccdd2233:1") == 2
+
+
 class TestHistoryStats:
     """Tests for aggregate statistics."""
 
@@ -232,6 +257,8 @@ class TestHistoryStats:
         assert stats["maker_coinjoins"] == 0
         assert stats["taker_coinjoins"] == 0
         assert stats["total_volume"] == 0
+        assert stats["successful_volume"] == 0
+        assert stats["utxos_disclosed"] == 0
 
     def test_stats_with_entries(self, temp_data_dir: Path) -> None:
         """Test stats with multiple entries."""
@@ -243,6 +270,7 @@ class TestHistoryStats:
             cj_amount=1_000_000,
             fee_received=500,
             success=True,
+            utxos_used="aabb0011:0,ccdd2233:1",
         )
         append_history_entry(maker_entry, temp_data_dir)
 
@@ -263,9 +291,11 @@ class TestHistoryStats:
         assert stats["maker_coinjoins"] == 1
         assert stats["taker_coinjoins"] == 1
         assert stats["total_volume"] == 3_000_000
+        assert stats["successful_volume"] == 3_000_000
         assert stats["total_fees_earned"] == 500
         assert stats["total_fees_paid"] == 1200
         assert stats["success_rate"] == 100.0
+        assert stats["utxos_disclosed"] == 2  # 2 UTXOs from maker entry
 
 
 class TestHistoryStatsForPeriod:
@@ -278,6 +308,8 @@ class TestHistoryStatsForPeriod:
         assert stats["successful_coinjoins"] == 0
         assert stats["failed_coinjoins"] == 0
         assert stats["total_volume"] == 0
+        assert stats["successful_volume"] == 0
+        assert stats["utxos_disclosed"] == 0
 
     def test_entries_within_period(self, temp_data_dir: Path) -> None:
         """Test that recent entries are included in the period."""
@@ -426,6 +458,87 @@ class TestHistoryStatsForPeriod:
         stats = get_history_stats_for_period(24, data_dir=temp_data_dir)
         assert stats["total_coinjoins"] == 1
         assert stats["total_volume"] == 1_000_000
+
+    def test_successful_volume_excludes_failed(self, temp_data_dir: Path) -> None:
+        """Test that successful_volume only includes successful entries."""
+        now = datetime.now()
+        recent_ts = (now - timedelta(hours=1)).isoformat()
+
+        # Add successful entry
+        success = TransactionHistoryEntry(
+            timestamp=recent_ts,
+            role="maker",
+            txid="success_tx" * 7,
+            cj_amount=1_000_000,
+            fee_received=500,
+            success=True,
+            utxos_used="aabb0011:0,ccdd2233:1",
+        )
+        append_history_entry(success, temp_data_dir)
+
+        # Add failed entry
+        failed = TransactionHistoryEntry(
+            timestamp=recent_ts,
+            role="maker",
+            txid="failed_tx1" * 7,
+            cj_amount=2_000_000,
+            success=False,
+            completed_at=recent_ts,
+            failure_reason="Taker timeout",
+            utxos_used="eeff4455:0",
+        )
+        append_history_entry(failed, temp_data_dir)
+
+        stats = get_history_stats_for_period(24, data_dir=temp_data_dir)
+        assert stats["total_coinjoins"] == 2
+        assert stats["total_volume"] == 3_000_000
+        assert stats["successful_volume"] == 1_000_000
+        assert stats["utxos_disclosed"] == 3  # 2 from success + 1 from failed
+
+    def test_utxos_disclosed_counts_all_entries(self, temp_data_dir: Path) -> None:
+        """Test that utxos_disclosed counts UTXOs from all entries (not just successful)."""
+        now = datetime.now()
+        recent_ts = (now - timedelta(hours=1)).isoformat()
+
+        # Entry with 3 UTXOs
+        entry1 = TransactionHistoryEntry(
+            timestamp=recent_ts,
+            role="maker",
+            txid="entry1_tx1" * 7,
+            cj_amount=500_000,
+            success=True,
+            utxos_used="aa:0,bb:1,cc:2",
+        )
+        append_history_entry(entry1, temp_data_dir)
+
+        # Entry with 1 UTXO (failed - UTXOs still disclosed)
+        entry2 = TransactionHistoryEntry(
+            timestamp=recent_ts,
+            role="maker",
+            txid="entry2_tx1" * 7,
+            cj_amount=300_000,
+            success=False,
+            completed_at=recent_ts,
+            failure_reason="Taker disappeared",
+            utxos_used="dd:0",
+        )
+        append_history_entry(entry2, temp_data_dir)
+
+        # Entry with no UTXOs recorded
+        entry3 = TransactionHistoryEntry(
+            timestamp=recent_ts,
+            role="maker",
+            txid="entry3_tx1" * 7,
+            cj_amount=200_000,
+            success=False,
+            completed_at=recent_ts,
+            failure_reason="Early failure",
+            utxos_used="",
+        )
+        append_history_entry(entry3, temp_data_dir)
+
+        stats = get_history_stats_for_period(24, data_dir=temp_data_dir)
+        assert stats["utxos_disclosed"] == 4  # 3 + 1 + 0
 
     """Tests for helper functions."""
 

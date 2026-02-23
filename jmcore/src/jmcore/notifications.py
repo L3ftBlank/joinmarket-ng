@@ -549,6 +549,8 @@ class Notifier:
         failed: int,
         total_earnings: int,
         total_volume: int,
+        successful_volume: int = 0,
+        utxos_disclosed: int = 0,
     ) -> bool:
         """
         Send a periodic summary notification with CoinJoin statistics.
@@ -559,7 +561,9 @@ class Notifier:
             successful: Number of successful CoinJoins
             failed: Number of failed CoinJoins
             total_earnings: Total fees earned in sats
-            total_volume: Total CoinJoin volume in sats
+            total_volume: Total CoinJoin volume in sats (all requests)
+            successful_volume: CoinJoin volume in sats (successful only)
+            utxos_disclosed: Number of UTXOs disclosed to takers
         """
         if not self.config.notify_summary:
             return False
@@ -575,7 +579,9 @@ class Notifier:
                 f"Failed: {failed}\n"
                 f"Success rate: {success_rate:.0f}%\n"
                 f"Earnings: {self._format_amount(total_earnings)}\n"
-                f"Volume: {self._format_amount(total_volume)}"
+                f"Volume: {self._format_amount(successful_volume)}"
+                f" / {self._format_amount(total_volume)}\n"
+                f"UTXOs disclosed: {utxos_disclosed}"
             )
 
         return await self._send(

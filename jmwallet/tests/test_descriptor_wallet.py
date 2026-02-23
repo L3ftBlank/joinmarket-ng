@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 from _jmwallet_test_helpers import (
     TEST_BOND_ADDRESS,
@@ -2157,3 +2158,360 @@ class TestDescriptorRangeUpgrade:
         # plus extended search, so allow up to 60 seconds
         # In the bug scenario (before fix), this would hang indefinitely
         assert elapsed < 60.0, f"Sync took too long: {elapsed:.2f}s (potential hang)"
+
+
+# =============================================================================
+# Wallet Auto-Reload Tests (Bitcoin Core restart resilience)
+# =============================================================================
+
+
+class TestWalletAutoReload:
+    """Tests for automatic wallet reload when Bitcoin Core restarts.
+
+    When Bitcoin Core is restarted, wallets are unloaded. The backend should
+    detect RPC error -18 and transparently reload the wallet, then retry.
+    """
+
+    @pytest.mark.asyncio
+    async def test_is_wallet_not_loaded_error_positive(self) -> None:
+        """Test that _is_wallet_not_loaded_error detects error -18."""
+        err = ValueError("RPC error -18: Requested wallet does not exist or is not loaded")
+        assert DescriptorWalletBackend._is_wallet_not_loaded_error(err) is True
+
+    @pytest.mark.asyncio
+    async def test_is_wallet_not_loaded_error_negative(self) -> None:
+        """Test that _is_wallet_not_loaded_error ignores other errors."""
+        err = ValueError("RPC error -1: Something else went wrong")
+        assert DescriptorWalletBackend._is_wallet_not_loaded_error(err) is False
+
+    @pytest.mark.asyncio
+    async def test_ensure_wallet_loaded_already_loaded(self) -> None:
+        """Test _ensure_wallet_loaded when wallet is already in listwallets."""
+        backend = DescriptorWalletBackend(wallet_name="test_wallet")
+        backend._wallet_loaded = True
+
+        calls: list[str] = []
+
+        async def mock_rpc(
+            method: str,
+            params: Any = None,
+            client: Any = None,
+            use_wallet: bool = True,
+        ) -> Any:
+            calls.append(method)
+            if method == "listwallets":
+                return ["test_wallet", "other_wallet"]
+            raise ValueError(f"Unexpected: {method}")
+
+        backend._rpc_call = mock_rpc  # type: ignore[method-assign]
+
+        result = await backend._ensure_wallet_loaded()
+
+        assert result is True
+        assert calls == ["listwallets"]
+
+    @pytest.mark.asyncio
+    async def test_ensure_wallet_loaded_reloads_after_restart(self) -> None:
+        """Test _ensure_wallet_loaded reloads wallet after Bitcoin Core restart."""
+        backend = DescriptorWalletBackend(wallet_name="test_wallet")
+        backend._wallet_loaded = True
+
+        calls: list[str] = []
+
+        async def mock_rpc(
+            method: str,
+            params: Any = None,
+            client: Any = None,
+            use_wallet: bool = True,
+        ) -> Any:
+            calls.append(method)
+            if method == "listwallets":
+                return []  # Wallet not loaded after restart
+            if method == "loadwallet":
+                return {"name": "test_wallet"}
+            raise ValueError(f"Unexpected: {method}")
+
+        backend._rpc_call = mock_rpc  # type: ignore[method-assign]
+
+        result = await backend._ensure_wallet_loaded()
+
+        assert result is True
+        assert calls == ["listwallets", "loadwallet"]
+
+    @pytest.mark.asyncio
+    async def test_ensure_wallet_loaded_fails_gracefully(self) -> None:
+        """Test _ensure_wallet_loaded when Bitcoin Core is unreachable."""
+        backend = DescriptorWalletBackend(wallet_name="test_wallet")
+        backend._wallet_loaded = True
+
+        async def mock_rpc(
+            method: str,
+            params: Any = None,
+            client: Any = None,
+            use_wallet: bool = True,
+        ) -> Any:
+            raise ConnectionError("Connection refused")
+
+        backend._rpc_call = mock_rpc  # type: ignore[method-assign]
+
+        result = await backend._ensure_wallet_loaded()
+
+        assert result is False
+        # _wallet_loaded should remain True so future calls still attempt RPC
+        assert backend._wallet_loaded is True
+
+    @pytest.mark.asyncio
+    async def test_rpc_call_retries_on_wallet_not_loaded(self) -> None:
+        """Test that _rpc_call automatically reloads wallet on error -18 and retries."""
+        backend = DescriptorWalletBackend(wallet_name="test_wallet")
+        backend._wallet_loaded = True
+
+        call_log: list[tuple[str, str]] = []  # (method, url_type)
+
+        async def mock_post(url: str, json: dict[str, Any]) -> Any:
+            method = json["method"]
+            url_type = "wallet" if "/wallet/" in url else "base"
+            call_log.append((method, url_type))
+
+            # First listunspent call: error -18 (wallet not loaded)
+            if method == "listunspent" and len([c for c in call_log if c[0] == "listunspent"]) == 1:
+                return _make_rpc_response(
+                    json["id"],
+                    error={
+                        "code": -18,
+                        "message": "Requested wallet does not exist or is not loaded",
+                    },
+                )
+
+            # listwallets for reload check
+            if method == "listwallets":
+                return _make_rpc_response(json["id"], result=[])
+
+            # loadwallet succeeds
+            if method == "loadwallet":
+                return _make_rpc_response(json["id"], result={"name": "test_wallet"})
+
+            # Retry listunspent succeeds
+            if method == "listunspent":
+                return _make_rpc_response(json["id"], result=[])
+
+            raise ValueError(f"Unexpected call: {method}")
+
+        backend.client = _make_mock_http_client(mock_post)
+
+        result = await backend._rpc_call("listunspent", [0, 9999999])
+
+        assert result == []
+        # Should have: listunspent (fail), listwallets, loadwallet, listunspent (success)
+        methods = [c[0] for c in call_log]
+        assert methods == ["listunspent", "listwallets", "loadwallet", "listunspent"]
+
+    @pytest.mark.asyncio
+    async def test_rpc_call_does_not_retry_non_wallet_errors(self) -> None:
+        """Test that non-wallet errors are raised immediately without retry."""
+        backend = DescriptorWalletBackend(wallet_name="test_wallet")
+        backend._wallet_loaded = True
+
+        call_count = 0
+
+        async def mock_post(url: str, json: dict[str, Any]) -> Any:
+            nonlocal call_count
+            call_count += 1
+            return _make_rpc_response(
+                json["id"],
+                error={"code": -1, "message": "Some other error"},
+            )
+
+        backend.client = _make_mock_http_client(mock_post)
+
+        with pytest.raises(ValueError, match="RPC error -1"):
+            await backend._rpc_call("listunspent", [0, 9999999])
+
+        # Should only call once (no retry)
+        assert call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_rpc_call_does_not_retry_non_wallet_scoped_calls(self) -> None:
+        """Test that use_wallet=False calls are not retried on error -18."""
+        backend = DescriptorWalletBackend(wallet_name="test_wallet")
+        backend._wallet_loaded = True
+
+        call_count = 0
+
+        async def mock_post(url: str, json: dict[str, Any]) -> Any:
+            nonlocal call_count
+            call_count += 1
+            return _make_rpc_response(
+                json["id"],
+                error={"code": -18, "message": "Wallet not loaded"},
+            )
+
+        backend.client = _make_mock_http_client(mock_post)
+
+        with pytest.raises(ValueError, match="RPC error -18"):
+            await backend._rpc_call("getblockchaininfo", use_wallet=False)
+
+        assert call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_rpc_call_retries_only_once(self) -> None:
+        """Test that the retry only happens once (no infinite loops)."""
+        backend = DescriptorWalletBackend(wallet_name="test_wallet")
+        backend._wallet_loaded = True
+
+        call_log: list[str] = []
+
+        async def mock_post(url: str, json: dict[str, Any]) -> Any:
+            method = json["method"]
+            call_log.append(method)
+
+            # Both listunspent calls return -18
+            if method == "listunspent":
+                return _make_rpc_response(
+                    json["id"],
+                    error={"code": -18, "message": "Wallet not loaded"},
+                )
+
+            # Reload appears to succeed
+            if method == "listwallets":
+                return _make_rpc_response(json["id"], result=[])
+            if method == "loadwallet":
+                return _make_rpc_response(json["id"], result={"name": "test_wallet"})
+
+            raise ValueError(f"Unexpected: {method}")
+
+        backend.client = _make_mock_http_client(mock_post)
+
+        with pytest.raises(ValueError, match="RPC error -18"):
+            await backend._rpc_call("listunspent", [0, 9999999])
+
+        # Should have: listunspent (fail), listwallets, loadwallet, listunspent (fail again)
+        assert call_log == ["listunspent", "listwallets", "loadwallet", "listunspent"]
+
+    @pytest.mark.asyncio
+    async def test_rpc_call_raises_original_error_when_reload_fails(self) -> None:
+        """Test that the original -18 error is raised when wallet reload fails."""
+        backend = DescriptorWalletBackend(wallet_name="test_wallet")
+        backend._wallet_loaded = True
+
+        async def mock_post(url: str, json: dict[str, Any]) -> Any:
+            method = json["method"]
+            if method == "listunspent":
+                return _make_rpc_response(
+                    json["id"],
+                    error={"code": -18, "message": "Wallet not loaded"},
+                )
+            if method == "listwallets":
+                return _make_rpc_response(json["id"], result=[])
+            if method == "loadwallet":
+                return _make_rpc_response(
+                    json["id"],
+                    error={"code": -18, "message": "Wallet file not found"},
+                )
+            raise ValueError(f"Unexpected: {method}")
+
+        backend.client = _make_mock_http_client(mock_post)
+
+        with pytest.raises(ValueError, match="RPC error -18: Wallet not loaded"):
+            await backend._rpc_call("listunspent", [0, 9999999])
+
+        # _wallet_loaded remains True for future retry attempts
+        assert backend._wallet_loaded is True
+
+    @pytest.mark.asyncio
+    async def test_get_utxos_recovers_after_bitcoind_restart(self) -> None:
+        """Integration-style test: get_utxos recovers after Bitcoin Core restart."""
+        backend = DescriptorWalletBackend(wallet_name="test_wallet")
+        backend._wallet_loaded = True
+
+        mock_utxos = [
+            {
+                "txid": "abc123",
+                "vout": 0,
+                "amount": 0.01,
+                "address": "bc1qtest",
+                "confirmations": 6,
+                "scriptPubKey": "0014...",
+            }
+        ]
+
+        first_attempt = True
+
+        async def mock_post(url: str, json: dict[str, Any]) -> Any:
+            nonlocal first_attempt
+            method = json["method"]
+
+            if method == "getblockchaininfo":
+                return _make_rpc_response(json["id"], result={"blocks": 1000})
+
+            if method == "listunspent":
+                if first_attempt:
+                    first_attempt = False
+                    return _make_rpc_response(
+                        json["id"],
+                        error={
+                            "code": -18,
+                            "message": "Requested wallet does not exist or is not loaded",
+                        },
+                    )
+                return _make_rpc_response(json["id"], result=mock_utxos)
+
+            if method == "listwallets":
+                return _make_rpc_response(json["id"], result=[])
+            if method == "loadwallet":
+                return _make_rpc_response(json["id"], result={"name": "test_wallet"})
+
+            raise ValueError(f"Unexpected: {method}")
+
+        backend.client = _make_mock_http_client(mock_post)
+
+        utxos = await backend.get_utxos([])
+
+        assert len(utxos) == 1
+        assert utxos[0].txid == "abc123"
+        assert utxos[0].value == 1_000_000
+
+
+# ---------------------------------------------------------------------------
+# Helpers for TestWalletAutoReload
+# ---------------------------------------------------------------------------
+
+
+class _MockResponse:
+    """Minimal mock for httpx.Response."""
+
+    def __init__(self, data: dict[str, Any], status_code: int = 200) -> None:
+        self._data = data
+        self.status_code = status_code
+
+    def json(self) -> dict[str, Any]:
+        return self._data
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise httpx.HTTPStatusError(
+                f"HTTP {self.status_code}",
+                request=httpx.Request("POST", "http://localhost"),
+                response=self,  # type: ignore[arg-type]
+            )
+
+
+def _make_rpc_response(
+    request_id: int,
+    result: Any = None,
+    error: dict[str, Any] | None = None,
+) -> _MockResponse:
+    """Create a mock RPC JSON response."""
+    data: dict[str, Any] = {"jsonrpc": "2.0", "id": request_id}
+    if error:
+        data["error"] = error
+        return _MockResponse(data, status_code=500)
+    data["result"] = result
+    return _MockResponse(data)
+
+
+def _make_mock_http_client(post_fn: Any) -> Any:
+    """Create a mock httpx.AsyncClient with the given post function."""
+    client = AsyncMock(spec=httpx.AsyncClient)
+    client.post = post_fn
+    return client

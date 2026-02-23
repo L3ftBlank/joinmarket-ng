@@ -115,6 +115,43 @@ class DescriptorWalletBackend(BlockchainBackend):
         """Get the RPC URL for wallet-specific calls."""
         return f"{self.rpc_url}/wallet/{self.wallet_name}"
 
+    @staticmethod
+    def _is_wallet_not_loaded_error(error: ValueError) -> bool:
+        """Check if an RPC error indicates the wallet is not loaded (error -18)."""
+        error_str = str(error)
+        return "RPC error -18" in error_str
+
+    async def _ensure_wallet_loaded(self) -> bool:
+        """
+        Ensure the wallet is loaded in Bitcoin Core.
+
+        This handles the case where Bitcoin Core has been restarted and the
+        wallet is no longer loaded. It checks listwallets first and attempts
+        loadwallet if needed.
+
+        Note: this intentionally does NOT set ``_wallet_loaded = False`` on
+        failure. The flag means "the wallet was set up in this session" and
+        should remain True so that future calls still attempt wallet-scoped
+        RPC (which will trigger another reload attempt). Setting it to False
+        would cause early returns in get_utxos/get_descriptor_ranges that
+        silently skip all RPC, preventing recovery on the next rescan cycle.
+
+        Returns:
+            True if the wallet is loaded (or was successfully reloaded)
+        """
+        try:
+            wallets = await self._rpc_call("listwallets", use_wallet=False)
+            if self.wallet_name in wallets:
+                return True
+
+            # Wallet not in list -- attempt to load it
+            await self._rpc_call("loadwallet", [self.wallet_name], use_wallet=False)
+            logger.info(f"Reloaded wallet '{self.wallet_name}' after Bitcoin Core restart")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to reload wallet '{self.wallet_name}': {e}")
+            return False
+
     async def _rpc_call(
         self,
         method: str,
@@ -125,11 +162,43 @@ class DescriptorWalletBackend(BlockchainBackend):
         """
         Make an RPC call to Bitcoin Core.
 
+        If a wallet-scoped call fails with RPC error -18 (wallet not loaded),
+        automatically attempts to reload the wallet and retries the call once.
+        This handles Bitcoin Core restarts transparently.
+
         Args:
             method: RPC method name
             params: Method parameters
             client: Optional httpx client (uses default client if not provided)
             use_wallet: If True, use wallet-specific URL
+
+        Returns:
+            RPC result
+
+        Raises:
+            ValueError: On RPC errors
+            httpx.HTTPError: On connection/timeout errors
+        """
+        result = await self._rpc_call_inner(method, params, client, use_wallet)
+        return result
+
+    async def _rpc_call_inner(
+        self,
+        method: str,
+        params: list | None = None,
+        client: httpx.AsyncClient | None = None,
+        use_wallet: bool = True,
+        _retried: bool = False,
+    ) -> Any:
+        """
+        Internal RPC call implementation with automatic wallet reload on error -18.
+
+        Args:
+            method: RPC method name
+            params: Method parameters
+            client: Optional httpx client (uses default client if not provided)
+            use_wallet: If True, use wallet-specific URL
+            _retried: Internal flag to prevent infinite retry loops
 
         Returns:
             RPC result
@@ -175,7 +244,23 @@ class DescriptorWalletBackend(BlockchainBackend):
         except httpx.TimeoutException as e:
             logger.error(f"RPC call timed out: {method} - {e}")
             raise
-        except ValueError:
+        except ValueError as e:
+            # If this is a wallet-not-loaded error on a wallet-scoped call,
+            # try to reload the wallet and retry once
+            if (
+                use_wallet
+                and self._wallet_loaded
+                and not _retried
+                and self._is_wallet_not_loaded_error(e)
+            ):
+                logger.warning(
+                    f"Wallet '{self.wallet_name}' not loaded in Bitcoin Core "
+                    f"(detected during '{method}' call), attempting to reload..."
+                )
+                if await self._ensure_wallet_loaded():
+                    return await self._rpc_call_inner(
+                        method, params, client, use_wallet, _retried=True
+                    )
             # Re-raise ValueError (RPC errors) as-is
             raise
         except httpx.HTTPError as e:

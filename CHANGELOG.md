@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Wallet Not Reloaded After Bitcoin Core Restart**: When Bitcoin Core restarts while a maker (or taker) is running, the descriptor wallet is unloaded. All subsequent wallet RPC calls (`listunspent`, `listdescriptors`, etc.) fail with error -18 ("Requested wallet does not exist or is not loaded"), causing the wallet to report zero balance and reject CoinJoin requests. The `_rpc_call` method now detects error -18 on wallet-scoped calls, transparently reloads the wallet via `loadwallet`, and retries the failed call once. This makes both periodic rescans and in-flight CoinJoin requests resilient to Bitcoin Core restarts.
+
 ### Added
 
 - **Cold Wallet Bond Spending (`spend-bond`)**: New CLI command to generate a PSBT (BIP-174) for spending cold storage fidelity bonds after locktime expires. The PSBT includes the CLTV witness script metadata so hardware wallets (via Sparrow) can sign without understanding the timelock script natively. Implements PSBT serialization from scratch in `jmcore/bitcoin.py`. Usage: `jm-wallet spend-bond <bond-address> <destination> --fee-rate 2.0`, then import the base64 PSBT into Sparrow for signing and broadcasting.

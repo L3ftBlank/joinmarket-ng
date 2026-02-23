@@ -633,10 +633,18 @@ For maximum security, keep the bond UTXO private key on a hardware wallet:
 After locktime expires:
 
 ```bash
+# Hot wallet (has private keys):
 jm-wallet send <destination> --mixdepth 0 --amount 0  # Sweep
+
+# Cold wallet (hardware wallet via Sparrow):
+jm-wallet spend-bond <bond-address> <destination> --fee-rate 2.0
+# Import the PSBT into Sparrow (File -> Open Transaction -> From Text)
+# Sign with hardware wallet, then broadcast from Sparrow
 ```
 
-The wallet automatically handles P2WSH witness construction and nLockTime.
+The hot wallet path automatically handles P2WSH witness construction and nLockTime.
+The cold wallet path generates a PSBT (BIP-174) containing the witness script and CLTV
+metadata so Sparrow (or any PSBT-compatible signer) can produce a valid signature.
 
 **Note:** P2WSH fidelity bond UTXOs cannot be used in CoinJoins.
 

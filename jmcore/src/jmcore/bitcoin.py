@@ -1185,3 +1185,151 @@ def calculate_tx_vsize(tx_bytes: bytes) -> int:
     else:
         # Legacy transaction - vsize equals byte size
         return total_size
+
+
+# =============================================================================
+# PSBT (BIP-174) Serialization
+# =============================================================================
+
+# PSBT magic bytes: "psbt" in ASCII + 0xff separator
+PSBT_MAGIC = b"\x70\x73\x62\x74\xff"
+
+# Global types
+PSBT_GLOBAL_UNSIGNED_TX = 0x00
+
+# Per-input types
+PSBT_IN_WITNESS_UTXO = 0x01
+PSBT_IN_WITNESS_SCRIPT = 0x05
+PSBT_IN_SIGHASH_TYPE = 0x03
+
+
+def _serialize_psbt_key(key_type: int, key_data: bytes = b"") -> bytes:
+    """Serialize a PSBT key (type byte + optional key data) with length prefix.
+
+    BIP-174 format: <varint key-len> <key-type> [<key-data>]
+    """
+    key_bytes = bytes([key_type]) + key_data
+    return encode_varint(len(key_bytes)) + key_bytes
+
+
+def _serialize_psbt_value(value: bytes) -> bytes:
+    """Serialize a PSBT value with length prefix.
+
+    BIP-174 format: <varint value-len> <value>
+    """
+    return encode_varint(len(value)) + value
+
+
+def _serialize_psbt_pair(key_type: int, value: bytes, key_data: bytes = b"") -> bytes:
+    """Serialize a single PSBT key-value pair."""
+    return _serialize_psbt_key(key_type, key_data) + _serialize_psbt_value(value)
+
+
+# Separator byte marking end of a PSBT map
+PSBT_SEPARATOR = b"\x00"
+
+
+@dataclass
+class PSBTInput:
+    """Data needed for a PSBT per-input map.
+
+    Attributes:
+        witness_utxo_value: Value of the UTXO in satoshis.
+        witness_utxo_script: scriptPubKey of the UTXO (e.g. P2WSH 34-byte script).
+        witness_script: The full witness script (redeem script) for P2WSH inputs.
+        sighash_type: Sighash type (default SIGHASH_ALL = 0x01).
+    """
+
+    witness_utxo_value: int
+    witness_utxo_script: bytes
+    witness_script: bytes
+    sighash_type: int = 1
+
+
+def create_psbt(
+    version: int,
+    inputs: list[TxInput],
+    outputs: list[TxOutput],
+    locktime: int,
+    psbt_inputs: list[PSBTInput],
+) -> bytes:
+    """Create a PSBT (BIP-174) from unsigned transaction components.
+
+    Builds a complete PSBT with:
+    - Global map: the unsigned transaction (no witness data, empty scriptSigs)
+    - Per-input maps: WITNESS_UTXO, WITNESS_SCRIPT, SIGHASH_TYPE
+    - Per-output maps: empty (no metadata needed for spending)
+
+    The resulting PSBT can be imported into hardware wallet software
+    (e.g. Sparrow, Coldcard) for signing.
+
+    Args:
+        version: Transaction version (typically 2).
+        inputs: Transaction inputs (empty scriptSigs, appropriate sequences).
+        outputs: Transaction outputs.
+        locktime: Transaction nLockTime.
+        psbt_inputs: Per-input metadata for the PSBT.
+
+    Returns:
+        Serialized PSBT bytes.
+
+    Raises:
+        ValueError: If inputs and psbt_inputs lengths don't match.
+    """
+    if len(inputs) != len(psbt_inputs):
+        raise ValueError(
+            f"inputs ({len(inputs)}) and psbt_inputs ({len(psbt_inputs)}) must have the same length"
+        )
+
+    # 1. Serialize the unsigned transaction (no witness)
+    unsigned_tx = serialize_transaction(
+        version=version,
+        inputs=inputs,
+        outputs=outputs,
+        locktime=locktime,
+        witnesses=None,
+    )
+
+    # 2. Build global map
+    result = bytearray(PSBT_MAGIC)
+    result.extend(_serialize_psbt_pair(PSBT_GLOBAL_UNSIGNED_TX, unsigned_tx))
+    result.extend(PSBT_SEPARATOR)
+
+    # 3. Build per-input maps
+    for pi in psbt_inputs:
+        # PSBT_IN_WITNESS_UTXO: serialized as <value 8-byte LE> + <varint scriptlen> + <script>
+        witness_utxo = (
+            struct.pack("<Q", pi.witness_utxo_value)
+            + encode_varint(len(pi.witness_utxo_script))
+            + pi.witness_utxo_script
+        )
+        result.extend(_serialize_psbt_pair(PSBT_IN_WITNESS_UTXO, witness_utxo))
+
+        # PSBT_IN_SIGHASH_TYPE: 4-byte LE uint32
+        sighash_bytes = struct.pack("<I", pi.sighash_type)
+        result.extend(_serialize_psbt_pair(PSBT_IN_SIGHASH_TYPE, sighash_bytes))
+
+        # PSBT_IN_WITNESS_SCRIPT: the full witness script
+        result.extend(_serialize_psbt_pair(PSBT_IN_WITNESS_SCRIPT, pi.witness_script))
+
+        result.extend(PSBT_SEPARATOR)
+
+    # 4. Build per-output maps (empty for each output)
+    for _ in outputs:
+        result.extend(PSBT_SEPARATOR)
+
+    return bytes(result)
+
+
+def psbt_to_base64(psbt_bytes: bytes) -> str:
+    """Encode PSBT bytes as base64 string (standard PSBT exchange format).
+
+    Args:
+        psbt_bytes: Raw PSBT bytes.
+
+    Returns:
+        Base64-encoded PSBT string.
+    """
+    import base64 as b64
+
+    return b64.b64encode(psbt_bytes).decode("ascii")

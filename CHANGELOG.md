@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Cold Wallet Bond Spending (`spend-bond`)**: New CLI command to generate a PSBT (BIP-174) for spending cold storage fidelity bonds after locktime expires. The PSBT includes the CLTV witness script metadata so hardware wallets (via Sparrow) can sign without understanding the timelock script natively. Implements PSBT serialization from scratch in `jmcore/bitcoin.py`. Usage: `jm-wallet spend-bond <bond-address> <destination> --fee-rate 2.0`, then import the base64 PSBT into Sparrow for signing and broadcasting.
+
 ## [0.15.0] - 2026-02-14
 
 ### Fixed

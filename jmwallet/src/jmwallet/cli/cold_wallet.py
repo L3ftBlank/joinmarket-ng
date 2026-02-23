@@ -1,11 +1,13 @@
 """
 Cold wallet workflow: create-bond-address, generate-hot-keypair,
-prepare-certificate-message, import-certificate + crypto verification helpers.
+prepare-certificate-message, import-certificate, spend-bond
++ crypto verification helpers.
 """
 
 from __future__ import annotations
 
 import base64
+import math
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated
@@ -823,4 +825,224 @@ def import_certificate(
     print("NEXT STEPS:")
     print("  The maker bot will automatically use this certificate when creating")
     print("  fidelity bond proofs. Your cold wallet private key is never needed!")
+    print("=" * 80 + "\n")
+
+
+@app.command("spend-bond")
+def spend_bond(
+    bond_address: Annotated[str, typer.Argument(help="Bond P2WSH address to spend")],
+    destination: Annotated[str, typer.Argument(help="Destination address for the funds")],
+    fee_rate: Annotated[
+        float,
+        typer.Option("--fee-rate", "-f", help="Fee rate in sat/vB"),
+    ] = 1.0,
+    output_file: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help="Save PSBT to file (default: stdout only)"),
+    ] = None,
+    data_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--data-dir",
+            help="Data directory (default: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR)",
+        ),
+    ] = None,
+    log_level: Annotated[str, typer.Option("--log-level", "-l")] = "INFO",
+) -> None:
+    """
+    Generate a PSBT to spend a cold storage fidelity bond after locktime expires.
+
+    This creates a Partially Signed Bitcoin Transaction (PSBT) that can be imported
+    into Sparrow Wallet or another signing tool connected to your hardware wallet.
+    The PSBT includes the witness script needed to satisfy the CLTV timelock.
+
+    REQUIREMENTS:
+    - The bond must exist in the registry (created with 'create-bond-address')
+    - The bond must be funded (use 'registry-sync' to update UTXO info)
+    - The locktime must have expired (or be close enough for your use case)
+
+    WORKFLOW:
+    1. Run this command to generate the PSBT
+    2. Import the PSBT into Sparrow Wallet (File -> Open Transaction -> From Text)
+    3. Sign with your hardware wallet
+    4. Broadcast the signed transaction from Sparrow
+
+    NOTE: Sparrow does not natively understand the CLTV timelock script, but it
+    CAN sign PSBTs that include the witness script. The PSBT format provides all
+    the information needed for the hardware wallet to produce a valid signature.
+    """
+    setup_logging(log_level)
+
+    from jmcore.bitcoin import (
+        PSBTInput,
+        TxInput,
+        TxOutput,
+        address_to_scriptpubkey,
+        create_psbt,
+        estimate_vsize,
+        format_amount,
+        get_address_type,
+        psbt_to_base64,
+        script_to_p2wsh_scriptpubkey,
+    )
+    from jmcore.paths import get_default_data_dir
+
+    from jmwallet.wallet.bond_registry import load_registry
+
+    # Resolve data directory
+    resolved_data_dir = data_dir if data_dir else get_default_data_dir()
+    registry = load_registry(resolved_data_dir)
+
+    # Find bond in registry
+    bond = registry.get_bond_by_address(bond_address)
+    if not bond:
+        logger.error(f"Bond not found for address: {bond_address}")
+        logger.info("Make sure you have created the bond with 'create-bond-address' first")
+        logger.info("Use 'jm-wallet registry-list' to see all bonds")
+        raise typer.Exit(1)
+
+    # Validate bond is funded
+    if not bond.is_funded:
+        logger.error("Bond is not funded (no UTXO info)")
+        logger.info(
+            "Use 'jm-wallet registry-sync' to update UTXO info from the blockchain, "
+            "or manually fund the bond address first"
+        )
+        raise typer.Exit(1)
+
+    assert bond.txid is not None
+    assert bond.vout is not None
+    assert bond.value is not None
+
+    # Warn if locktime hasn't expired yet
+    import time
+
+    current_time = int(time.time())
+    if bond.locktime > current_time:
+        remaining_days = (bond.locktime - current_time) / 86400
+        logger.warning(
+            f"Bond locktime has NOT expired yet! "
+            f"Expires in {remaining_days:.1f} days "
+            f"({datetime.fromtimestamp(bond.locktime).strftime('%Y-%m-%d')})"
+        )
+        logger.warning(
+            "The PSBT will be created anyway, but the transaction CANNOT be "
+            "broadcast until the locktime has passed."
+        )
+
+    # Validate fee rate
+    if fee_rate <= 0:
+        logger.error("Fee rate must be positive")
+        raise typer.Exit(1)
+
+    # Validate destination address
+    try:
+        dest_scriptpubkey = address_to_scriptpubkey(destination)
+    except ValueError as e:
+        logger.error(f"Invalid destination address: {e}")
+        raise typer.Exit(1)
+
+    # Estimate transaction size for fee calculation
+    # P2WSH input -> single output (no change since we sweep the whole bond)
+    try:
+        dest_type = get_address_type(destination)
+    except ValueError:
+        logger.warning(f"Could not determine address type for {destination}, assuming p2wpkh")
+        dest_type = "p2wpkh"
+
+    estimated_vsize = estimate_vsize(["p2wsh"], [dest_type])
+    estimated_fee = math.ceil(estimated_vsize * fee_rate)
+
+    send_amount = bond.value - estimated_fee
+    if send_amount <= 0:
+        logger.error(
+            f"Bond value ({format_amount(bond.value)}) is too small to cover "
+            f"the fee ({format_amount(estimated_fee)} at {fee_rate:.1f} sat/vB)"
+        )
+        raise typer.Exit(1)
+
+    if send_amount < 546:
+        logger.error(
+            f"Output amount ({format_amount(send_amount)}) is below dust threshold (546 sats)"
+        )
+        raise typer.Exit(1)
+
+    # Reconstruct the witness script and P2WSH scriptPubKey
+    witness_script = bytes.fromhex(bond.witness_script_hex)
+    p2wsh_scriptpubkey = script_to_p2wsh_scriptpubkey(witness_script)
+
+    # Build the unsigned transaction components
+    tx_input = TxInput.from_hex(
+        txid=bond.txid,
+        vout=bond.vout,
+        # Sequence must be < 0xFFFFFFFF to enable nLockTime checking
+        sequence=0xFFFFFFFE,
+        value=bond.value,
+        scriptpubkey=p2wsh_scriptpubkey.hex(),
+    )
+    tx_output = TxOutput(value=send_amount, script=dest_scriptpubkey)
+
+    # Create PSBT input metadata
+    psbt_input = PSBTInput(
+        witness_utxo_value=bond.value,
+        witness_utxo_script=p2wsh_scriptpubkey,
+        witness_script=witness_script,
+        sighash_type=1,  # SIGHASH_ALL
+    )
+
+    # Create the PSBT
+    psbt_bytes = create_psbt(
+        version=2,
+        inputs=[tx_input],
+        outputs=[tx_output],
+        locktime=bond.locktime,
+        psbt_inputs=[psbt_input],
+    )
+
+    psbt_base64 = psbt_to_base64(psbt_bytes)
+
+    # Save to file if requested
+    if output_file:
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text(psbt_base64)
+        logger.info(f"PSBT saved to: {output_file}")
+
+    # Display results
+    locktime_dt = datetime.fromtimestamp(bond.locktime)
+
+    print("\n" + "=" * 80)
+    print("SPEND BOND PSBT")
+    print("=" * 80)
+    print(f"\nBond Address:     {bond_address}")
+    print(f"Bond UTXO:        {bond.txid}:{bond.vout}")
+    print(f"Bond Value:       {format_amount(bond.value)}")
+    print(f"Locktime:         {bond.locktime} ({locktime_dt.strftime('%Y-%m-%d')})")
+    print(f"\nDestination:      {destination}")
+    print(f"Send Amount:      {format_amount(send_amount)}")
+    print(f"Fee:              {format_amount(estimated_fee)} ({fee_rate:.1f} sat/vB)")
+    print(f"Estimated vsize:  {estimated_vsize} vB")
+    print("\n" + "-" * 80)
+    print("PSBT (base64) -- copy this into Sparrow:")
+    print("-" * 80)
+    print(psbt_base64)
+    print("-" * 80)
+    if output_file:
+        print(f"\nSaved to: {output_file}")
+    print("\n" + "=" * 80)
+    print("HOW TO SIGN AND BROADCAST:")
+    print("=" * 80)
+    print()
+    print("Sparrow Wallet:")
+    print("  1. File -> Open Transaction -> From Text")
+    print("  2. Paste the PSBT base64 above")
+    print("  3. Connect your hardware wallet")
+    print("  4. Click 'Finalize Transaction for Signing'")
+    print("  5. Click 'Sign' and confirm on hardware wallet")
+    print("  6. Click 'Broadcast Transaction'")
+    print()
+    if bond.locktime > current_time:
+        print("WARNING: The locktime has NOT expired yet!")
+        print("  You can sign the PSBT now, but broadcasting will fail until")
+        print(f"  {locktime_dt.strftime('%Y-%m-%d %H:%M:%S')} UTC")
+        print()
     print("=" * 80 + "\n")

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-02-24
+
 ### Added
 
 - **Enhanced Periodic Summary Stats**: The periodic summary notification and CLI `history --stats` now include:
@@ -928,7 +930,8 @@ Releases prior to these changes (including 0.13.5, 0.13.6, and 0.13.7) cannot be
 - Pre-built image support for directory server compose.
 - Tor configuration instructions.
 
-[Unreleased]: ../../compare/0.15.0...HEAD
+[Unreleased]: ../../compare/0.16.0...HEAD
+[0.16.0]: ../../compare/0.15.0...0.16.0
 [0.15.0]: ../../compare/0.14.0...0.15.0
 [0.14.0]: ../../compare/0.13.12...0.14.0
 [0.13.12]: ../../compare/0.13.11...0.13.12

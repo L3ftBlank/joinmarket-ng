@@ -1,6 +1,6 @@
 # JoinMarket-NG Configuration
 # Uncomment and modify settings as needed. Defaults are sensible for most users.
-# See: https://github.com/m0wer/joinmarket-ng/blob/master/DOCS.md
+# See: https://github.com/joinmarket-ng/joinmarket-ng/blob/master/DOCS.md
 
 # ============================================================================
 # Core Settings
@@ -282,7 +282,7 @@
 # health_check_port = 8080
 
 # Message of the day
-# motd = "JoinMarket NG Directory Server https://github.com/m0wer/joinmarket-ng/"
+# motd = "JoinMarket NG Directory Server https://github.com/joinmarket-ng/joinmarket-ng/"
 
 # ============================================================================
 # Orderbook Watcher Settings

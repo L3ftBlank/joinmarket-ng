@@ -24,7 +24,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 REGISTRY="ghcr.io"
-REPO="m0wer/joinmarket-ng"  # Update this with your actual repo
+REPO="joinmarket-ng/joinmarket-ng"
 
 # Colors for output
 RED='\033[0;31m'

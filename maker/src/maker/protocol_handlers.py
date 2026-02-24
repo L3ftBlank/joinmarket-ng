@@ -588,7 +588,6 @@ class ProtocolHandlersMixin:
                     # - The taker disappears after receiving !ioauth
                     # - The program crashes after sending !ioauth
                     # - The taker sends invalid !tx and we reject it
-                    # See: https://github.com/m0wer/joinmarket-ng/issues/XXX
                     try:
                         our_utxos = list(session.our_utxos.keys())
                         # Use 0 for fees since we haven't signed yet - will be updated

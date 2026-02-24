@@ -30,7 +30,7 @@ Complete guide for installing JoinMarket-NG on Linux, macOS, and Raspberry Pi.
 **One-line install** (Linux/macOS):
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/m0wer/joinmarket-ng/master/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/master/install.sh | bash
 ```
 
 The installer will:
@@ -44,16 +44,16 @@ The installer will:
 
 ```bash
 # Maker only
-curl -sSL https://raw.githubusercontent.com/m0wer/joinmarket-ng/master/install.sh | bash -s -- --maker
+curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/master/install.sh | bash -s -- --maker
 
 # Taker only
-curl -sSL https://raw.githubusercontent.com/m0wer/joinmarket-ng/master/install.sh | bash -s -- --taker
+curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/master/install.sh | bash -s -- --taker
 
 # Specific version
-curl -sSL https://raw.githubusercontent.com/m0wer/joinmarket-ng/master/install.sh | bash -s -- --version 0.9.0
+curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/master/install.sh | bash -s -- --version 0.9.0
 
 # Skip Tor (configure manually)
-curl -sSL https://raw.githubusercontent.com/m0wer/joinmarket-ng/master/install.sh | bash -s -- --skip-tor
+curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/master/install.sh | bash -s -- --skip-tor
 ```
 
 ### After Installation
@@ -68,10 +68,10 @@ source ~/.joinmarket-ng/activate.sh
 
 ```bash
 # Latest version
-curl -sSL https://raw.githubusercontent.com/m0wer/joinmarket-ng/master/install.sh | bash -s -- --update
+curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/master/install.sh | bash -s -- --update
 
 # Specific version
-curl -sSL https://raw.githubusercontent.com/m0wer/joinmarket-ng/master/install.sh | bash -s -- --update --version 0.9.0
+curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/master/install.sh | bash -s -- --update --version 0.9.0
 ```
 
 Restart any running maker/taker processes after updating.
@@ -101,7 +101,7 @@ brew install libsodium pkg-config python3
 ### Clone and Install
 
 ```bash
-git clone https://github.com/m0wer/joinmarket-ng.git
+git clone https://github.com/joinmarket-ng/joinmarket-ng.git
 cd joinmarket-ng
 
 # Create virtual environment
@@ -458,7 +458,7 @@ Some dependencies (like `coincurve`) compile from source. This is normal, especi
 Download and run manually:
 
 ```bash
-curl -o install.sh https://raw.githubusercontent.com/m0wer/joinmarket-ng/master/install.sh
+curl -o install.sh https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/master/install.sh
 chmod +x install.sh
 ./install.sh
 ```
@@ -470,7 +470,7 @@ chmod +x install.sh
 For production or isolated environments:
 
 ```bash
-git clone https://github.com/m0wer/joinmarket-ng.git
+git clone https://github.com/joinmarket-ng/joinmarket-ng.git
 cd joinmarket-ng
 
 # Maker

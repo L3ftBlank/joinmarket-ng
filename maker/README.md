@@ -7,7 +7,7 @@ Earn fees by providing liquidity for CoinJoin transactions. Makers passively ear
 Install JoinMarket-NG with the maker component:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/m0wer/joinmarket-ng/master/install.sh | bash -s -- --maker
+curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/master/install.sh | bash -s -- --maker
 ```
 
 See [INSTALL.md](../INSTALL.md) for complete installation instructions including:

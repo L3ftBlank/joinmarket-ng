@@ -20,7 +20,7 @@ VERSION = __version__
 
 logger = logging.getLogger(__name__)
 
-GITHUB_RELEASES_URL = "https://api.github.com/repos/m0wer/joinmarket-ng/releases/latest"
+GITHUB_RELEASES_URL = "https://api.github.com/repos/joinmarket-ng/joinmarket-ng/releases/latest"
 
 
 def get_version() -> str:

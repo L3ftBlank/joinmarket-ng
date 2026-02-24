@@ -7,7 +7,7 @@
 Modern implementation of [JoinMarket](https://github.com/JoinMarket-Org/joinmarket-clientserver/) - decentralized Bitcoin privacy through CoinJoin.
 
 - Live orderbook: https://joinmarket-ng.sgn.space/
-- Live docs: https://m0wer.github.io/joinmarket-ng/
+- Live docs: https://joinmarket-ng.github.io/joinmarket-ng/
 
 ## What It Is
 
@@ -26,7 +26,7 @@ Modern implementation of [JoinMarket](https://github.com/JoinMarket-Org/joinmark
 **Install** (Linux/macOS):
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/m0wer/joinmarket-ng/master/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/master/install.sh | bash
 ```
 
 **Configure** (`~/.joinmarket-ng/config.toml`):

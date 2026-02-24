@@ -311,7 +311,7 @@ class DirectoryServerConfig(BaseModel):
 
     # Server info
     motd: str = Field(
-        default="JoinMarket Directory Server https://github.com/m0wer/joinmarket-ng",
+        default="JoinMarket Directory Server https://github.com/joinmarket-ng/joinmarket-ng",
         description="Message of the day sent to clients",
     )
 

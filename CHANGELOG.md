@@ -598,7 +598,7 @@ Releases prior to these changes (including 0.13.5, 0.13.6, and 0.13.7) cannot be
   - Improves CoinJoin success rate when some makers are unresponsive or drop out
 
 - **Simplified Installation**: New one-line installation with automatic updates.
-  - Install: `curl -sSL https://raw.githubusercontent.com/m0wer/joinmarket-ng/master/install.sh | bash`
+  - Install: `curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/master/install.sh | bash`
   - Update: `curl -sSL ... | bash -s -- --update`
   - Installs from tagged releases via pip (no git clone required)
   - Creates shell integration at `~/.joinmarket-ng/activate.sh`

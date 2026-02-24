@@ -26,6 +26,10 @@ class TorConfig(BaseModel):
 
     socks_host: str = Field(default="127.0.0.1", description="Tor SOCKS5 proxy host address")
     socks_port: int = Field(default=9050, ge=1, le=65535, description="Tor SOCKS5 proxy port")
+    stream_isolation: bool = Field(
+        default=True,
+        description="Isolate connection types onto separate Tor circuits via SOCKS5 auth",
+    )
 
     model_config = {"frozen": False}
 
@@ -193,6 +197,10 @@ class WalletConfig(BaseModel):
     # Tor/SOCKS configuration
     socks_host: str = Field(default="127.0.0.1", description="Tor SOCKS5 proxy host")
     socks_port: int = Field(default=9050, ge=1, le=65535, description="Tor SOCKS5 proxy port")
+    stream_isolation: bool = Field(
+        default=True,
+        description="Isolate connection types onto separate Tor circuits via SOCKS5 auth",
+    )
     connection_timeout: float = Field(
         default=120.0,
         gt=0.0,

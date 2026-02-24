@@ -107,6 +107,7 @@ class Taker(TakerMonitoringMixin):
             socks_port=config.socks_port,
             connection_timeout=config.connection_timeout,
             neutrino_compat=neutrino_compat,
+            stream_isolation=config.stream_isolation,
         )
 
         # Orderbook manager

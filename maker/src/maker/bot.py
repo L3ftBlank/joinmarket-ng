@@ -528,6 +528,18 @@ class MakerBot(BackgroundTasksMixin, ProtocolHandlersMixin, DirectConnectionMixi
                     neutrino_compat = self.backend.can_provide_neutrino_metadata()
 
                     # Create DirectoryClient with SOCKS config for Tor connections
+                    dir_username: str | None = None
+                    dir_password: str | None = None
+                    if self.config.stream_isolation:
+                        from jmcore.tor_isolation import (
+                            IsolationCategory,
+                            get_isolation_credentials,
+                        )
+
+                        dir_creds = get_isolation_credentials(IsolationCategory.DIRECTORY)
+                        dir_username = dir_creds.username
+                        dir_password = dir_creds.password
+
                     client = DirectoryClient(
                         host=host,
                         port=port,
@@ -538,6 +550,8 @@ class MakerBot(BackgroundTasksMixin, ProtocolHandlersMixin, DirectConnectionMixi
                         socks_port=self.config.socks_port,
                         timeout=self.config.connection_timeout,
                         neutrino_compat=neutrino_compat,
+                        socks_username=dir_username,
+                        socks_password=dir_password,
                     )
 
                     await client.connect()

@@ -162,6 +162,8 @@ class DirectoryClient:
         on_disconnect: Callable[[], None] | None = None,
         neutrino_compat: bool = False,
         peerlist_timeout: float = 60.0,
+        socks_username: str | None = None,
+        socks_password: str | None = None,
     ) -> None:
         """
         Initialize DirectoryClient.
@@ -179,6 +181,8 @@ class DirectoryClient:
             on_disconnect: Callback when connection drops
             neutrino_compat: Advertise support for Neutrino-compatible UTXO metadata
             peerlist_timeout: Timeout for first PEERLIST chunk (default 60s, subsequent chunks use 5s)
+            socks_username: SOCKS5 username for Tor stream isolation (optional)
+            socks_password: SOCKS5 password for Tor stream isolation (optional)
         """
         self.host = host
         self.port = port
@@ -186,6 +190,8 @@ class DirectoryClient:
         self.location = location
         self.socks_host = socks_host
         self.socks_port = socks_port
+        self.socks_username = socks_username
+        self.socks_password = socks_password
         self.timeout = timeout
         self.max_message_size = max_message_size
         self.connection: TCPConnection | None = None
@@ -265,6 +271,8 @@ class DirectoryClient:
                     self.socks_port,
                     self.max_message_size,
                     self.timeout,
+                    socks_username=self.socks_username,
+                    socks_password=self.socks_password,
                 )
                 logger.debug("DirectoryClient.connect: tor connection established")
             logger.debug("DirectoryClient.connect: starting handshake")

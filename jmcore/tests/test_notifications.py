@@ -506,6 +506,7 @@ class TestNotifier:
             use_tor=True,
             tor_socks_host="192.168.1.100",
             tor_socks_port=9150,
+            stream_isolation=False,
         )
         notifier = Notifier(config)
 
@@ -527,6 +528,40 @@ class TestNotifier:
             # Verify proxy environment variables were set with socks5h:// (DNS through proxy)
             assert os.environ.get("HTTP_PROXY") == "socks5h://192.168.1.100:9150"
             assert os.environ.get("HTTPS_PROXY") == "socks5h://192.168.1.100:9150"
+
+    @pytest.mark.asyncio
+    async def test_tor_proxy_with_stream_isolation(self) -> None:
+        """Test that Tor proxy URL embeds isolation credentials when stream_isolation=True."""
+        config = NotificationConfig(
+            enabled=True,
+            urls=["gotify://host/token"],
+            use_tor=True,
+            tor_socks_host="192.168.1.100",
+            tor_socks_port=9150,
+            stream_isolation=True,
+        )
+        notifier = Notifier(config)
+
+        # Mock the apprise module
+        mock_apprise_instance = MagicMock()
+        mock_apprise_instance.add.return_value = True
+        mock_apprise_instance.__len__ = lambda self: 1
+
+        mock_apprise_module = MagicMock()
+        mock_apprise_module.Apprise.return_value = mock_apprise_instance
+
+        with patch.dict("sys.modules", {"apprise": mock_apprise_module}):
+            # Force re-initialization
+            notifier._initialized = False
+            notifier._apprise = None
+
+            await notifier._ensure_initialized()
+
+            proxy_url = os.environ.get("HTTP_PROXY", "")
+            # Should use socks5h:// with isolation credentials
+            assert proxy_url.startswith("socks5h://jm-notification:")
+            assert "@192.168.1.100:9150" in proxy_url
+            assert os.environ.get("HTTPS_PROXY") == proxy_url
 
     @pytest.mark.asyncio
     async def test_tor_proxy_disabled(self) -> None:

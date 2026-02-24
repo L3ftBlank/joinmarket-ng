@@ -87,6 +87,7 @@ async def run_watcher(log_level: str | None = None) -> None:
         mempool_api_url=watcher_settings.mempool_api_url,
         max_message_size=watcher_settings.max_message_size,
         uptime_grace_period=watcher_settings.uptime_grace_period,
+        stream_isolation=settings.tor.stream_isolation,
     )
 
     server = OrderbookServer(watcher_settings, aggregator)

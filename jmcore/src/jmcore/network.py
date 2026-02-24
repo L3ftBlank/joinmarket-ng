@@ -167,6 +167,8 @@ async def connect_via_tor(
     socks_port: int = 9050,
     max_message_size: int = 2097152,  # 2MB
     timeout: float = 120.0,
+    socks_username: str | None = None,
+    socks_password: str | None = None,
 ) -> TCPConnection:
     """
     Connect to an onion address via Tor SOCKS5 proxy.
@@ -179,6 +181,11 @@ async def connect_via_tor(
     With PoW defense active (during DoS attacks), the PoW solving can add
     significant time. Tor's internal circuit timeout is ~120 seconds, so
     the default matches that.
+
+    When ``socks_username`` and ``socks_password`` are provided, they are
+    sent during SOCKS5 authentication.  Tor's ``IsolateSOCKSAuth`` (enabled
+    by default) uses these to assign the connection to a distinct circuit,
+    enabling stream isolation between different connection categories.
     """
     try:
         import socket
@@ -186,7 +193,13 @@ async def connect_via_tor(
         import socks
 
         sock = socks.socksocket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.set_proxy(socks.SOCKS5, socks_host, socks_port)
+        sock.set_proxy(
+            socks.SOCKS5,
+            socks_host,
+            socks_port,
+            username=socks_username,
+            password=socks_password,
+        )
         sock.settimeout(timeout)
 
         logger.info(f"Connecting to {onion_address}:{port} via Tor ({socks_host}:{socks_port})")
@@ -353,6 +366,8 @@ class OnionPeer:
         on_disconnect: Callable[[str], Coroutine[Any, Any, None]] | None = None,
         on_handshake_complete: Callable[[str], Coroutine[Any, Any, None]] | None = None,
         nick_identity: NickIdentity | None = None,
+        socks_username: str | None = None,
+        socks_password: str | None = None,
     ):
         """
         Initialize OnionPeer.
@@ -369,11 +384,15 @@ class OnionPeer:
             on_handshake_complete: Callback when handshake completes (nick)
             nick_identity: Our nick identity for signing messages (required for
                           compatibility with reference implementation)
+            socks_username: SOCKS5 username for Tor stream isolation (optional)
+            socks_password: SOCKS5 password for Tor stream isolation (optional)
         """
         self.nick = nick
         self.location = location
         self.socks_host = socks_host
         self.socks_port = socks_port
+        self.socks_username = socks_username
+        self.socks_password = socks_password
         self.timeout = timeout
         self.max_message_size = max_message_size
         self.on_message = on_message
@@ -484,6 +503,8 @@ class OnionPeer:
                     self.socks_port,
                     self.max_message_size,
                     self.timeout,
+                    socks_username=self.socks_username,
+                    socks_password=self.socks_password,
                 )
             else:
                 # Direct connection (for testing)

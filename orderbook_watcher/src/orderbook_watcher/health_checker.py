@@ -64,6 +64,8 @@ class MakerHealthChecker:
         timeout: float = 15.0,
         check_interval: float = 600.0,  # 10 minutes
         max_concurrent_checks: int = 10,
+        socks_username: str | None = None,
+        socks_password: str | None = None,
     ) -> None:
         """
         Initialize MakerHealthChecker.
@@ -75,10 +77,14 @@ class MakerHealthChecker:
             timeout: Connection timeout in seconds
             check_interval: Minimum seconds between checks for same maker
             max_concurrent_checks: Maximum concurrent health checks
+            socks_username: SOCKS5 username for Tor stream isolation (optional)
+            socks_password: SOCKS5 password for Tor stream isolation (optional)
         """
         self.network = network
         self.socks_host = socks_host
         self.socks_port = socks_port
+        self.socks_username = socks_username
+        self.socks_password = socks_password
         self.timeout = timeout
         self.check_interval = check_interval
         self.max_concurrent_checks = max_concurrent_checks
@@ -180,6 +186,8 @@ class MakerHealthChecker:
                 self.socks_port,
                 max_message_size=2097152,
                 timeout=self.timeout,
+                socks_username=self.socks_username,
+                socks_password=self.socks_password,
             )
 
             # Perform handshake

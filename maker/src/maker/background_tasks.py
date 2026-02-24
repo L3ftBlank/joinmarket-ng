@@ -223,6 +223,15 @@ class BackgroundTasksMixin:
             neutrino_compat = self.backend.can_provide_neutrino_metadata()
 
             # Create DirectoryClient with SOCKS config for Tor connections
+            dir_username: str | None = None
+            dir_password: str | None = None
+            if self.config.stream_isolation:
+                from jmcore.tor_isolation import IsolationCategory, get_isolation_credentials
+
+                dir_creds = get_isolation_credentials(IsolationCategory.DIRECTORY)
+                dir_username = dir_creds.username
+                dir_password = dir_creds.password
+
             client = DirectoryClient(
                 host=host,
                 port=port,
@@ -233,6 +242,8 @@ class BackgroundTasksMixin:
                 socks_port=self.config.socks_port,
                 timeout=self.config.connection_timeout,
                 neutrino_compat=neutrino_compat,
+                socks_username=dir_username,
+                socks_password=dir_password,
             )
 
             await client.connect()
@@ -654,10 +665,22 @@ class BackgroundTasksMixin:
                     current_version = get_version()
                     socks_proxy: str | None = None
                     if notifier.config.use_tor:
-                        socks_proxy = (
-                            f"socks5h://{notifier.config.tor_socks_host}"
-                            f":{notifier.config.tor_socks_port}"
-                        )
+                        if notifier.config.stream_isolation:
+                            from jmcore.tor_isolation import (
+                                IsolationCategory,
+                                build_isolated_proxy_url,
+                            )
+
+                            socks_proxy = build_isolated_proxy_url(
+                                notifier.config.tor_socks_host,
+                                notifier.config.tor_socks_port,
+                                IsolationCategory.UPDATE_CHECK,
+                            )
+                        else:
+                            socks_proxy = (
+                                f"socks5h://{notifier.config.tor_socks_host}"
+                                f":{notifier.config.tor_socks_port}"
+                            )
                     result = await check_for_updates_from_github(
                         socks_proxy=socks_proxy,
                     )

@@ -18,6 +18,13 @@
 # socks_host = "127.0.0.1"
 # socks_port = 9050
 
+# Stream isolation uses SOCKS5 auth credentials to place different connection
+# types (directory, peer, notification, update-check, etc.) on separate Tor
+# circuits.  This prevents an observer who controls both a directory server and
+# a notification endpoint from correlating the traffic.  Requires
+# IsolateSOCKSAuth on the Tor SocksPort (enabled by default).
+# stream_isolation = true
+
 # Connection timeout for Tor SOCKS5 connections (seconds).
 # Covers TCP handshake, SOCKS5 negotiation, Tor circuit building, and PoW solving.
 # Under PoW defense (DoS attack), Tor clients solve proof-of-work challenges that

@@ -162,6 +162,12 @@ from jmcore.tor_control import (
     TorControlError,
     TorHiddenServiceError,
 )
+from jmcore.tor_isolation import (
+    IsolationCategory,
+    IsolationCredentials,
+    build_isolated_proxy_url,
+    get_isolation_credentials,
+)
 from jmcore.version import (
     VERSION,
     UpdateCheckResult,
@@ -272,6 +278,11 @@ __all__ = [
     "TorControlClient",
     "TorControlError",
     "TorHiddenServiceError",
+    # Tor stream isolation
+    "IsolationCategory",
+    "IsolationCredentials",
+    "build_isolated_proxy_url",
+    "get_isolation_credentials",
     # Timenumber (fidelity bonds)
     "TIMENUMBER_COUNT",
     "TIMELOCK_EPOCH",

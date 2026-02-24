@@ -953,6 +953,8 @@ Creates fresh `.onion` each session for better privacy.
 
 **Taker/Orderbook:** SOCKS proxy only for outgoing connections.
 
+**Stream Isolation:** By default, all outbound Tor connections are isolated by purpose using SOCKS5 authentication. Each connection category (`DIRECTORY`, `PEER`, `MEMPOOL`, `NOTIFICATION`, `UPDATE_CHECK`, `HEALTH_CHECK`) is routed through a separate Tor circuit, preventing traffic correlation between different types of activity. This leverages Tor's built-in `IsolateSOCKSAuth` flag (enabled by default on every `SocksPort`) -- no Tor configuration changes required. Disable with `stream_isolation = false` in `[tor]`.
+
 ### Notifications
 
 Push notifications via [Apprise](https://github.com/caronc/apprise) supporting 100+ services.

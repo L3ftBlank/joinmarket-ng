@@ -64,6 +64,7 @@ class MultiDirectoryClient:
         on_nick_leave: Any | None = None,
         prefer_direct_connections: bool = True,
         our_location: str = "NOT-SERVING-ONION",
+        stream_isolation: bool = False,
     ):
         self.directory_servers = directory_servers
         self.network = network
@@ -75,6 +76,18 @@ class MultiDirectoryClient:
         self.neutrino_compat = neutrino_compat
         self.clients: dict[str, DirectoryClient] = {}
         self.on_nick_leave = on_nick_leave
+        self.stream_isolation = stream_isolation
+
+        # Pre-compute isolation credentials (None when disabled)
+        self._dir_creds: tuple[str | None, str | None] = (None, None)
+        self._peer_creds: tuple[str | None, str | None] = (None, None)
+        if stream_isolation:
+            from jmcore.tor_isolation import IsolationCategory, get_isolation_credentials
+
+            dir_c = get_isolation_credentials(IsolationCategory.DIRECTORY)
+            self._dir_creds = (dir_c.username, dir_c.password)
+            peer_c = get_isolation_credentials(IsolationCategory.PEER)
+            self._peer_creds = (peer_c.username, peer_c.password)
 
         # Direct peer connection settings
         self.prefer_direct_connections = prefer_direct_connections
@@ -276,6 +289,8 @@ class MultiDirectoryClient:
                 on_disconnect=self._on_peer_disconnect,
                 on_handshake_complete=self._on_peer_handshake_complete,
                 nick_identity=self.nick_identity,
+                socks_username=self._peer_creds[0],
+                socks_password=self._peer_creds[1],
             )
             self._peer_connections[nick] = peer
         else:
@@ -324,6 +339,8 @@ class MultiDirectoryClient:
                     socks_port=self.socks_port,
                     timeout=self.connection_timeout,
                     neutrino_compat=self.neutrino_compat,
+                    socks_username=self._dir_creds[0],
+                    socks_password=self._dir_creds[1],
                 )
                 await client.connect()
                 logger.info(f"Connected to directory server: {server}")

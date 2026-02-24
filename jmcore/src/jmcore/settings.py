@@ -113,6 +113,18 @@ class TorSettings(BaseModel):
         description="Target host for Tor hidden service (usually container name in Docker)",
     )
 
+    # Stream isolation
+    stream_isolation: bool = Field(
+        default=True,
+        description=(
+            "Use SOCKS5 authentication to isolate different connection types "
+            "onto separate Tor circuits.  This prevents traffic correlation "
+            "between e.g. directory connections, peer connections, and "
+            "notification traffic.  Requires IsolateSOCKSAuth on the Tor "
+            "SocksPort (enabled by default)."
+        ),
+    )
+
     # Connection timeout
     connection_timeout: float = Field(
         default=120.0,

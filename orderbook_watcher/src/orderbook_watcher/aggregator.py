@@ -138,18 +138,43 @@ class OrderbookAggregator:
         retry_delay: float = 5.0,
         max_message_size: int = 2097152,
         uptime_grace_period: int = 60,
+        stream_isolation: bool = False,
     ) -> None:
         self.directory_nodes = directory_nodes
         self.network = network
         self.socks_host = socks_host
         self.socks_port = socks_port
+        self.stream_isolation = stream_isolation
         self.timeout = timeout
         self.mempool_api_url = mempool_api_url
         self.max_retry_attempts = max_retry_attempts
         self.retry_delay = retry_delay
         self.max_message_size = max_message_size
         self.uptime_grace_period = uptime_grace_period
-        socks_proxy = f"socks5://{socks_host}:{socks_port}"
+
+        # Build mempool proxy URL and pre-compute isolation credentials
+        self._dir_username: str | None = None
+        self._dir_password: str | None = None
+        self._hc_username: str | None = None
+        self._hc_password: str | None = None
+        if stream_isolation:
+            from jmcore.tor_isolation import (  # noqa: PLC0415
+                IsolationCategory,
+                build_isolated_proxy_url,
+                get_isolation_credentials,
+            )
+
+            socks_proxy = build_isolated_proxy_url(
+                socks_host, socks_port, IsolationCategory.MEMPOOL
+            )
+            dir_c = get_isolation_credentials(IsolationCategory.DIRECTORY)
+            self._dir_username = dir_c.username
+            self._dir_password = dir_c.password
+            hc_c = get_isolation_credentials(IsolationCategory.HEALTH_CHECK)
+            self._hc_username = hc_c.username
+            self._hc_password = hc_c.password
+        else:
+            socks_proxy = f"socks5h://{socks_host}:{socks_port}"
         logger.info(f"Configuring MempoolAPI with SOCKS proxy: {socks_proxy}")
         mempool_timeout = 60.0
         self.mempool_api = MempoolAPI(
@@ -177,6 +202,8 @@ class OrderbookAggregator:
             timeout=timeout,
             check_interval=600.0,  # Check each maker at most once per 10 minutes
             max_concurrent_checks=5,
+            socks_username=self._hc_username,
+            socks_password=self._hc_password,
         )
 
         for onion_address, port in directory_nodes:
@@ -216,6 +243,8 @@ class OrderbookAggregator:
             socks_port=self.socks_port,
             timeout=self.timeout,
             max_message_size=self.max_message_size,
+            socks_username=self._dir_username,
+            socks_password=self._dir_password,
         )
         try:
             await client.connect()
@@ -598,6 +627,8 @@ class OrderbookAggregator:
             timeout=self.timeout,
             max_message_size=self.max_message_size,
             on_disconnect=on_disconnect,
+            socks_username=self._dir_username,
+            socks_password=self._dir_password,
         )
 
         try:

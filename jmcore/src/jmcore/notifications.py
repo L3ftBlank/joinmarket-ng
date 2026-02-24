@@ -113,6 +113,13 @@ class NotificationConfig(BaseModel):
         le=65535,
         description="Tor SOCKS5 proxy port (only used if use_tor=True)",
     )
+    stream_isolation: bool = Field(
+        default=True,
+        description=(
+            "Use SOCKS5 auth credentials to isolate notification and update-check "
+            "traffic onto separate Tor circuits (only used if use_tor=True)"
+        ),
+    )
 
     # Retry settings for failed notifications (Tor is unreliable)
     retry_enabled: bool = Field(
@@ -250,6 +257,7 @@ def convert_settings_to_notification_config(
         use_tor=ns.use_tor,
         tor_socks_host=settings.tor.socks_host,
         tor_socks_port=settings.tor.socks_port,
+        stream_isolation=settings.tor.stream_isolation,
         notify_fill=ns.notify_fill,
         notify_rejection=ns.notify_rejection,
         notify_signing=ns.notify_signing,
@@ -319,8 +327,23 @@ class Notifier:
                     # Use the Tor configuration from settings
                     tor_host = self.config.tor_socks_host
                     tor_port = self.config.tor_socks_port
-                    # Use socks5h:// to resolve DNS through the proxy (important for .onion)
-                    proxy_url = f"socks5h://{tor_host}:{tor_port}"
+
+                    if self.config.stream_isolation:
+                        from jmcore.tor_isolation import (
+                            IsolationCategory,
+                            build_isolated_proxy_url,
+                        )
+
+                        proxy_url = build_isolated_proxy_url(
+                            tor_host,
+                            tor_port,
+                            IsolationCategory.NOTIFICATION,
+                        )
+                    else:
+                        # Use socks5h:// to resolve DNS through the proxy
+                        # (important for .onion)
+                        proxy_url = f"socks5h://{tor_host}:{tor_port}"
+
                     # Set environment variables that Apprise/requests will use
                     os.environ["HTTP_PROXY"] = proxy_url
                     os.environ["HTTPS_PROXY"] = proxy_url

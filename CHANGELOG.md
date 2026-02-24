@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Enhanced Periodic Summary Stats**: The periodic summary notification and CLI `history --stats` now include:
   - **Volume split**: Volume is shown as "successful / total" to distinguish completed CoinJoin volume from total requested volume (including failed attempts).
   - **UTXOs disclosed**: Tracks the number of UTXOs disclosed to takers via `!ioauth`. This counts all UTXOs exposed regardless of whether the CoinJoin completed, since UTXO disclosure is a privacy-relevant event even when transactions fail.
+- **Version and Update Check in Summary Notifications**: The periodic summary notification can now include the current version and notify when a newer release is available on GitHub. Opt-in via `check_for_updates = true` in `[notifications]`. The request is routed through Tor when `use_tor` is enabled. Privacy warning: this polls `api.github.com` each summary interval.
 
 ### Fixed
 

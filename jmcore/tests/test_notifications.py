@@ -808,6 +808,78 @@ class TestNotifySummary:
         call_kwargs = notifier._send.call_args
         body = call_kwargs[1].get("body", call_kwargs[0][1] if len(call_kwargs[0]) > 1 else "")
         assert "UTXOs disclosed: 0" in body
+        # Version should not appear when not provided
+        assert "Version:" not in body
+
+    @pytest.mark.asyncio
+    async def test_summary_with_version(self) -> None:
+        """Test summary includes version when provided."""
+        config = NotificationConfig(enabled=True, urls=["test://"], notify_summary=True)
+        notifier = Notifier(config)
+        notifier._send = AsyncMock(return_value=True)
+
+        await notifier.notify_summary(
+            period_label="Daily",
+            total_requests=5,
+            successful=5,
+            failed=0,
+            total_earnings=1000,
+            total_volume=5_000_000,
+            version="0.15.0",
+        )
+
+        call_kwargs = notifier._send.call_args
+        body = call_kwargs[1].get("body", call_kwargs[0][1] if len(call_kwargs[0]) > 1 else "")
+        assert "Version: 0.15.0" in body
+        # No update info when update_available is None
+        assert "update available" not in body
+
+    @pytest.mark.asyncio
+    async def test_summary_with_update_available(self) -> None:
+        """Test summary shows update available when newer version exists."""
+        config = NotificationConfig(enabled=True, urls=["test://"], notify_summary=True)
+        notifier = Notifier(config)
+        notifier._send = AsyncMock(return_value=True)
+
+        await notifier.notify_summary(
+            period_label="Daily",
+            total_requests=3,
+            successful=3,
+            failed=0,
+            total_earnings=500,
+            total_volume=3_000_000,
+            version="0.15.0",
+            update_available="0.16.0",
+        )
+
+        call_kwargs = notifier._send.call_args
+        body = call_kwargs[1].get("body", call_kwargs[0][1] if len(call_kwargs[0]) > 1 else "")
+        assert "Version: 0.15.0" in body
+        assert "(update available: 0.16.0)" in body
+
+    @pytest.mark.asyncio
+    async def test_summary_zero_activity_with_version(self) -> None:
+        """Test zero-activity summary also shows version info."""
+        config = NotificationConfig(enabled=True, urls=["test://"], notify_summary=True)
+        notifier = Notifier(config)
+        notifier._send = AsyncMock(return_value=True)
+
+        await notifier.notify_summary(
+            period_label="Daily",
+            total_requests=0,
+            successful=0,
+            failed=0,
+            total_earnings=0,
+            total_volume=0,
+            version="0.15.0",
+            update_available="0.16.0",
+        )
+
+        call_kwargs = notifier._send.call_args
+        body = call_kwargs[1].get("body", call_kwargs[0][1] if len(call_kwargs[0]) > 1 else "")
+        assert "No CoinJoin activity" in body
+        assert "Version: 0.15.0" in body
+        assert "(update available: 0.16.0)" in body
 
 
 class TestNotificationLogging:
@@ -1132,6 +1204,27 @@ class TestConvertSettingsToNotificationConfig:
 
         assert config.notify_summary is True
         assert config.summary_interval_hours == 168
+
+    def test_convert_check_for_updates_setting(self) -> None:
+        """Test that check_for_updates setting is converted correctly."""
+        from jmcore.settings import JoinMarketSettings, NotificationSettings
+
+        # Default: disabled
+        settings = JoinMarketSettings(
+            notifications=NotificationSettings(urls=["gotify://host/token"])
+        )
+        config = convert_settings_to_notification_config(settings)
+        assert config.check_for_updates is False
+
+        # Explicitly enabled
+        settings = JoinMarketSettings(
+            notifications=NotificationSettings(
+                urls=["gotify://host/token"],
+                check_for_updates=True,
+            )
+        )
+        config = convert_settings_to_notification_config(settings)
+        assert config.check_for_updates is True
 
     def test_convert_retry_settings(self) -> None:
         """Test that retry settings are converted correctly."""

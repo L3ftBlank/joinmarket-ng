@@ -978,6 +978,15 @@ use_tor = true
 
 **Per-event toggles:** `notify_fill`, `notify_signing`, `notify_confirmed`, etc.
 
+**Update checks (opt-in):**
+
+```toml
+[notifications]
+check_for_updates = true  # Polls api.github.com each summary interval (via Tor if use_tor=true)
+```
+
+When enabled, the periodic summary notification includes the current version and alerts when a newer release is available. The GitHub API request is routed through Tor when `use_tor = true`, but the Tor exit node IP is still visible to GitHub.
+
 **Example URLs:**
 
 ```bash

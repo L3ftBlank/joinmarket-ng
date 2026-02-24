@@ -294,6 +294,15 @@ class NotificationSettings(BaseModel):
             "Common values: 24 (daily), 168 (weekly)"
         ),
     )
+    check_for_updates: bool = Field(
+        default=False,
+        description=(
+            "Check GitHub for new releases and include version info in summary notifications. "
+            "PRIVACY WARNING: This polls the GitHub API (api.github.com) each summary interval. "
+            "The request is routed through Tor when use_tor is enabled, but GitHub will still "
+            "see the Tor exit node IP. Opt-in only."
+        ),
+    )
     # Retry settings
     retry_enabled: bool = Field(
         default=True,

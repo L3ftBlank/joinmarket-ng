@@ -599,7 +599,12 @@ class BackgroundTasksMixin:
 
         Sends a notification with CoinJoin stats for the configured period
         (e.g., daily or weekly). Only runs when notify_summary is enabled.
+
+        When ``check_for_updates`` is enabled, the latest release version is
+        fetched from GitHub (routed through Tor if configured) and included in
+        the summary notification.
         """
+        from jmcore.version import check_for_updates_from_github, get_version
         from jmwallet.history import get_history_stats_for_period
 
         notifier = get_notifier()
@@ -642,6 +647,27 @@ class BackgroundTasksMixin:
                     f"utxos_disclosed={int(stats['utxos_disclosed'])}"
                 )
 
+                # Check for updates if enabled
+                current_version: str | None = None
+                update_available: str | None = None
+                if notifier.config.check_for_updates:
+                    current_version = get_version()
+                    socks_proxy: str | None = None
+                    if notifier.config.use_tor:
+                        socks_proxy = (
+                            f"socks5h://{notifier.config.tor_socks_host}"
+                            f":{notifier.config.tor_socks_port}"
+                        )
+                    result = await check_for_updates_from_github(
+                        socks_proxy=socks_proxy,
+                    )
+                    if result and result.is_newer:
+                        update_available = result.latest_version
+                        logger.info(
+                            f"Update available: {result.latest_version} "
+                            f"(current: {current_version})"
+                        )
+
                 sent = await notifier.notify_summary(
                     period_label=period_label,
                     total_requests=int(stats["total_coinjoins"]),
@@ -651,6 +677,8 @@ class BackgroundTasksMixin:
                     total_volume=int(stats["total_volume"]),
                     successful_volume=int(stats["successful_volume"]),
                     utxos_disclosed=int(stats["utxos_disclosed"]),
+                    version=current_version,
+                    update_available=update_available,
                 )
 
                 if sent:

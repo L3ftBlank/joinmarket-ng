@@ -162,12 +162,22 @@ from jmcore.tor_control import (
     TorControlError,
     TorHiddenServiceError,
 )
-from jmcore.version import VERSION, __version__, get_version, get_version_info, get_version_tuple
+from jmcore.version import (
+    VERSION,
+    UpdateCheckResult,
+    __version__,
+    check_for_updates_from_github,
+    get_version,
+    get_version_info,
+    get_version_tuple,
+)
 
 __all__ = [
     # Version
     "VERSION",
     "__version__",
+    "UpdateCheckResult",
+    "check_for_updates_from_github",
     "get_version",
     "get_version_info",
     "get_version_tuple",

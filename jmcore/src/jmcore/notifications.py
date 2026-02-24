@@ -172,6 +172,13 @@ class NotificationConfig(BaseModel):
             "Common values: 24 (daily), 168 (weekly)"
         ),
     )
+    check_for_updates: bool = Field(
+        default=False,
+        description=(
+            "Check GitHub for new releases and include version info in summary notifications. "
+            "PRIVACY WARNING: polls api.github.com each summary interval."
+        ),
+    )
 
     model_config = {"frozen": False}
 
@@ -259,6 +266,7 @@ def convert_settings_to_notification_config(
         notify_startup=ns.notify_startup,
         notify_summary=ns.notify_summary,
         summary_interval_hours=ns.summary_interval_hours,
+        check_for_updates=ns.check_for_updates,
         retry_enabled=ns.retry_enabled,
         retry_max_attempts=ns.retry_max_attempts,
         retry_base_delay=ns.retry_base_delay,
@@ -551,6 +559,8 @@ class Notifier:
         total_volume: int,
         successful_volume: int = 0,
         utxos_disclosed: int = 0,
+        version: str | None = None,
+        update_available: str | None = None,
     ) -> bool:
         """
         Send a periodic summary notification with CoinJoin statistics.
@@ -564,6 +574,8 @@ class Notifier:
             total_volume: Total CoinJoin volume in sats (all requests)
             successful_volume: CoinJoin volume in sats (successful only)
             utxos_disclosed: Number of UTXOs disclosed to takers
+            version: Current version string (e.g., "0.15.0"), shown if provided
+            update_available: Latest version string if an update is available, None otherwise
         """
         if not self.config.notify_summary:
             return False
@@ -583,6 +595,12 @@ class Notifier:
                 f" / {self._format_amount(total_volume)}\n"
                 f"UTXOs disclosed: {utxos_disclosed}"
             )
+
+        # Append version info if provided
+        if version:
+            body += f"\nVersion: {version}"
+            if update_available:
+                body += f" (update available: {update_available})"
 
         return await self._send(
             title=f"{period_label} Summary",

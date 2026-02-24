@@ -1,0 +1,264 @@
+"""Tests for the version module."""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from jmcore.version import (
+    UpdateCheckResult,
+    _parse_version_tag,
+    check_for_updates_from_github,
+    get_version,
+)
+
+
+class TestParseVersionTag:
+    """Tests for _parse_version_tag helper."""
+
+    def test_parse_with_v_prefix(self) -> None:
+        assert _parse_version_tag("v1.2.3") == (1, 2, 3)
+
+    def test_parse_without_prefix(self) -> None:
+        assert _parse_version_tag("1.2.3") == (1, 2, 3)
+
+    def test_parse_with_whitespace(self) -> None:
+        assert _parse_version_tag("  v0.15.0  ") == (0, 15, 0)
+
+    def test_parse_invalid_format_two_parts(self) -> None:
+        with pytest.raises(ValueError, match="Invalid version tag format"):
+            _parse_version_tag("1.2")
+
+    def test_parse_invalid_format_four_parts(self) -> None:
+        with pytest.raises(ValueError, match="Invalid version tag format"):
+            _parse_version_tag("1.2.3.4")
+
+    def test_parse_invalid_format_non_numeric(self) -> None:
+        with pytest.raises(ValueError):
+            _parse_version_tag("v1.2.beta")
+
+    def test_parse_zero_version(self) -> None:
+        assert _parse_version_tag("v0.0.0") == (0, 0, 0)
+
+    def test_parse_large_numbers(self) -> None:
+        assert _parse_version_tag("v100.200.300") == (100, 200, 300)
+
+
+class TestCheckForUpdatesFromGitHub:
+    """Tests for check_for_updates_from_github."""
+
+    @pytest.mark.asyncio
+    async def test_newer_version_available(self) -> None:
+        """Test detection of a newer version."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"tag_name": "v99.0.0"}
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            result = await check_for_updates_from_github()
+
+        assert result is not None
+        assert result.latest_version == "99.0.0"
+        assert result.is_newer is True
+
+    @pytest.mark.asyncio
+    async def test_current_version_is_latest(self) -> None:
+        """Test when the current version matches the latest."""
+        current = get_version()
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"tag_name": f"v{current}"}
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            result = await check_for_updates_from_github()
+
+        assert result is not None
+        assert result.latest_version == current
+        assert result.is_newer is False
+
+    @pytest.mark.asyncio
+    async def test_older_version_on_github(self) -> None:
+        """Test when GitHub has an older version (e.g., running pre-release)."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"tag_name": "v0.0.1"}
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            result = await check_for_updates_from_github()
+
+        assert result is not None
+        assert result.is_newer is False
+
+    @pytest.mark.asyncio
+    async def test_network_error_returns_none(self) -> None:
+        """Test that network errors return None instead of raising."""
+        import httpx
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(side_effect=httpx.ConnectError("Connection failed"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            result = await check_for_updates_from_github()
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_invalid_json_returns_none(self) -> None:
+        """Test that malformed JSON returns None."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"no_tag_name": "bad"}
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            result = await check_for_updates_from_github()
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_invalid_version_tag_returns_none(self) -> None:
+        """Test that an unparseable tag_name returns None."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"tag_name": "release-candidate-1"}
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            result = await check_for_updates_from_github()
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_with_socks_proxy(self) -> None:
+        """Test that SOCKS proxy is configured when provided."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"tag_name": "v99.0.0"}
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        mock_transport = MagicMock()
+
+        with (
+            patch("httpx.AsyncClient", return_value=mock_client) as mock_cls,
+            patch(
+                "httpx_socks.AsyncProxyTransport.from_url",
+                return_value=mock_transport,
+            ) as mock_from_url,
+        ):
+            result = await check_for_updates_from_github(
+                socks_proxy="socks5h://127.0.0.1:9050",
+            )
+
+        assert result is not None
+        mock_from_url.assert_called_once_with("socks5h://127.0.0.1:9050")
+        # Verify transport was passed to AsyncClient
+        call_kwargs = mock_cls.call_args[1]
+        assert call_kwargs["transport"] is mock_transport
+
+    @pytest.mark.asyncio
+    async def test_socks_import_error_falls_back(self) -> None:
+        """Test that missing httpx-socks falls back to no proxy."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"tag_name": "v99.0.0"}
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch("httpx.AsyncClient", return_value=mock_client) as mock_cls,
+            patch.dict("sys.modules", {"httpx_socks": None}),
+        ):
+            result = await check_for_updates_from_github(
+                socks_proxy="socks5h://127.0.0.1:9050",
+            )
+
+        # Should still work, just without proxy
+        assert result is not None
+        assert result.is_newer is True
+        call_kwargs = mock_cls.call_args[1]
+        assert "transport" not in call_kwargs
+
+    @pytest.mark.asyncio
+    async def test_http_status_error_returns_none(self) -> None:
+        """Test that HTTP errors (404, 500, etc.) return None."""
+        import httpx
+
+        mock_response = MagicMock()
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "Not Found",
+            request=MagicMock(),
+            response=MagicMock(),
+        )
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            result = await check_for_updates_from_github()
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_timeout_returns_none(self) -> None:
+        """Test that timeout returns None."""
+        import httpx
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(side_effect=httpx.ReadTimeout("Timeout"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            result = await check_for_updates_from_github(timeout=5.0)
+
+        assert result is None
+
+
+class TestUpdateCheckResult:
+    """Tests for UpdateCheckResult dataclass."""
+
+    def test_frozen(self) -> None:
+        """Test that UpdateCheckResult is immutable."""
+        result = UpdateCheckResult(latest_version="1.0.0", is_newer=True)
+        with pytest.raises(AttributeError):
+            result.latest_version = "2.0.0"  # type: ignore[misc]
+
+    def test_fields(self) -> None:
+        result = UpdateCheckResult(latest_version="1.2.3", is_newer=False)
+        assert result.latest_version == "1.2.3"
+        assert result.is_newer is False

@@ -36,6 +36,7 @@ htmlcov/
 env/
 venv/
 ENV/
+jm-ng-doc-env/
 
 # Type checking & linting
 .mypy_cache/
@@ -69,3 +70,27 @@ joinmarket-clientserver/
 
 # Documentation build output (published to GitHub Pages)
 docs_build/
+site/
+mkdocs.yml.backup
+mkdocs.yml.backup-before-extension
+mkdocs.yml.backup-full-update
+mkdocs.yml.backup-jmcore-update
+.gitignore
+mkdocs.yml.backup-working-api-ref-menu
+mkdocs.yml.backup-restructure
+mkdocs.yml.backup2
+mkdocs.yml.backup3
+.gitignore
+mkdocs.yml.backup5
+mkdocs.yml.backup4
+mkdocs.yml.backup7
+mkdocs.yml.backup20-working
+PROJECT_DOCS_OVERVIEW.md
+media/logo_title_v2.png
+.github/workflows/mkdocs-pages.yml.backup
+media/logo_title_v3.png
+media/logo_title.png
+mkdocs.yml.backup-current
+mkdocs.yml.backup-orange
+docs/stylesheets/extra.css.backup-orange
+docs/stylesheets/extra.css.backup-20260221-124515

@@ -1,0 +1,3 @@
+# jmcore.notifications
+
+::: jmcore.notifications

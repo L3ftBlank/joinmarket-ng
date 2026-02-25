@@ -1,0 +1,410 @@
+# =============================================================================
+# MkDocs Configuration for JoinMarket NG Documentation
+# =============================================================================
+#
+# This configuration file defines how the documentation is built and rendered.
+# It uses the Material theme and includes support for:
+# - Python API documentation via mkdocstrings
+# - Mathematical formulas via MathJax
+# - Diagrams via Mermaid and draw.io: https://github.com/jgraph/drawio
+# - Syntax highlighting and code blocks
+#
+# For more information, see:
+# - MkDocs: https://www.mkdocs.org/
+# - Material theme: https://squidfunk.github.io/mkdocs-material/
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Site Metadata
+# -----------------------------------------------------------------------------
+
+# Site name displayed in the browser tab and page header
+site_name: JoinMarket NG
+
+# GitHub repository link displayed in the header for easy access to source code
+repo_url: https://github.com/joinmarket-ng/joinmarket-ng
+repo_name: GitHub
+
+# Footer copyright with link to license page
+# This appears at the bottom of every page
+copyright: <a href="license">MIT License</a> © 2025 JoinMarket contributors
+
+# -----------------------------------------------------------------------------
+# Pages not in navigation
+# -----------------------------------------------------------------------------
+# These pages exist in docs/ but are not included in the nav configuration.
+# This suppresses the INFO warning during build.
+not_in_nav: |
+  license.md
+  extension-documentation.md
+
+# -----------------------------------------------------------------------------
+# Theme Configuration
+# -----------------------------------------------------------------------------
+
+theme:
+  # Use the Material theme - a modern, responsive documentation theme
+  # Requires: pip install mkdocs-material
+  name: material
+  
+  # Logo displayed in the header and navigation
+  logo: media/logo_title_v4.png
+  
+  # Theme features enabled for this documentation
+  features:
+    # Add a "copy" button to code blocks for easy copying
+    - content.code.copy
+    # Enable section index pages - shows an overview page for each section
+    - navigation.indexes
+  
+  # Color scheme configuration
+  palette:
+    # Use custom primary color defined in docs/stylesheets/extra.css
+    # This allows branding consistency with JoinMarket colors
+    primary: custom
+    # Use custom accent color defined in docs/stylesheets/extra.css
+    accent: custom
+
+# -----------------------------------------------------------------------------
+# Plugins
+# -----------------------------------------------------------------------------
+
+plugins:
+  # Built-in search plugin - enables full-text search across all documentation
+  - search
+  # List of glob patterns for pages to exclude from search
+  # Patterns are relative to the docs/ directory
+  # All excluded pages remain accessible via the navigation menu
+  - exclude-search:
+      exclude:
+        - api/*
+        - Scripts/*
+  
+  # mkdocstrings - Generates API documentation from Python docstrings
+  # This plugin reads Python source files and extracts documentation from
+  # docstrings, creating formatted API reference pages automatically.
+  # 
+  # For more information, see: https://mkdocstrings.github.io/
+  - mkdocstrings:
+      handlers:
+        python:
+          # Paths to Python source directories to scan for docstrings
+          # These are the main modules of the JoinMarket NG project
+          paths:
+            - jmcore/src        # Core functionality (crypto, networking, etc.)
+            - jmwallet/src      # Wallet management
+            - taker/src         # Taker module for coinjoin initiation
+            - maker/src         # Maker module for liquidity provision
+            - directory_server/src    # Directory server for peer discovery
+            - orderbook_watcher/src   # Orderbook monitoring
+          options:
+            # Use NumPy-style docstring parsing
+            # NumPy style is used because it's readable and supports
+            # mathematical notation with $...$ delimiters for LaTeX formulas
+            docstring_style: numpy
+            
+            # Custom extension to hide __init__ methods from dataclass documentation
+            # This keeps API docs clean by not showing auto-generated __init__ methods
+            extensions:
+              - docs/_extensions/hide_dataclass_init.py:HideDataclassInit
+            
+            # Show the source code link in documentation
+            show_source: true
+            # Show the main heading for each module/class
+            show_root_heading: true
+            # Group members by their type (classes, functions, etc.)
+            group_by_category: true
+            # Show category headings (Classes, Functions, etc.)
+            show_category_heading: true
+            # Sort members alphabetically within each category
+            members_order: alphabetical
+            # Show base classes for inheritance documentation
+            show_bases: true
+            # Show function/method signatures with full type annotations
+            show_signature: true
+            show_signature_annotations: true
+            # Include members even if they have no docstring
+            show_if_no_docstring: true
+
+# -----------------------------------------------------------------------------
+# Markdown Extensions
+# -----------------------------------------------------------------------------
+# These extensions extend Markdown syntax with additional features.
+# They are processed by Python-Markdown during the build process.
+# -----------------------------------------------------------------------------
+
+markdown_extensions:
+
+  # Enable attribute lists on elements
+  # Allows syntax like: ![alt](image.png){ .class #id align=left }
+  - attr_list
+  
+  # Enable Markdown processing inside HTML blocks
+  # Required for: <figure markdown="span">![alt](image.png)<figcaption>Caption</figcaption></figure>
+  - md_in_html
+
+  # Syntax highlighting for code blocks
+  # Supports many languages with automatic language detection
+  - pymdownx.highlight
+  
+  # Enable ==highlighted text== syntax for highlighting important content
+  - pymdownx.mark
+  
+  # Enhanced fenced code blocks with support for:
+  # - Nested code blocks
+  # - Custom fences for diagrams (Mermaid)
+  # - Better code block handling
+  - pymdownx.superfences:
+      custom_fences:
+        # Mermaid diagram support - renders flowcharts, sequence diagrams, etc.
+        # Diagrams are rendered client-side by the Mermaid JavaScript library
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  
+  # Inline code syntax highlighting - enables `code:language` syntax
+  - pymdownx.inlinehilite
+  
+  # =============================================================================
+  # Mathematical Formula Support (MathJax)
+  # =============================================================================
+  #
+  # This extension enables LaTeX-style mathematical formulas in documentation.
+  # 
+  # Inline formulas: $C = H(P_2)$
+  # Block formulas: $$C = H(P_2)$$
+  #
+  # The 'generic: true' option tells the extension to output generic markup
+  # that MathJax will process client-side. This is the recommended approach
+  # for MkDocs Material theme.
+  #
+  # Configuration is in docs/javascripts/mathjax.js
+  #
+  # For more information, see:
+  # https://squidfunk.github.io/mkdocs-material/reference/math/
+  # =============================================================================
+  - pymdownx.arithmatex:
+      generic: true
+
+# -----------------------------------------------------------------------------
+# JavaScript
+# -----------------------------------------------------------------------------
+
+extra_javascript:
+  # MathJax configuration file
+  # This file configures MathJax to recognize $...$ and $$...$$ delimiters
+  # for inline and display math respectively.
+  # 
+  # IMPORTANT: This file MUST be loaded before the MathJax library itself.
+  - javascripts/mathjax.js
+  
+  # MathJax library from CDN
+  # This is the main MathJax library that renders mathematical formulas.
+  # The tex-mml-chtml.js bundle includes:
+  # - TeX input processor (for LaTeX syntax)
+  # - MathML input processor
+  # - CommonHTML output processor (fast, widely compatible)
+  #
+  # Alternative CDNs:
+  # - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+  #
+  # For offline use, download and host locally.
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
+
+# -----------------------------------------------------------------------------
+# Custom CSS
+# -----------------------------------------------------------------------------
+
+extra_css:
+  # Custom stylesheet for additional styling
+  # Includes:
+  # - Custom theme colors (primary, accent)
+  # - Navigation separator styling
+  # - Math formula display styling (if needed)
+  - stylesheets/extra.css
+
+# -----------------------------------------------------------------------------
+# Navigation Menu Structure
+# -----------------------------------------------------------------------------
+# This defines the structure of the documentation navigation menu.
+# Each entry is a page or section with its corresponding Markdown file.
+# -----------------------------------------------------------------------------
+
+nav:
+  # -------------------------------------------------------------------------
+  # Main Pages
+  # -------------------------------------------------------------------------
+  - Home: index.md
+  - Installation: install.md
+  
+  # -------------------------------------------------------------------------
+  # Protocol Documentation
+  # -------------------------------------------------------------------------
+  # Comprehensive documentation about the JoinMarket NG protocol
+  # These files contain mathematical formulas rendered via MathJax
+  - Technical Documentation:
+      - technical-documentation/index.md
+      - Concepts: technical-documentation/DOCS01-Concepts.md
+      - JoinMarket-NG: technical-documentation/DOCS02-JoinMarket-NG.md
+      - Architecture: technical-documentation/DOCS03-Architecture.md
+      - Protocol: technical-documentation/DOCS04-Protocol.md
+      - Privacy Mechanisms: technical-documentation/DOCS05-Privacy-Mechanisms.md
+      - Wallet: technical-documentation/DOCS06-Wallet.md
+      - Configuration: technical-documentation/DOCS07-Configuration.md
+      - Security: technical-documentation/DOCS08-Security.md
+      - Development: technical-documentation/DOCS09-Development.md
+      - Best Practices: technical-documentation/DOCS10-Best-Practices.md
+      - References: technical-documentation/DOCS11-References.md
+  
+  # -------------------------------------------------------------------------
+  # Main Modules
+  # -------------------------------------------------------------------------
+  # Documentation for the core modules
+  - Main Modules:
+      - Wallet: README_jmwallet.md
+      - Taker: README_taker.md
+      - Maker: README_maker.md
+  
+  # -------------------------------------------------------------------------
+  # Extra Modules
+  # -------------------------------------------------------------------------
+  # Documentation for supplementary modules
+  - Extra Modules:
+      - Orderbook Watcher: README_orderbook_watcher.md
+      - Directory Server: README_directory_server.md
+  
+  # -------------------------------------------------------------------------
+  # Visual Separator
+  # -------------------------------------------------------------------------
+  # This creates a horizontal line separator in the navigation menu
+  # The actual styling is defined in docs/stylesheets/extra.css
+  - '---': separator.md
+  
+  # -------------------------------------------------------------------------
+  # Scripts
+  # -------------------------------------------------------------------------
+  - Scripts: README_scripts.md
+  
+  # -------------------------------------------------------------------------
+  # API Reference
+  # -------------------------------------------------------------------------
+  # Auto-generated API documentation from Python docstrings
+  # Each entry uses mkdocstrings to pull documentation from source code
+  #
+  # Structure: Module Name: api/<module>/<file>.md
+  # The .md files contain ::: <module.path> directives
+  - API Reference:
+      - api/index.md
+      - jmcore:
+          - Overview: api/jmcore/index.md
+          - bitcoin: api/jmcore/bitcoin.md
+          - bond_calc: api/jmcore/bond_calc.md
+          - btc_script: api/jmcore/btc_script.md
+          - cli_common: api/jmcore/cli_common.md
+          - commitment_blacklist: api/jmcore/commitment_blacklist.md
+          - config: api/jmcore/config.md
+          - confirmation: api/jmcore/confirmation.md
+          - constants: api/jmcore/constants.md
+          - crypto: api/jmcore/crypto.md
+          - deduplication: api/jmcore/deduplication.md
+          - directory_client: api/jmcore/directory_client.md
+          - encryption: api/jmcore/encryption.md
+          - mempool_api: api/jmcore/mempool_api.md
+          - models: api/jmcore/models.md
+          - network: api/jmcore/network.md
+          - nick_tracker: api/jmcore/nick_tracker.md
+          - notifications: api/jmcore/notifications.md
+          - paths: api/jmcore/paths.md
+          - podle: api/jmcore/podle.md
+          - protocol: api/jmcore/protocol.md
+          - rate_limiter: api/jmcore/rate_limiter.md
+          - settings: api/jmcore/settings.md
+          - tasks: api/jmcore/tasks.md
+          - timenumber: api/jmcore/timenumber.md
+          - tor_control: api/jmcore/tor_control.md
+          - version: api/jmcore/version.md
+      - jmwallet:
+          - Overview: api/jmwallet/index.md
+          - history: api/jmwallet/history.md
+          - utxo_selector: api/jmwallet/utxo_selector.md
+          - cli:
+              - bonds: api/jmwallet/cli/bonds.md
+              - cold_wallet: api/jmwallet/cli/cold_wallet.md
+              - freeze: api/jmwallet/cli/freeze.md
+              - history_cmd: api/jmwallet/cli/history_cmd.md
+              - mnemonic: api/jmwallet/cli/mnemonic.md
+              - registry: api/jmwallet/cli/registry.md
+              - send: api/jmwallet/cli/send.md
+              - wallet: api/jmwallet/cli/wallet.md
+          - wallet:
+              - address: api/jmwallet/wallet/address.md
+              - bip32: api/jmwallet/wallet/bip32.md
+              - bond_registry: api/jmwallet/wallet/bond_registry.md
+              - coin_selection: api/jmwallet/wallet/coin_selection.md
+              - constants: api/jmwallet/wallet/constants.md
+              - display: api/jmwallet/wallet/display.md
+              - models: api/jmwallet/wallet/models.md
+              - service: api/jmwallet/wallet/service.md
+              - signing: api/jmwallet/wallet/signing.md
+              - sync: api/jmwallet/wallet/sync.md
+              - utxo_metadata: api/jmwallet/wallet/utxo_metadata.md
+          - backends:
+              - base: api/jmwallet/backends/base.md
+              - bitcoin_core: api/jmwallet/backends/bitcoin_core.md
+              - descriptor_wallet: api/jmwallet/backends/descriptor_wallet.md
+              - mempool: api/jmwallet/backends/mempool.md
+              - neutrino: api/jmwallet/backends/neutrino.md
+      - taker:
+          - Overview: api/taker/index.md
+          - cli: api/taker/cli.md
+          - config: api/taker/config.md
+          - models: api/taker/models.md
+          - monitoring: api/taker/monitoring.md
+          - multi_directory: api/taker/multi_directory.md
+          - orderbook: api/taker/orderbook.md
+          - podle: api/taker/podle.md
+          - podle_manager: api/taker/podle_manager.md
+          - taker: api/taker/taker.md
+          - tx_builder: api/taker/tx_builder.md
+      - maker:
+          - Overview: api/maker/index.md
+          - background_tasks: api/maker/background_tasks.md
+          - bot: api/maker/bot.md
+          - cli: api/maker/cli.md
+          - coinjoin: api/maker/coinjoin.md
+          - config: api/maker/config.md
+          - direct_connection: api/maker/direct_connection.md
+          - fidelity: api/maker/fidelity.md
+          - offers: api/maker/offers.md
+          - podle: api/maker/podle.md
+          - protocol_handlers: api/maker/protocol_handlers.md
+          - protocols: api/maker/protocols.md
+          - rate_limiting: api/maker/rate_limiting.md
+          - tx_verification: api/maker/tx_verification.md
+      - orderbook_watcher:
+          - Overview: api/orderbook_watcher/index.md
+          - aggregator: api/orderbook_watcher/aggregator.md
+          - config: api/orderbook_watcher/config.md
+          - directory_client: api/orderbook_watcher/directory_client.md
+          - health_checker: api/orderbook_watcher/health_checker.md
+          - main: api/orderbook_watcher/main.md
+          - server: api/orderbook_watcher/server.md
+      - directory_server:
+          - Overview: api/directory_server/index.md
+          - cli: api/directory_server/cli.md
+          - config: api/directory_server/config.md
+          - handshake_handler: api/directory_server/handshake_handler.md
+          - health: api/directory_server/health.md
+          - main: api/directory_server/main.md
+          - message_router: api/directory_server/message_router.md
+          - peer_registry: api/directory_server/peer_registry.md
+          - server: api/directory_server/server.md
+#      - Extension Documentation: extension-documentation.md
+#      - Test: test-math.md
+  
+  # -------------------------------------------------------------------------
+  # External Links
+  # -------------------------------------------------------------------------
+  # Link to external resources - opens in new tab
+  - '---': separator.md
+  - JoinMarket NG Orderbook: https://joinmarket-ng.sgn.space/

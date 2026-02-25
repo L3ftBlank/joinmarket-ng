@@ -14,7 +14,7 @@ Relay server for peer discovery and message routing in the JoinMarket network.
 
 ## Installation
 
-See [INSTALL.md](../INSTALL.md) for general installation instructions.
+See [Installation](install.md) for general installation instructions.
 
 **For directory server** (manual installation):
 

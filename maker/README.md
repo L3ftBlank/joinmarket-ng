@@ -10,7 +10,8 @@ Install JoinMarket-NG with the maker component:
 curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/master/install.sh | bash -s -- --maker
 ```
 
-See [INSTALL.md](../INSTALL.md) for complete installation instructions including:
+See [Installation](install.md) for complete installation instructions including:
+
 - Backend setup (Bitcoin Core or Neutrino)
 - Tor configuration
 - Manual installation for developers
@@ -19,7 +20,7 @@ See [INSTALL.md](../INSTALL.md) for complete installation instructions including
 
 **Tor is REQUIRED for production use.** Makers need Tor for privacy and to advertise .onion addresses for direct peer connections.
 
-See [INSTALL.md - Tor Setup](../INSTALL.md#tor-setup) for installation and configuration instructions.
+See [Installation - Tor Setup](install.md#tor-setup) for installation and configuration instructions.
 
 The maker bot tries to auto-detect Tor configuration. For manual setup, see [Environment Variables](#environment-variables).
 
@@ -41,7 +42,7 @@ Or import an existing mnemonic (e.g., migrating from reference implementation):
 jm-wallet import --output ~/.joinmarket-ng/wallets/default.mnemonic
 ```
 
-See [jmwallet README](../jmwallet/README.md) for wallet management details.
+See [jmwallet](README_jmwallet.md) for wallet management details.
 
 ### 2. Check Balance & Get Deposit Address
 
@@ -116,6 +117,7 @@ jm-maker start --mnemonic-file ~/.joinmarket-ng/wallets/default.mnemonic
 ```
 
 The bot will:
+
 - Sync your wallet
 - Create offers based on available balance
 - Create an ephemeral Tor .onion address (if Tor control available)
@@ -147,7 +149,9 @@ min_size = 100000         # Minimum CoinJoin size in sats
 JoinMarket supports two fee models. The maker bot **automatically detects** which model to use based on which fee parameter you provide:
 
 #### Relative Fees (Default)
+
 Charge a percentage of the CoinJoin amount:
+
 - **Auto-selected when**: You provide `--cj-fee-relative` (or neither fee parameter)
 - **Offer type**: `sw0reloffer`
 - **Default**: 0.1% (0.001)
@@ -156,7 +160,9 @@ Charge a percentage of the CoinJoin amount:
 - **Cons**: May earn less on small transactions
 
 #### Absolute Fees
+
 Charge a fixed satoshi amount regardless of CoinJoin size:
+
 - **Auto-selected when**: You provide `--cj-fee-absolute`
 - **Offer type**: `sw0absoffer`
 - **Default**: Not used (relative is default)
@@ -246,6 +252,7 @@ jm-maker start --mnemonic-file ~/.joinmarket-ng/wallets/default.mnemonic
 ```
 
 That's it! The maker will:
+
 - Derive all addresses from your mnemonic (same BIP84 paths as reference implementation)
 - **Automatically discover any existing fidelity bonds** by scanning the blockchain
 - Start serving offers with your existing balance
@@ -281,7 +288,7 @@ BIP39_PASSPHRASE="your passphrase" jm-wallet recover-bonds \
   --mnemonic-file ~/.joinmarket-ng/wallets/default.mnemonic
 ```
 
-Note: The BIP39 passphrase is intentionally NOT read from config.toml for security reasons.
+Note: The BIP39 passphrase is intentionally NOT read from `config.toml` for security reasons.
 
 ## Docker Deployment
 

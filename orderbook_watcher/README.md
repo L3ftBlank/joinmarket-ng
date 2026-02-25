@@ -57,7 +57,7 @@ docker-compose up -d
 
 ### Manual Installation
 
-See [INSTALL.md](../INSTALL.md) for general installation instructions and Tor setup.
+See [Installation](install.md) for general installation instructions and Tor setup.
 
 **For orderbook watcher** (manual installation):
 
@@ -74,7 +74,7 @@ cd ../orderbook_watcher
 pip install -r requirements.txt
 ```
 
-2. Make sure Tor is running on port 9050 (see [INSTALL.md - Tor Setup](../INSTALL.md#tor-setup))
+2. Make sure Tor is running on port 9050 (see [Installation - Tor Setup](install.md#tor-setup))
 
 3. Set environment variables:
 ```bash

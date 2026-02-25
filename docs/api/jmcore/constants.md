@@ -1,0 +1,3 @@
+# jmcore.constants
+
+::: jmcore.constants

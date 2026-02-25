@@ -4,7 +4,8 @@ Modern HD wallet for JoinMarket with support for Bitcoin Core nodes and lightwei
 
 ## Installation
 
-See [INSTALL.md](../INSTALL.md) for complete installation instructions including:
+See [Installation](install.md) for complete installation instructions including:
+
 - Automated installation with `install.sh`
 - Virtual environment setup
 - Backend setup (Bitcoin Core or Neutrino)
@@ -52,6 +53,7 @@ jm-wallet import --words 12
 ```
 
 The import command features:
+
 - Tab completion (where readline is available)
 - Auto-completion when only one BIP39 word matches your prefix
 - Suggestions when multiple words match
@@ -181,6 +183,7 @@ jm-wallet generate --words 12
 ```
 
 **Note**:
+
 - Default name and location: `~/.joinmarket-ng/wallets/default.mnemonic`
 - By default, the wallet is saved and password-protected
 - Use `--no-save` to skip saving, `--no-prompt-password` to skip encryption (not recommended)
@@ -235,12 +238,14 @@ For maximum security, fidelity bonds can use a certificate chain that keeps the 
 ### Workflow
 
 1. **Get public key from Sparrow Wallet**:
+
    - Open Sparrow Wallet with your hardware wallet
    - Go to Addresses tab
    - Find/create address at path `m/84'/0'/0'/2/0` (fidelity bond path)
    - Right-click the address and select "Copy Public Key"
 
 2. **Create bond address** (online - NO private keys needed):
+
    ```bash
    jm-wallet create-bond-address <pubkey_from_step_1> \
      --locktime-date "2026-01"
@@ -248,6 +253,7 @@ For maximum security, fidelity bonds can use a certificate chain that keeps the 
    Fund this address with Bitcoin to create the bond.
 
 3. **Generate hot wallet keypair** (on online machine):
+
    ```bash
    jm-wallet generate-hot-keypair
    ```
@@ -287,7 +293,7 @@ For maximum security, fidelity bonds can use a certificate chain that keeps the 
 - **Revocable**: If hot wallet is compromised, only the certificate is at risk, not the bond funds
 - **Renewable**: Sign a new message when the certificate expires
 
-See [DOCS.md](../DOCS.md) for detailed documentation.
+See [Technical Documentation](technical-documentation/DOCS01-Concepts.md) for detailed documentation.
 
 ### All Commands
 

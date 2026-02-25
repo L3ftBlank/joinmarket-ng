@@ -1,0 +1,103 @@
+/* 
+ * Workaround: MkDocs Material does not have native separator support.
+ * Creates a horizontal line separator in the navigation.
+ */
+
+.md-nav__link[href*="separator"] {
+    pointer-events: none !important;
+    cursor: default !important;
+    color: transparent !important;
+    font-size: 0 !important;
+    display: block !important;
+    border-top: 1px solid var(--md-default-fg-color--lightest) !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+.md-nav__link[href*="separator"]:hover {
+    background-color: transparent !important;
+}
+
+.md-nav__item:has(.md-nav__link[href*="separator"]) {
+    margin-top: 0.6em !important;
+    margin-bottom: 0.6em !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+}
+
+/*
+ * Bitcoin Orange Theme (#FF8000)
+ */
+
+:root {
+    --md-primary-fg-color: #FF8000;
+    --md-primary-fg-color--light: #FF9933;
+    --md-primary-fg-color--dark: #CC6600;
+    --md-accent-fg-color: #FF8000;
+    --md-accent-fg-color--transparent: rgba(255, 128, 0, 0.1);
+    --md-typeset-a-color: #FF8000;
+}
+
+.md-header {
+    background-color: #FF8000;
+}
+
+.md-typeset a:hover {
+    color: #CC6600;
+}
+
+.md-nav__link--active {
+    color: #FF8000;
+}
+
+.md-nav__link:hover {
+    color: #FF8000;
+}
+
+.md-tabs__link--active {
+    border-bottom-color: #FF8000;
+}
+
+mark,
+.md-typeset mark {
+    background-color: rgba(255, 128, 0, 0.5);
+    color: inherit;
+}
+
+.md-nav__link[href^="http"]::after {
+    content: " ↗";
+    font-size: 0.8em;
+}
+
+.md-typeset a[href^="http"]::after {
+    content: " ↗";
+    font-size: 0.8em;
+}
+
+/* 
+ * JetBrains Mono Font - hosted locally for consistent ASCII-art rendering
+ */
+@font-face {
+    font-family: 'JetBrains Mono';
+    src: url('../fonts/jetbrains-mono.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+/* 
+ * Fix: ASCII-Art / Directory Tree rendering
+ */
+.md-typeset pre,
+.md-typeset pre code,
+code,
+.highlight pre {
+    font-family: 'JetBrains Mono', Consolas, Monaco, 'Courier New', monospace !important;
+    line-height: 1.5 !important;
+    letter-spacing: 0 !important;
+}
+
+.md-typeset pre {
+    white-space: pre !important;
+    overflow-x: auto !important;
+}

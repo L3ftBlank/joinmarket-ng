@@ -2,20 +2,6 @@
 
 Complete guide for installing JoinMarket-NG on Linux, macOS, and Raspberry Pi.
 
-**Contents**
-
-1. [System Requirements](#system-requirements)
-2. [Quick Installation](#quick-installation)
-3. [Manual Installation](#manual-installation)
-4. [Backend Setup](#backend-setup)
-5. [Configuration](#configuration)
-6. [Tor Setup](#tor-setup)
-7. [Next Steps](#next-steps)
-8. [Troubleshooting](#troubleshooting)
-9. [Docker Deployment](#docker-deployment)
-
----
-
 ## System Requirements
 
 - **Python**: 3.11 or higher (3.14 recommended)
@@ -393,7 +379,7 @@ jm-wallet generate --save --prompt-password \
 jm-taker coinjoin -f ~/.joinmarket-ng/wallets/default.mnemonic --amount 1000000
 ```
 
-See [taker/README.md](./taker/README.md) for schedules and tumbler mode.
+See [Taker](README_taker.md) for schedules and tumbler mode.
 
 **As a Maker** (earn fees):
 
@@ -401,7 +387,7 @@ See [taker/README.md](./taker/README.md) for schedules and tumbler mode.
 jm-maker start -f ~/.joinmarket-ng/wallets/default.mnemonic
 ```
 
-See [maker/README.md](./maker/README.md) for configuration.
+See [Maker](README_maker.md) for configuration.
 
 ---
 
@@ -502,7 +488,7 @@ rm -rf ~/.joinmarket-ng/venv/
 
 ## Getting Help
 
-- **Technical docs:** [DOCS.md](./DOCS.md)
-- **Component guides:** [maker/README.md](./maker/README.md), [taker/README.md](./taker/README.md)
+- **Technical docs:** [Technical Documentation](technical-documentation/DOCS01-Concepts.md)
+- **Component guides:** [Maker](README_maker.md), [Taker](README_taker.md)
 - **Telegram:** https://t.me/joinmarketorg
 - **SimpleX:** https://smp12.simplex.im/g#bx_0bFdk7OnttE0jlytSd73jGjCcHy2qCrhmEzgWXTk

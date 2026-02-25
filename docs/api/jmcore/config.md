@@ -1,0 +1,3 @@
+# jmcore.config
+
+::: jmcore.config

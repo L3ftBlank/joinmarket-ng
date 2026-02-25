@@ -10,7 +10,8 @@ Install JoinMarket-NG with the taker component:
 curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/master/install.sh | bash -s -- --taker
 ```
 
-See [INSTALL.md](../INSTALL.md) for complete installation instructions including:
+See [Installation](install.md) for complete installation instructions including:
+
 - Backend setup (Bitcoin Core or Neutrino)
 - Tor configuration
 - Manual installation for developers
@@ -28,7 +29,7 @@ jm-wallet generate --save --prompt-password --output ~/.joinmarket-ng/wallets/de
 
 **IMPORTANT**: Write down the displayed mnemonic - it's your only backup!
 
-See [jmwallet README](../jmwallet/README.md) for wallet management details.
+See [Jmwallet](README_jmwallet.md) for wallet management details.
 
 ### 2. Check Balance & Get Deposit Address
 
@@ -176,6 +177,7 @@ Save as `schedule.json`:
 ```
 
 **Fields**:
+
 - `amount`: Sats (integer), fraction 0-1 (float), or 0 (sweep all)
 - `destination`: Bitcoin address or "INTERNAL" for next mixdepth
 - `wait_time`: Seconds to wait after this CoinJoin
@@ -193,6 +195,7 @@ All settings can be configured in `~/.joinmarket-ng/config.toml`. CLI arguments 
 ### Default Settings
 
 Sensible defaults for most users:
+
 - **Destination**: INTERNAL (next mixdepth)
 - **Counterparties**: 3 makers
 - **Max absolute fee**: 500 sats per maker

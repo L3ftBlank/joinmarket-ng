@@ -107,7 +107,7 @@ This check ensures we only remove **auto-generated** `__init__` methods. If a de
 class MyConfig:
     """Configuration class."""
     value: int
-    
+
     def __init__(self, value: int):
         """Initialize with custom validation."""
         if value < 0:

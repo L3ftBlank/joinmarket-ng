@@ -114,7 +114,7 @@ JoinMarket supports two routing modes:
 - Higher latency, directory sees metadata
 - Reliable fallback for restrictive networks
 
-**Channel Consistency:** 
+**Channel Consistency:**
 Once a channel is established for a session, all subsequent messages must use the same channel. This prevents session confusion attacks.
 
 ### Handshake Protocol

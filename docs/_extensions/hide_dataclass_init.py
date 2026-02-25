@@ -1,5 +1,6 @@
 import griffe
 
+
 class HideDataclassInit(griffe.Extension):
     """Remove auto-generated __init__ from dataclass documentation."""
 

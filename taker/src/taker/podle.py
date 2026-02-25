@@ -9,7 +9,8 @@ to prove ownership of a UTXO without revealing which UTXO until after
 the maker commits to participate.
 
 Protocol flow:
-1. Taker generates commitment $C = H(P_2)$ where $P_2 = k \\cdot J$ ($k$ = private key, $J$ = NUMS point)
+1. Taker generates commitment
+   $C = H(P_2)$ where $P_2 = k \\cdot J$ ($k$ = private key, $J$ = NUMS point)
 2. Taker sends commitment $C$ to maker
 3. Maker accepts and sends pubkey
 4. Taker reveals $P$, $P_2$, $\\text{sig}$, $e$ as the "revelation"

@@ -1,4 +1,4 @@
-/* 
+/*
  * Workaround: MkDocs Material does not have native separator support.
  * Creates a horizontal line separator in the navigation.
  */
@@ -74,7 +74,7 @@ mark,
     font-size: 0.8em;
 }
 
-/* 
+/*
  * JetBrains Mono Font - hosted locally for consistent ASCII-art rendering
  */
 @font-face {
@@ -85,7 +85,7 @@ mark,
     font-display: swap;
 }
 
-/* 
+/*
  * Fix: ASCII-Art / Directory Tree rendering
  */
 .md-typeset pre,

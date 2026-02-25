@@ -90,3 +90,40 @@ def build_isolated_proxy_url(
     user = quote(creds.username, safe="")
     pwd = quote(creds.password, safe="")
     return f"{scheme}://{user}:{pwd}@{host}:{port}"
+
+
+@dataclass(frozen=True)
+class NormalizedProxyURL:
+    """A SOCKS5 proxy URL normalized for python-socks / httpx-socks.
+
+    The ``socks5h://`` scheme (remote DNS via proxy) is the standard way to
+    request that the SOCKS proxy resolves hostnames -- required for ``.onion``
+    addresses.  However, ``python-socks`` (used by ``httpx-socks``) does not
+    recognise the ``h`` suffix and raises ``ValueError``.
+
+    This dataclass carries a ``socks5://`` URL together with an ``rdns`` flag
+    that should be forwarded to ``AsyncProxyTransport.from_url(..., rdns=rdns)``.
+    """
+
+    url: str
+    """Proxy URL with ``socks5://`` scheme (never ``socks5h://``)."""
+
+    rdns: bool
+    """Whether DNS should be resolved remotely by the proxy."""
+
+
+def normalize_proxy_url(proxy_url: str) -> NormalizedProxyURL:
+    """Normalize a SOCKS5(h) proxy URL for use with ``httpx-socks``.
+
+    Converts ``socks5h://`` to ``socks5://`` with ``rdns=True`` so that
+    ``AsyncProxyTransport.from_url(result.url, rdns=result.rdns)`` works
+    correctly even for ``.onion`` addresses.
+
+    Plain ``socks5://`` URLs are returned unchanged with ``rdns=False``.
+    """
+    if proxy_url.startswith("socks5h://"):
+        return NormalizedProxyURL(
+            url=proxy_url.replace("socks5h://", "socks5://", 1),
+            rdns=True,
+        )
+    return NormalizedProxyURL(url=proxy_url, rdns=False)

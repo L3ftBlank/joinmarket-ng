@@ -93,9 +93,20 @@ async def check_for_updates_from_github(
         try:
             from httpx_socks import AsyncProxyTransport
 
-            transport = AsyncProxyTransport.from_url(socks_proxy)
+            from jmcore.tor_isolation import normalize_proxy_url
+
+            # python-socks does not support the socks5h:// scheme directly.
+            # normalize_proxy_url converts socks5h:// -> socks5:// + rdns=True
+            # so that .onion addresses are resolved by Tor.
+            normalized = normalize_proxy_url(socks_proxy)
+
+            transport = AsyncProxyTransport.from_url(normalized.url, rdns=normalized.rdns)
             client_kwargs["transport"] = transport
-            logger.debug("Update check configured with SOCKS proxy: %s", socks_proxy)
+            logger.debug(
+                "Update check configured with SOCKS proxy: %s (rdns=%s)",
+                socks_proxy,
+                normalized.rdns,
+            )
         except ImportError:
             logger.warning("httpx-socks not available, update check without proxy")
         except Exception:

@@ -165,8 +165,10 @@ from jmcore.tor_control import (
 from jmcore.tor_isolation import (
     IsolationCategory,
     IsolationCredentials,
+    NormalizedProxyURL,
     build_isolated_proxy_url,
     get_isolation_credentials,
+    normalize_proxy_url,
 )
 from jmcore.version import (
     VERSION,
@@ -281,8 +283,10 @@ __all__ = [
     # Tor stream isolation
     "IsolationCategory",
     "IsolationCredentials",
+    "NormalizedProxyURL",
     "build_isolated_proxy_url",
     "get_isolation_credentials",
+    "normalize_proxy_url",
     # Timenumber (fidelity bonds)
     "TIMENUMBER_COUNT",
     "TIMELOCK_EPOCH",

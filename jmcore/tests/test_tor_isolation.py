@@ -10,8 +10,10 @@ from jmcore.tor_isolation import (
     _PROCESS_TOKEN,
     IsolationCategory,
     IsolationCredentials,
+    NormalizedProxyURL,
     build_isolated_proxy_url,
     get_isolation_credentials,
+    normalize_proxy_url,
 )
 
 
@@ -162,3 +164,67 @@ class TestBuildIsolatedProxyUrl:
             # The special chars should be percent-encoded
             assert "pass/word" not in url
             assert "pass%2Fword%26foo%3Dbar" in url
+
+
+class TestNormalizedProxyURL:
+    """Tests for the NormalizedProxyURL dataclass."""
+
+    def test_creation(self) -> None:
+        result = NormalizedProxyURL(url="socks5://127.0.0.1:9050", rdns=True)
+        assert result.url == "socks5://127.0.0.1:9050"
+        assert result.rdns is True
+
+    def test_frozen(self) -> None:
+        result = NormalizedProxyURL(url="socks5://127.0.0.1:9050", rdns=False)
+        with pytest.raises(AttributeError):
+            result.url = "other"  # type: ignore[misc]
+
+
+class TestNormalizeProxyUrl:
+    """Tests for normalize_proxy_url().
+
+    python-socks does not recognise the ``socks5h://`` scheme, so callers
+    must convert it to ``socks5://`` + ``rdns=True`` before passing the URL
+    to ``AsyncProxyTransport.from_url()``.
+    """
+
+    def test_socks5h_converted_to_socks5(self) -> None:
+        result = normalize_proxy_url("socks5h://127.0.0.1:9050")
+        assert result.url == "socks5://127.0.0.1:9050"
+
+    def test_socks5h_sets_rdns_true(self) -> None:
+        result = normalize_proxy_url("socks5h://127.0.0.1:9050")
+        assert result.rdns is True
+
+    def test_socks5_unchanged(self) -> None:
+        result = normalize_proxy_url("socks5://127.0.0.1:9050")
+        assert result.url == "socks5://127.0.0.1:9050"
+
+    def test_socks5_rdns_false(self) -> None:
+        result = normalize_proxy_url("socks5://127.0.0.1:9050")
+        assert result.rdns is False
+
+    def test_socks5h_with_credentials(self) -> None:
+        url = "socks5h://user:pass@127.0.0.1:9050"
+        result = normalize_proxy_url(url)
+        assert result.url == "socks5://user:pass@127.0.0.1:9050"
+        assert result.rdns is True
+
+    def test_socks5h_with_encoded_credentials(self) -> None:
+        """Percent-encoded credentials from build_isolated_proxy_url."""
+        url = "socks5h://jm-mempool:abc123def456@tor:9050"
+        result = normalize_proxy_url(url)
+        assert result.url == "socks5://jm-mempool:abc123def456@tor:9050"
+        assert result.rdns is True
+
+    def test_only_first_occurrence_replaced(self) -> None:
+        """Edge case: socks5h in the password should not be modified."""
+        url = "socks5h://user:socks5h@127.0.0.1:9050"
+        result = normalize_proxy_url(url)
+        assert result.url == "socks5://user:socks5h@127.0.0.1:9050"
+
+    def test_http_url_passes_through(self) -> None:
+        """Non-SOCKS URLs are returned unchanged with rdns=False."""
+        result = normalize_proxy_url("http://proxy:8080")
+        assert result.url == "http://proxy:8080"
+        assert result.rdns is False

@@ -156,7 +156,11 @@ class TestCheckForUpdatesFromGitHub:
 
     @pytest.mark.asyncio
     async def test_with_socks_proxy(self) -> None:
-        """Test that SOCKS proxy is configured when provided."""
+        """Test that SOCKS proxy is configured when provided.
+
+        ``socks5h://`` URLs are normalized to ``socks5://`` + ``rdns=True``
+        because python-socks does not recognise the ``h`` suffix.
+        """
         mock_response = MagicMock()
         mock_response.json.return_value = {"tag_name": "v99.0.0"}
         mock_response.raise_for_status = MagicMock()
@@ -180,7 +184,8 @@ class TestCheckForUpdatesFromGitHub:
             )
 
         assert result is not None
-        mock_from_url.assert_called_once_with("socks5h://127.0.0.1:9050")
+        # socks5h:// is normalized to socks5:// with rdns=True
+        mock_from_url.assert_called_once_with("socks5://127.0.0.1:9050", rdns=True)
         # Verify transport was passed to AsyncClient
         call_kwargs = mock_cls.call_args[1]
         assert call_kwargs["transport"] is mock_transport

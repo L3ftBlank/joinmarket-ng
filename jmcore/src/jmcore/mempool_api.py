@@ -80,12 +80,18 @@ class MempoolAPI:
         if socks_proxy:
             try:
                 logger.info(f"Attempting to configure SOCKS proxy: {socks_proxy}")
-                # Try httpx-socks
                 from httpx_socks import AsyncProxyTransport
 
+                from jmcore.tor_isolation import normalize_proxy_url
+
+                # python-socks does not support the socks5h:// scheme directly.
+                # normalize_proxy_url converts socks5h:// -> socks5:// + rdns=True
+                # so that .onion addresses are resolved by Tor.
+                normalized = normalize_proxy_url(socks_proxy)
+
                 logger.debug("httpx_socks imported successfully")
-                transport = AsyncProxyTransport.from_url(socks_proxy)
-                logger.debug(f"Created SOCKS transport: {transport}")
+                transport = AsyncProxyTransport.from_url(normalized.url, rdns=normalized.rdns)
+                logger.debug(f"Created SOCKS transport: {transport} (rdns={normalized.rdns})")
                 client_kwargs["transport"] = transport
                 logger.info(f"MempoolAPI configured to use SOCKS proxy: {socks_proxy}")
             except ImportError as e:

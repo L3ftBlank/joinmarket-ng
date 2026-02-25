@@ -836,6 +836,32 @@ def spend_bond(
         float,
         typer.Option("--fee-rate", "-f", help="Fee rate in sat/vB"),
     ] = 1.0,
+    master_fingerprint: Annotated[
+        str | None,
+        typer.Option(
+            "--master-fingerprint",
+            "-m",
+            help=(
+                "Master key fingerprint (4 bytes hex, e.g. 'aabbccdd'). "
+                "Found in Sparrow: Settings -> Keystore -> Master fingerprint. "
+                "Enables Sparrow and HWI to identify the signing key."
+            ),
+        ),
+    ] = None,
+    derivation_path: Annotated[
+        str | None,
+        typer.Option(
+            "--derivation-path",
+            "-p",
+            help=(
+                "BIP32 derivation path of the key used for the bond "
+                "(e.g. \"m/84'/0'/0'/0/0\"). "
+                "This is the path of the address whose pubkey was used in "
+                "'create-bond-address'. Check Sparrow: Addresses tab -> "
+                "right-click the address -> Copy -> Derivation Path."
+            ),
+        ),
+    ] = None,
     output_file: Annotated[
         Path | None,
         typer.Option("--output", "-o", help="Save PSBT to file (default: stdout only)"),
@@ -852,28 +878,41 @@ def spend_bond(
     """
     Generate a PSBT to spend a cold storage fidelity bond after locktime expires.
 
-    This creates a Partially Signed Bitcoin Transaction (PSBT) that can be imported
-    into Sparrow Wallet or another signing tool connected to your hardware wallet.
-    The PSBT includes the witness script needed to satisfy the CLTV timelock.
+    This creates a Partially Signed Bitcoin Transaction (PSBT) that can be signed
+    using HWI (hardware wallet) or the mnemonic signing script (software wallet).
+
+    The PSBT includes the witness script (CLTV timelock) needed to spend the bond.
 
     REQUIREMENTS:
     - The bond must exist in the registry (created with 'create-bond-address')
     - The bond must be funded (use 'registry-sync' to update UTXO info)
     - The locktime must have expired (or be close enough for your use case)
 
-    WORKFLOW:
-    1. Run this command to generate the PSBT
-    2. Import the PSBT into Sparrow Wallet (File -> Open Transaction -> From Text)
-    3. Sign with your hardware wallet
-    4. Broadcast the signed transaction from Sparrow
+    SIGNING OPTIONS:
 
-    NOTE: Sparrow does not natively understand the CLTV timelock script, but it
-    CAN sign PSBTs that include the witness script. The PSBT format provides all
-    the information needed for the hardware wallet to produce a valid signature.
+    A) Hardware wallet (HWI):
+    1. Run this command with --master-fingerprint and --derivation-path
+    2. Install HWI: pip install hwi
+    3. Connect and unlock your hardware wallet
+    4. Run: python scripts/sign_bond_psbt.py <psbt_base64>
+
+    B) Mnemonic (software signing):
+    1. Run: python scripts/sign_bond_mnemonic.py <psbt_base64>
+    2. Enter your BIP39 mnemonic when prompted (hidden input)
+    3. Broadcast: bitcoin-cli sendrawtransaction <signed_hex>
+
+    The --master-fingerprint and --derivation-path flags embed BIP32 key origin
+    info into the PSBT, allowing HWI to identify which key to use on the device.
+    The mnemonic script can also use BIP32 info from the PSBT, or accept a
+    --derivation-path argument directly.
+
+    NOTE: Sparrow Wallet cannot sign CLTV timelock scripts (P2WSH with custom
+    witness scripts). Use one of the signing options above.
     """
     setup_logging(log_level)
 
     from jmcore.bitcoin import (
+        BIP32Derivation,
         PSBTInput,
         TxInput,
         TxOutput,
@@ -882,6 +921,7 @@ def spend_bond(
         estimate_vsize,
         format_amount,
         get_address_type,
+        parse_derivation_path,
         psbt_to_base64,
         script_to_p2wsh_scriptpubkey,
     )
@@ -971,6 +1011,50 @@ def spend_bond(
     witness_script = bytes.fromhex(bond.witness_script_hex)
     p2wsh_scriptpubkey = script_to_p2wsh_scriptpubkey(witness_script)
 
+    # Build BIP32 derivation info if provided (helps signers identify the key)
+    bip32_derivations: list[BIP32Derivation] | None = None
+    if master_fingerprint or derivation_path:
+        if not master_fingerprint or not derivation_path:
+            logger.error(
+                "--master-fingerprint and --derivation-path must both be provided. "
+                "In Sparrow: Settings -> Keystore for the fingerprint, "
+                "Addresses tab -> right-click -> Copy -> Derivation Path for the path."
+            )
+            raise typer.Exit(1)
+
+        # Validate and parse master fingerprint (4 bytes hex)
+        fingerprint_clean = master_fingerprint.strip().lower()
+        try:
+            fp_bytes = bytes.fromhex(fingerprint_clean)
+        except ValueError:
+            logger.error(f"Invalid master fingerprint hex: {master_fingerprint!r}")
+            raise typer.Exit(1)
+        if len(fp_bytes) != 4:
+            logger.error(
+                f"Master fingerprint must be exactly 4 bytes (8 hex chars), "
+                f"got {len(fp_bytes)} bytes"
+            )
+            raise typer.Exit(1)
+
+        # Parse derivation path
+        try:
+            path_indices = parse_derivation_path(derivation_path)
+        except ValueError as e:
+            logger.error(f"Invalid derivation path: {e}")
+            raise typer.Exit(1)
+
+        pubkey_bytes = bytes.fromhex(bond.pubkey)
+        bip32_derivations = [
+            BIP32Derivation(
+                pubkey=pubkey_bytes,
+                fingerprint=fp_bytes,
+                path=path_indices,
+            )
+        ]
+        logger.info(
+            f"BIP32 derivation included: fingerprint={fingerprint_clean}, path={derivation_path}"
+        )
+
     # Build the unsigned transaction components
     tx_input = TxInput.from_hex(
         txid=bond.txid,
@@ -988,6 +1072,7 @@ def spend_bond(
         witness_utxo_script=p2wsh_scriptpubkey,
         witness_script=witness_script,
         sighash_type=1,  # SIGHASH_ALL
+        bip32_derivations=bip32_derivations,
     )
 
     # Create the PSBT
@@ -1022,7 +1107,7 @@ def spend_bond(
     print(f"Fee:              {format_amount(estimated_fee)} ({fee_rate:.1f} sat/vB)")
     print(f"Estimated vsize:  {estimated_vsize} vB")
     print("\n" + "-" * 80)
-    print("PSBT (base64) -- copy this into Sparrow:")
+    print("PSBT (base64):")
     print("-" * 80)
     print(psbt_base64)
     print("-" * 80)
@@ -1032,13 +1117,37 @@ def spend_bond(
     print("HOW TO SIGN AND BROADCAST:")
     print("=" * 80)
     print()
-    print("Sparrow Wallet:")
-    print("  1. File -> Open Transaction -> From Text")
-    print("  2. Paste the PSBT base64 above")
-    print("  3. Connect your hardware wallet")
-    print("  4. Click 'Finalize Transaction for Signing'")
-    print("  5. Click 'Sign' and confirm on hardware wallet")
-    print("  6. Click 'Broadcast Transaction'")
+    if bip32_derivations:
+        print("Option A - Hardware wallet (HWI):")
+        print("  1. Install HWI: pip install hwi")
+        print("  2. Connect your hardware wallet and unlock it")
+        print("  3. Run: python scripts/sign_bond_psbt.py <psbt_base64>")
+        print("     Or manually:")
+        print("     hwi -t <device_type> signtx <psbt_base64>")
+        print("  4. Finalize: bitcoin-cli finalizepsbt <signed_psbt>")
+        print("  5. Broadcast: bitcoin-cli sendrawtransaction <signed_hex>")
+        print()
+        print("Option B - Mnemonic (software signing):")
+        print("  1. Run: python scripts/sign_bond_mnemonic.py <psbt_base64>")
+        print("  2. Enter your BIP39 mnemonic when prompted (hidden input)")
+        print("  3. Broadcast: bitcoin-cli sendrawtransaction <signed_hex>")
+        print()
+        print("NOTE: Sparrow Wallet cannot sign CLTV timelock scripts.")
+        print("  Use one of the options above.")
+    else:
+        print("Sign with mnemonic (no BIP32 derivation info needed):")
+        print("  1. Run: python scripts/sign_bond_mnemonic.py <psbt_base64> \\")
+        print("       --derivation-path \"m/84'/0'/0'/0/0\"")
+        print("  2. Enter your BIP39 mnemonic when prompted (hidden input)")
+        print("  3. Broadcast: bitcoin-cli sendrawtransaction <signed_hex>")
+        print()
+        print("For hardware wallet signing, re-run with --master-fingerprint")
+        print("  and --derivation-path to embed BIP32 key origin info.")
+        print()
+        print("  Example:")
+        print("    jm-wallet spend-bond <bond_addr> <dest_addr> \\")
+        print("      --master-fingerprint aabbccdd \\")
+        print("      --derivation-path \"m/84'/0'/0'/0/0\"")
     print()
     if bond.locktime > current_time:
         print("WARNING: The locktime has NOT expired yet!")

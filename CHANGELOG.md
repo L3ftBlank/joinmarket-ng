@@ -24,7 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Cold Wallet Bond Spending (`spend-bond`)**: New CLI command to generate a PSBT (BIP-174) for spending cold storage fidelity bonds after locktime expires. The PSBT includes the CLTV witness script metadata so hardware wallets (via Sparrow) can sign without understanding the timelock script natively. Implements PSBT serialization from scratch in `jmcore/bitcoin.py`. Usage: `jm-wallet spend-bond <bond-address> <destination> --fee-rate 2.0`, then import the base64 PSBT into Sparrow for signing and broadcasting.
+- **Cold Wallet Bond Spending (`spend-bond`)**: New CLI command to generate a PSBT (BIP-174) for spending cold storage fidelity bonds after locktime expires. The PSBT includes the CLTV witness script metadata needed for signing. Implements PSBT serialization from scratch in `jmcore/bitcoin.py`. Usage: `jm-wallet spend-bond <bond-address> <destination> --fee-rate 2.0`, then sign with one of the scripts below.
+- **BIP32 Key Origin in Bond PSBTs**: The `spend-bond` command now accepts `--master-fingerprint` and `--derivation-path` to embed `PSBT_IN_BIP32_DERIVATION` (BIP-174 key type 0x06) in the PSBT. This allows HWI to automatically identify the signing key on the hardware wallet.
+- **HWI Bond Signing Script**: New standalone `scripts/sign_bond_psbt.py` script for signing bond spending PSBTs via HWI (Hardware Wallet Interface). Supports Trezor, Coldcard, Ledger, and other HW wallets. No seed phrase required. Install with `pip install hwi`.
+- **Mnemonic Bond Signing Script**: New standalone `scripts/sign_bond_mnemonic.py` script for signing bond spending PSBTs with a BIP39 mnemonic. Fully self-contained (no project dependencies beyond `coincurve`). Derives the private key from the mnemonic + BIP32 path, verifies it matches the PSBT, and outputs a signed transaction. Mnemonic is read via hidden input and cleared after use.
 
 ## [0.15.0] - 2026-02-14
 

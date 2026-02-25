@@ -1199,8 +1199,9 @@ PSBT_GLOBAL_UNSIGNED_TX = 0x00
 
 # Per-input types
 PSBT_IN_WITNESS_UTXO = 0x01
-PSBT_IN_WITNESS_SCRIPT = 0x05
 PSBT_IN_SIGHASH_TYPE = 0x03
+PSBT_IN_WITNESS_SCRIPT = 0x05
+PSBT_IN_BIP32_DERIVATION = 0x06
 
 
 def _serialize_psbt_key(key_type: int, key_data: bytes = b"") -> bytes:
@@ -1230,6 +1231,74 @@ PSBT_SEPARATOR = b"\x00"
 
 
 @dataclass
+class BIP32Derivation:
+    """BIP32 key origin information for a PSBT input/output.
+
+    Used to tell signing devices which key to use (PSBT_IN_BIP32_DERIVATION).
+
+    Attributes:
+        pubkey: The compressed public key (33 bytes).
+        fingerprint: Master key fingerprint (4 bytes).
+        path: BIP32 derivation path as list of uint32 indices
+              (e.g. [0x80000054, 0x80000000, 0x80000000, 0, 0] for m/84'/0'/0'/0/0).
+    """
+
+    pubkey: bytes
+    fingerprint: bytes
+    path: list[int]
+
+    def __post_init__(self) -> None:
+        if len(self.pubkey) != 33:
+            raise ValueError(f"pubkey must be 33 bytes, got {len(self.pubkey)}")
+        if len(self.fingerprint) != 4:
+            raise ValueError(f"fingerprint must be 4 bytes, got {len(self.fingerprint)}")
+
+
+def parse_derivation_path(path_str: str) -> list[int]:
+    """Parse a BIP32 derivation path string into a list of uint32 indices.
+
+    Handles hardened notation with ' or h suffix.
+
+    Examples:
+        >>> parse_derivation_path("m/84'/0'/0'/0/0")
+        [2147483732, 2147483648, 2147483648, 0, 0]
+
+    Args:
+        path_str: Derivation path like "m/84'/0'/0'/0/0".
+
+    Returns:
+        List of uint32 path indices (hardened indices have bit 31 set).
+
+    Raises:
+        ValueError: If the path format is invalid.
+    """
+    path_str = path_str.strip()
+    if path_str.startswith("m/"):
+        path_str = path_str[2:]
+    elif path_str == "m":
+        return []
+
+    indices: list[int] = []
+    for component in path_str.split("/"):
+        component = component.strip()
+        if not component:
+            continue
+        hardened = component.endswith("'") or component.endswith("h")
+        if hardened:
+            component = component[:-1]
+        try:
+            index = int(component)
+        except ValueError:
+            raise ValueError(f"Invalid path component: {component!r}") from None
+        if index < 0 or index >= 0x80000000:
+            raise ValueError(f"Path index out of range: {index}")
+        if hardened:
+            index |= 0x80000000
+        indices.append(index)
+    return indices
+
+
+@dataclass
 class PSBTInput:
     """Data needed for a PSBT per-input map.
 
@@ -1238,12 +1307,14 @@ class PSBTInput:
         witness_utxo_script: scriptPubKey of the UTXO (e.g. P2WSH 34-byte script).
         witness_script: The full witness script (redeem script) for P2WSH inputs.
         sighash_type: Sighash type (default SIGHASH_ALL = 0x01).
+        bip32_derivations: Optional BIP32 key origin info for signing devices.
     """
 
     witness_utxo_value: int
     witness_utxo_script: bytes
     witness_script: bytes
     sighash_type: int = 1
+    bip32_derivations: list[BIP32Derivation] | None = None
 
 
 def create_psbt(
@@ -1311,6 +1382,13 @@ def create_psbt(
 
         # PSBT_IN_WITNESS_SCRIPT: the full witness script
         result.extend(_serialize_psbt_pair(PSBT_IN_WITNESS_SCRIPT, pi.witness_script))
+
+        # PSBT_IN_BIP32_DERIVATION: key origin info for signing devices
+        # BIP-174: key = <0x06> <pubkey>, value = <4-byte fingerprint> <4-byte LE index>...
+        if pi.bip32_derivations:
+            for deriv in pi.bip32_derivations:
+                value = deriv.fingerprint + b"".join(struct.pack("<I", idx) for idx in deriv.path)
+                result.extend(_serialize_psbt_pair(PSBT_IN_BIP32_DERIVATION, value, deriv.pubkey))
 
         result.extend(PSBT_SEPARATOR)
 

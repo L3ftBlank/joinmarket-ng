@@ -638,15 +638,31 @@ After locktime expires:
 # Hot wallet (has private keys):
 jm-wallet send <destination> --mixdepth 0 --amount 0  # Sweep
 
-# Cold wallet (hardware wallet via Sparrow):
-jm-wallet spend-bond <bond-address> <destination> --fee-rate 2.0
-# Import the PSBT into Sparrow (File -> Open Transaction -> From Text)
-# Sign with hardware wallet, then broadcast from Sparrow
+# Cold wallet (hardware wallet):
+jm-wallet spend-bond <bond-address> <destination> --fee-rate 2.0 \
+  --master-fingerprint <4-byte-hex> \
+  --derivation-path "m/84'/0'/0'/0/0"
 ```
+
+The `--master-fingerprint` (from Sparrow: Settings -> Keystore) and `--derivation-path`
+(the BIP32 path of the address whose pubkey was used in `create-bond-address`) embed
+key origin info (BIP-174 `PSBT_IN_BIP32_DERIVATION`) in the PSBT, allowing signing
+software to identify the correct key.
+
+Signing options for cold wallet bonds:
+
+1. **HWI (hardware wallet)**: `pip install hwi`, then use `scripts/sign_bond_psbt.py <psbt>`.
+   Supports Trezor, Coldcard, Ledger. Never requires the seed.
+2. **Mnemonic (software signing)**: `python scripts/sign_bond_mnemonic.py <psbt>`.
+   Derives the key from your BIP39 mnemonic + BIP32 path. Mnemonic is read via hidden
+   input and cleared after use. Only requires `coincurve` (no project dependencies).
+3. **Bitcoin Core**: `bitcoin-cli walletprocesspsbt <psbt>` if the key is imported.
+
+Note: Sparrow Wallet cannot sign CLTV timelock scripts. Use one of the options above.
 
 The hot wallet path automatically handles P2WSH witness construction and nLockTime.
 The cold wallet path generates a PSBT (BIP-174) containing the witness script and CLTV
-metadata so Sparrow (or any PSBT-compatible signer) can produce a valid signature.
+metadata so hardware wallets can produce a valid signature.
 
 **Note:** P2WSH fidelity bond UTXOs cannot be used in CoinJoins.
 

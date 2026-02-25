@@ -4,9 +4,13 @@ Tests for jmcore.bitcoin module.
 
 import base64
 import os
+import struct
+
+import pytest
 
 from jmcore.bitcoin import (
     PSBT_MAGIC,
+    BIP32Derivation,
     PSBTInput,
     TxInput,
     TxOutput,
@@ -14,6 +18,7 @@ from jmcore.bitcoin import (
     create_psbt,
     decode_varint,
     estimate_vsize,
+    parse_derivation_path,
     parse_transaction,
     psbt_to_base64,
     script_to_p2wsh_scriptpubkey,
@@ -494,3 +499,215 @@ class TestPSBTToBase64:
         b64 = psbt_to_base64(raw)
         assert isinstance(b64, str)
         b64.encode("ascii")  # Should not raise
+
+
+# ---------------------------------------------------------------------------
+# Test parse_derivation_path
+# ---------------------------------------------------------------------------
+
+
+class TestParseDerivationPath:
+    """Test BIP32 derivation path parsing."""
+
+    def test_standard_bip84_path(self) -> None:
+        """Parse m/84'/0'/0'/0/0."""
+        result = parse_derivation_path("m/84'/0'/0'/0/0")
+        assert result == [
+            84 | 0x80000000,  # 84'
+            0 | 0x80000000,  # 0'
+            0 | 0x80000000,  # 0'
+            0,  # 0
+            0,  # 0
+        ]
+
+    def test_hardened_with_h_suffix(self) -> None:
+        """The 'h' suffix should work the same as apostrophe."""
+        result = parse_derivation_path("m/84h/0h/0h/0/0")
+        assert result == parse_derivation_path("m/84'/0'/0'/0/0")
+
+    def test_without_m_prefix(self) -> None:
+        """Path without m/ prefix should still work."""
+        result = parse_derivation_path("84'/0'/0'/0/0")
+        assert result == parse_derivation_path("m/84'/0'/0'/0/0")
+
+    def test_empty_path(self) -> None:
+        """m alone should return empty list."""
+        assert parse_derivation_path("m") == []
+
+    def test_non_hardened_path(self) -> None:
+        """Non-hardened indices should not have bit 31 set."""
+        result = parse_derivation_path("m/0/1/2")
+        assert result == [0, 1, 2]
+
+    def test_fidelity_bond_path(self) -> None:
+        """Parse the fidelity bond derivation path m/84'/0'/0'/2/0."""
+        result = parse_derivation_path("m/84'/0'/0'/2/0")
+        expected = [84 | 0x80000000, 0 | 0x80000000, 0 | 0x80000000, 2, 0]
+        assert result == expected
+
+    def test_invalid_component_raises(self) -> None:
+        """Non-numeric path component should raise ValueError."""
+        with pytest.raises(ValueError, match="Invalid path component"):
+            parse_derivation_path("m/84'/abc/0'")
+
+    def test_negative_index_raises(self) -> None:
+        """Negative indices should raise ValueError."""
+        with pytest.raises(ValueError, match="Path index out of range"):
+            parse_derivation_path("m/-1/0")
+
+
+# ---------------------------------------------------------------------------
+# Test BIP32Derivation
+# ---------------------------------------------------------------------------
+
+
+class TestBIP32Derivation:
+    """Test BIP32Derivation dataclass."""
+
+    def test_valid_derivation(self) -> None:
+        """Construct a valid BIP32Derivation."""
+        pubkey = bytes.fromhex("02" + "bb" * 32)
+        fingerprint = bytes.fromhex("aabbccdd")
+        path = [84 | 0x80000000, 0 | 0x80000000, 0 | 0x80000000, 0, 0]
+        deriv = BIP32Derivation(pubkey=pubkey, fingerprint=fingerprint, path=path)
+        assert deriv.pubkey == pubkey
+        assert deriv.fingerprint == fingerprint
+        assert deriv.path == path
+
+    def test_invalid_pubkey_length_raises(self) -> None:
+        """Pubkey must be exactly 33 bytes."""
+        with pytest.raises(ValueError, match="pubkey must be 33 bytes"):
+            BIP32Derivation(
+                pubkey=b"\x02" + b"\xbb" * 31,
+                fingerprint=b"\xaa\xbb\xcc\xdd",
+                path=[0],
+            )
+
+    def test_invalid_fingerprint_length_raises(self) -> None:
+        """Fingerprint must be exactly 4 bytes."""
+        with pytest.raises(ValueError, match="fingerprint must be 4 bytes"):
+            BIP32Derivation(
+                pubkey=b"\x02" + b"\xbb" * 32,
+                fingerprint=b"\xaa\xbb",
+                path=[0],
+            )
+
+
+# ---------------------------------------------------------------------------
+# Test PSBT with BIP32 derivation
+# ---------------------------------------------------------------------------
+
+
+class TestPSBTWithBIP32Derivation:
+    """Test that BIP32 derivation info is correctly serialized in PSBTs."""
+
+    def _make_psbt_with_derivation(self, fingerprint: bytes, path: list[int]) -> bytes:
+        """Helper: create a PSBT with BIP32 derivation info."""
+        pubkey = bytes.fromhex(TEST_PUBKEY_HEX)
+        witness_script = _make_witness_script()
+        p2wsh_scriptpubkey = _make_p2wsh_scriptpubkey(witness_script)
+
+        deriv = BIP32Derivation(
+            pubkey=pubkey,
+            fingerprint=fingerprint,
+            path=path,
+        )
+
+        tx_input = TxInput.from_hex(
+            txid=TEST_TXID,
+            vout=0,
+            sequence=0xFFFFFFFE,
+            value=100_000,
+            scriptpubkey=p2wsh_scriptpubkey.hex(),
+        )
+        tx_output = TxOutput.from_hex(
+            value=99_000,
+            scriptpubkey=p2wsh_scriptpubkey.hex(),
+        )
+
+        psbt_input = PSBTInput(
+            witness_utxo_value=100_000,
+            witness_utxo_script=p2wsh_scriptpubkey,
+            witness_script=witness_script,
+            sighash_type=1,
+            bip32_derivations=[deriv],
+        )
+
+        return create_psbt(
+            version=2,
+            inputs=[tx_input],
+            outputs=[tx_output],
+            locktime=TEST_LOCKTIME,
+            psbt_inputs=[psbt_input],
+        )
+
+    def test_psbt_contains_bip32_derivation_key(self) -> None:
+        """PSBT should contain the BIP32 derivation key type (0x06)."""
+        fingerprint = b"\xaa\xbb\xcc\xdd"
+        path = [84 | 0x80000000, 0 | 0x80000000, 0 | 0x80000000, 0, 0]
+        raw = self._make_psbt_with_derivation(fingerprint, path)
+
+        # The key for BIP32 derivation is: <varint key_len> <0x06> <33-byte pubkey>
+        # key_len = 1 + 33 = 34
+        pubkey_bytes = bytes.fromhex(TEST_PUBKEY_HEX)
+        bip32_key = bytes([34, 0x06]) + pubkey_bytes
+        assert bip32_key in raw
+
+    def test_psbt_contains_fingerprint_and_path(self) -> None:
+        """PSBT value should contain the master fingerprint and derivation indices."""
+        fingerprint = b"\xaa\xbb\xcc\xdd"
+        path = [84 | 0x80000000, 0 | 0x80000000, 0 | 0x80000000, 0, 0]
+        raw = self._make_psbt_with_derivation(fingerprint, path)
+
+        # The value is: fingerprint + path indices as LE uint32
+        expected_value = fingerprint + b"".join(struct.pack("<I", idx) for idx in path)
+        assert expected_value in raw
+
+    def test_psbt_without_derivation_unchanged(self) -> None:
+        """PSBT without BIP32 derivation should not contain key type 0x06."""
+        witness_script = _make_witness_script()
+        p2wsh_scriptpubkey = _make_p2wsh_scriptpubkey(witness_script)
+
+        tx_input = TxInput.from_hex(
+            txid=TEST_TXID,
+            vout=0,
+            sequence=0xFFFFFFFE,
+            value=100_000,
+            scriptpubkey=p2wsh_scriptpubkey.hex(),
+        )
+        tx_output = TxOutput.from_hex(
+            value=99_000,
+            scriptpubkey=p2wsh_scriptpubkey.hex(),
+        )
+
+        psbt_input = PSBTInput(
+            witness_utxo_value=100_000,
+            witness_utxo_script=p2wsh_scriptpubkey,
+            witness_script=witness_script,
+            sighash_type=1,
+            # No bip32_derivations
+        )
+
+        raw = create_psbt(
+            version=2,
+            inputs=[tx_input],
+            outputs=[tx_output],
+            locktime=TEST_LOCKTIME,
+            psbt_inputs=[psbt_input],
+        )
+
+        # Key type 0x06 followed by pubkey should NOT appear
+        pubkey_bytes = bytes.fromhex(TEST_PUBKEY_HEX)
+        bip32_key = bytes([34, 0x06]) + pubkey_bytes
+        assert bip32_key not in raw
+
+    def test_roundtrip_with_derivation(self) -> None:
+        """PSBT with BIP32 derivation should survive base64 roundtrip."""
+        fingerprint = b"\x12\x34\x56\x78"
+        path = [84 | 0x80000000, 0, 0]
+        raw = self._make_psbt_with_derivation(fingerprint, path)
+        b64 = psbt_to_base64(raw)
+
+        decoded = base64.b64decode(b64)
+        assert decoded == raw
+        assert decoded.startswith(PSBT_MAGIC)

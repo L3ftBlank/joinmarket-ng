@@ -372,6 +372,219 @@ class TestSpendBondCommand:
             assert parsed.inputs[0].sequence == 0xFFFFFFFE
 
 
+class TestSpendBondBIP32Derivation:
+    """Tests for BIP32 derivation info in the spend-bond PSBT."""
+
+    def test_bip32_derivation_included_in_psbt(self) -> None:
+        """PSBT should contain BIP32 derivation when fingerprint and path provided."""
+        import struct
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            address = _create_funded_bond(data_dir)
+            fingerprint = "aabbccdd"
+            deriv_path = "m/84'/0'/0'/0/0"
+
+            result = runner.invoke(
+                app,
+                [
+                    "spend-bond",
+                    address,
+                    DEST_ADDRESS,
+                    "--data-dir",
+                    str(data_dir),
+                    "--master-fingerprint",
+                    fingerprint,
+                    "--derivation-path",
+                    deriv_path,
+                ],
+            )
+
+            assert result.exit_code == 0
+
+            # BIP32 derivation should be in the PSBT binary data
+            lines = result.stdout.split("\n")
+            psbt_b64 = _extract_psbt_from_output(lines)
+            assert psbt_b64 is not None
+            psbt_bytes = base64.b64decode(psbt_b64)
+
+            # Verify the fingerprint is in the PSBT
+            fp_bytes = bytes.fromhex(fingerprint)
+            assert fp_bytes in psbt_bytes
+
+            # Verify the derivation path indices are present
+            # m/84'/0'/0'/0/0 -> [84|0x80000000, 0|0x80000000, 0|0x80000000, 0, 0]
+            path_bytes = b"".join(
+                struct.pack("<I", idx)
+                for idx in [
+                    84 | 0x80000000,
+                    0 | 0x80000000,
+                    0 | 0x80000000,
+                    0,
+                    0,
+                ]
+            )
+            assert fp_bytes + path_bytes in psbt_bytes
+
+    def test_fingerprint_only_fails(self) -> None:
+        """Providing --master-fingerprint without --derivation-path should fail."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            address = _create_funded_bond(data_dir)
+
+            result = runner.invoke(
+                app,
+                [
+                    "spend-bond",
+                    address,
+                    DEST_ADDRESS,
+                    "--data-dir",
+                    str(data_dir),
+                    "--master-fingerprint",
+                    "aabbccdd",
+                ],
+            )
+
+            assert result.exit_code != 0
+
+    def test_path_only_fails(self) -> None:
+        """Providing --derivation-path without --master-fingerprint should fail."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            address = _create_funded_bond(data_dir)
+
+            result = runner.invoke(
+                app,
+                [
+                    "spend-bond",
+                    address,
+                    DEST_ADDRESS,
+                    "--data-dir",
+                    str(data_dir),
+                    "--derivation-path",
+                    "m/84'/0'/0'/0/0",
+                ],
+            )
+
+            assert result.exit_code != 0
+
+    def test_invalid_fingerprint_hex(self) -> None:
+        """Invalid hex for master fingerprint should fail."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            address = _create_funded_bond(data_dir)
+
+            result = runner.invoke(
+                app,
+                [
+                    "spend-bond",
+                    address,
+                    DEST_ADDRESS,
+                    "--data-dir",
+                    str(data_dir),
+                    "--master-fingerprint",
+                    "not-hex",
+                    "--derivation-path",
+                    "m/84'/0'/0'/0/0",
+                ],
+            )
+
+            assert result.exit_code != 0
+
+    def test_invalid_fingerprint_length(self) -> None:
+        """Fingerprint with wrong byte count should fail."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            address = _create_funded_bond(data_dir)
+
+            result = runner.invoke(
+                app,
+                [
+                    "spend-bond",
+                    address,
+                    DEST_ADDRESS,
+                    "--data-dir",
+                    str(data_dir),
+                    "--master-fingerprint",
+                    "aabb",  # Only 2 bytes, need 4
+                    "--derivation-path",
+                    "m/84'/0'/0'/0/0",
+                ],
+            )
+
+            assert result.exit_code != 0
+
+    def test_invalid_derivation_path(self) -> None:
+        """Invalid derivation path should fail."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            address = _create_funded_bond(data_dir)
+
+            result = runner.invoke(
+                app,
+                [
+                    "spend-bond",
+                    address,
+                    DEST_ADDRESS,
+                    "--data-dir",
+                    str(data_dir),
+                    "--master-fingerprint",
+                    "aabbccdd",
+                    "--derivation-path",
+                    "m/84'/abc/0'",
+                ],
+            )
+
+            assert result.exit_code != 0
+
+    def test_hwi_instructions_shown_with_derivation(self) -> None:
+        """When BIP32 derivation is provided, HWI instructions should be shown."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            address = _create_funded_bond(data_dir)
+
+            result = runner.invoke(
+                app,
+                [
+                    "spend-bond",
+                    address,
+                    DEST_ADDRESS,
+                    "--data-dir",
+                    str(data_dir),
+                    "--master-fingerprint",
+                    "aabbccdd",
+                    "--derivation-path",
+                    "m/84'/0'/0'/0/0",
+                ],
+            )
+
+            assert result.exit_code == 0
+            assert "HWI" in result.stdout
+            assert "sign_bond_psbt.py" in result.stdout
+            assert "Sparrow Wallet cannot sign CLTV" in result.stdout
+
+    def test_no_derivation_shows_hint(self) -> None:
+        """Without BIP32 derivation, output should hint to use the flags."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            address = _create_funded_bond(data_dir)
+
+            result = runner.invoke(
+                app,
+                [
+                    "spend-bond",
+                    address,
+                    DEST_ADDRESS,
+                    "--data-dir",
+                    str(data_dir),
+                ],
+            )
+
+            assert result.exit_code == 0
+            assert "--master-fingerprint" in result.stdout
+            assert "--derivation-path" in result.stdout
+
+
 def _extract_psbt_from_output(lines: list[str]) -> str | None:
     """Extract the PSBT base64 string from CLI output.
 

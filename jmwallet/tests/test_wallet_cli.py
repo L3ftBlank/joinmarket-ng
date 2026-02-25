@@ -63,14 +63,13 @@ def test_bip39_import_with_passphrase_zpub_and_address():
         with patch("jmwallet.backends.bitcoin_core.BitcoinCoreBackend", return_value=mock_backend):
             # Run 'info --extended' command to see zpub and first address
             # Note: explicitly use scantxoutset backend since descriptor_wallet is default
+            # Use BIP39_PASSPHRASE env var (--bip39-passphrase removed for security)
             result = runner.invoke(
                 app,
                 [
                     "info",
                     "--mnemonic-file",
                     str(mnemonic_file),
-                    "--bip39-passphrase",
-                    passphrase,
                     "--network",
                     "mainnet",
                     "--backend",
@@ -79,6 +78,7 @@ def test_bip39_import_with_passphrase_zpub_and_address():
                     "--gap",
                     "1",  # Only show first address
                 ],
+                env={"BIP39_PASSPHRASE": passphrase},
             )
 
             # Debug output
@@ -146,7 +146,8 @@ def test_validate_invalid_mnemonic():
     """Test validating an invalid mnemonic via CLI."""
     invalid_mnemonic = "invalid mnemonic phrase with random words that are not valid"
 
-    result = runner.invoke(app, ["validate", invalid_mnemonic])
+    # Use MNEMONIC env var since positional arg was removed for security
+    result = runner.invoke(app, ["validate"], env={"MNEMONIC": invalid_mnemonic})
     assert result.exit_code == 1, "Should fail for invalid mnemonic"
     assert "Mnemonic is INVALID" in result.stdout
 
@@ -182,28 +183,26 @@ def test_encrypted_mnemonic_file():
         output_file = Path(tmpdir) / "encrypted.mnemonic"
 
         # Generate and save encrypted mnemonic using CLI
-        result = runner.invoke(
-            app,
-            [
-                "generate",
-                "--words",
-                "12",
-                "--output",
-                str(output_file),
-                "--password",
-                password,
-                "--no-prompt-password",  # Don't prompt, use the password arg
-            ],
-        )
+        # Password is now provided via interactive prompt (--password removed for security)
+        with patch.object(typer, "prompt", side_effect=[password, password]):
+            result = runner.invoke(
+                app,
+                [
+                    "generate",
+                    "--words",
+                    "12",
+                    "--output",
+                    str(output_file),
+                ],
+            )
 
         assert result.exit_code == 0, f"generate failed: {result.stdout}"
         assert "GENERATED MNEMONIC" in result.stdout
         assert output_file.exists(), "Encrypted mnemonic file was not created"
 
-        # Validate the encrypted file with password
-        result = runner.invoke(
-            app, ["validate", "--mnemonic-file", str(output_file), "--password", password]
-        )
+        # Validate the encrypted file — load_mnemonic_file will prompt for password
+        with patch.object(typer, "prompt", return_value=password):
+            result = runner.invoke(app, ["validate", "--mnemonic-file", str(output_file)])
         assert result.exit_code == 0, f"validate failed: {result.stdout}"
         assert "Mnemonic is VALID" in result.stdout
 
@@ -331,6 +330,7 @@ def test_send_respects_config_block_target():
                 # Run send command
                 # We expect it to fail with "No UTXOs available" but that's fine,
                 # we just want to check estimate_fee call
+                # Use MNEMONIC env var instead of --mnemonic CLI arg (removed for security)
                 runner.invoke(
                     app,
                     [
@@ -338,14 +338,16 @@ def test_send_respects_config_block_target():
                         "bcrt1q...",
                         "--amount",
                         "1000",
-                        "--mnemonic",
-                        "abandon abandon abandon abandon abandon abandon "
-                        "abandon abandon abandon abandon abandon about",
                         "--network",
                         "regtest",
                         "--backend",
                         "scantxoutset",
                     ],
+                    env={
+                        "MNEMONIC": "abandon abandon abandon abandon abandon abandon "
+                        "abandon abandon abandon abandon abandon about",
+                        "WALLET__DEFAULT_FEE_BLOCK_TARGET": str(expected_target),
+                    },
                 )
 
                 # It should have called estimate_fee
@@ -580,7 +582,7 @@ def test_info_uses_default_wallet():
 
 
 def test_import_with_mnemonic_argument():
-    """Test importing a mnemonic passed via --mnemonic argument."""
+    """Test importing a mnemonic passed via MNEMONIC environment variable."""
     mnemonic = (
         "abandon abandon abandon abandon abandon abandon "
         "abandon abandon abandon abandon abandon about"
@@ -589,16 +591,16 @@ def test_import_with_mnemonic_argument():
     with tempfile.TemporaryDirectory() as tmpdir:
         output_file = Path(tmpdir) / "imported.mnemonic"
 
+        # Use MNEMONIC env var instead of --mnemonic CLI arg (removed for security)
         result = runner.invoke(
             app,
             [
                 "import",
-                "--mnemonic",
-                mnemonic,
                 "--output",
                 str(output_file),
                 "--no-prompt-password",
             ],
+            env={"MNEMONIC": mnemonic},
         )
 
         assert result.exit_code == 0, f"import failed: {result.stdout}"
@@ -621,29 +623,27 @@ def test_import_with_encryption():
     with tempfile.TemporaryDirectory() as tmpdir:
         output_file = Path(tmpdir) / "encrypted_import.mnemonic"
 
-        result = runner.invoke(
-            app,
-            [
-                "import",
-                "--mnemonic",
-                mnemonic,
-                "--output",
-                str(output_file),
-                "--password",
-                password,
-                "--no-prompt-password",
-            ],
-        )
+        # Use MNEMONIC env var and mock password prompt
+        # (--mnemonic and --password removed for security)
+        with patch.object(typer, "prompt", side_effect=[password, password]):
+            result = runner.invoke(
+                app,
+                [
+                    "import",
+                    "--output",
+                    str(output_file),
+                ],
+                env={"MNEMONIC": mnemonic},
+            )
 
         assert result.exit_code == 0, f"import failed: {result.stdout}"
         assert "IMPORTED MNEMONIC" in result.stdout
         assert "File is encrypted" in result.stdout
         assert output_file.exists()
 
-        # Verify we can decrypt and validate the saved mnemonic
-        result = runner.invoke(
-            app, ["validate", "--mnemonic-file", str(output_file), "--password", password]
-        )
+        # Validate the encrypted file — validate auto-prompts for password
+        with patch.object(typer, "prompt", return_value=password):
+            result = runner.invoke(app, ["validate", "--mnemonic-file", str(output_file)])
         assert result.exit_code == 0, f"validate failed: {result.stdout}"
         assert "Mnemonic is VALID" in result.stdout
 
@@ -658,18 +658,18 @@ def test_import_24_word_mnemonic():
     with tempfile.TemporaryDirectory() as tmpdir:
         output_file = Path(tmpdir) / "imported24.mnemonic"
 
+        # Use MNEMONIC env var instead of --mnemonic CLI arg (removed for security)
         result = runner.invoke(
             app,
             [
                 "import",
                 "--words",
                 "24",
-                "--mnemonic",
-                mnemonic,
                 "--output",
                 str(output_file),
                 "--no-prompt-password",
             ],
+            env={"MNEMONIC": mnemonic},
         )
 
         assert result.exit_code == 0, f"import failed: {result.stdout}"
@@ -688,17 +688,17 @@ def test_import_invalid_mnemonic_warns():
         output_file = Path(tmpdir) / "invalid.mnemonic"
 
         # Should prompt for confirmation - say no
+        # Use MNEMONIC env var instead of --mnemonic CLI arg (removed for security)
         result = runner.invoke(
             app,
             [
                 "import",
-                "--mnemonic",
-                invalid_mnemonic,
                 "--output",
                 str(output_file),
                 "--no-prompt-password",
             ],
             input="n\n",  # Say no to "Continue anyway?"
+            env={"MNEMONIC": invalid_mnemonic},
         )
 
         # Should exit without creating file
@@ -718,17 +718,17 @@ def test_import_overwrite_protection():
         output_file.write_text("existing content")
 
         # Try to import without --force, say no to overwrite
+        # Use MNEMONIC env var instead of --mnemonic CLI arg (removed for security)
         result = runner.invoke(
             app,
             [
                 "import",
-                "--mnemonic",
-                mnemonic,
                 "--output",
                 str(output_file),
                 "--no-prompt-password",
             ],
             input="n\n",  # Say no to overwrite
+            env={"MNEMONIC": mnemonic},
         )
 
         assert "Import cancelled" in result.stdout
@@ -746,17 +746,17 @@ def test_import_force_overwrite():
         output_file = Path(tmpdir) / "existing.mnemonic"
         output_file.write_text("old content")
 
+        # Use MNEMONIC env var instead of --mnemonic CLI arg (removed for security)
         result = runner.invoke(
             app,
             [
                 "import",
-                "--mnemonic",
-                mnemonic,
                 "--output",
                 str(output_file),
                 "--no-prompt-password",
                 "--force",
             ],
+            env={"MNEMONIC": mnemonic},
         )
 
         assert result.exit_code == 0
@@ -765,15 +765,15 @@ def test_import_force_overwrite():
 
 def test_import_invalid_word_count():
     """Test that invalid word count is rejected."""
+    # Use MNEMONIC env var instead of --mnemonic CLI arg (removed for security)
     result = runner.invoke(
         app,
         [
             "import",
             "--words",
             "13",  # Invalid word count
-            "--mnemonic",
-            "test",
         ],
+        env={"MNEMONIC": "test"},
     )
 
     assert result.exit_code == 1
@@ -1073,7 +1073,6 @@ def test_import_mnemonic_password_retry():
         # Mock prompts: first password mismatch, then match
         responses = iter(
             [
-                # First word prompts (skipped with --mnemonic)
                 # Password prompts
                 "password1",
                 "wrong_confirm",
@@ -1085,16 +1084,16 @@ def test_import_mnemonic_password_retry():
         def mock_prompt(*args, **kwargs):
             return next(responses)
 
+        # Use MNEMONIC env var instead of --mnemonic CLI arg (removed for security)
         with patch.object(typer, "prompt", side_effect=mock_prompt):
             result = runner.invoke(
                 app,
                 [
                     "import",
-                    "--mnemonic",
-                    mnemonic,
                     "--output",
                     str(output_file),
                 ],
+                env={"MNEMONIC": mnemonic},
             )
 
         assert result.exit_code == 0, f"import failed: {result.stdout}"

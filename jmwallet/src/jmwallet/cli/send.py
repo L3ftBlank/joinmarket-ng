@@ -24,17 +24,7 @@ from jmwallet.cli import app
 def send(
     destination: Annotated[str, typer.Argument(help="Destination address")],
     amount: Annotated[int, typer.Option("--amount", "-a", help="Amount in sats (0 for sweep)")] = 0,
-    mnemonic: Annotated[str | None, typer.Option("--mnemonic")] = None,
     mnemonic_file: Annotated[Path | None, typer.Option("--mnemonic-file", "-f")] = None,
-    password: Annotated[str | None, typer.Option("--password", "-p")] = None,
-    bip39_passphrase: Annotated[
-        str | None,
-        typer.Option(
-            "--bip39-passphrase",
-            envvar="BIP39_PASSPHRASE",
-            help="BIP39 passphrase (13th/25th word)",
-        ),
-    ] = None,
     prompt_bip39_passphrase: Annotated[
         bool, typer.Option("--prompt-bip39-passphrase", help="Prompt for BIP39 passphrase")
     ] = False,
@@ -63,10 +53,6 @@ def send(
         ),
     ] = None,
     rpc_url: Annotated[str | None, typer.Option("--rpc-url", envvar="BITCOIN_RPC_URL")] = None,
-    rpc_user: Annotated[str | None, typer.Option("--rpc-user", envvar="BITCOIN_RPC_USER")] = None,
-    rpc_password: Annotated[
-        str | None, typer.Option("--rpc-password", envvar="BITCOIN_RPC_PASSWORD")
-    ] = None,
     neutrino_url: Annotated[
         str | None, typer.Option("--neutrino-url", envvar="NEUTRINO_URL")
     ] = None,
@@ -106,10 +92,7 @@ def send(
     try:
         resolved = resolve_mnemonic(
             settings,
-            mnemonic=mnemonic,
             mnemonic_file=mnemonic_file,
-            password=password,
-            bip39_passphrase=bip39_passphrase,
             prompt_bip39_passphrase=prompt_bip39_passphrase,
         )
         if not resolved:
@@ -126,8 +109,6 @@ def send(
         network=network,
         backend_type=backend_type,
         rpc_url=rpc_url,
-        rpc_user=rpc_user,
-        rpc_password=rpc_password,
         neutrino_url=neutrino_url,
         data_dir=data_dir,
     )

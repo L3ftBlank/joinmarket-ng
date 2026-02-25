@@ -39,14 +39,8 @@ def import_mnemonic(
     word_count: Annotated[
         int, typer.Option("--words", "-w", help="Number of words (12, 15, 18, 21, or 24)")
     ] = 24,
-    mnemonic: Annotated[
-        str | None, typer.Option("--mnemonic", "-m", help="Mnemonic phrase (space-separated)")
-    ] = None,
     output_file: Annotated[
         Path | None, typer.Option("--output", "-o", help="Output file path")
-    ] = None,
-    password: Annotated[
-        str | None, typer.Option("--password", "-p", help="Password for encryption")
     ] = None,
     prompt_password: Annotated[
         bool,
@@ -63,14 +57,14 @@ def import_mnemonic(
     """Import an existing BIP39 mnemonic phrase to create/recover a wallet.
 
     Enter your existing mnemonic interactively with autocomplete support,
-    or pass it directly via --mnemonic.
+    or set the MNEMONIC environment variable.
 
     By default, saves to ~/.joinmarket-ng/wallets/default.mnemonic with password protection.
 
     Examples:
         jm-wallet import                          # Interactive input, 24 words
         jm-wallet import --words 12               # Interactive input, 12 words
-        jm-wallet import --mnemonic "word1 word2 ..."  # Direct input
+        MNEMONIC="word1 word2 ..." jm-wallet import  # Via env var
         jm-wallet import -o my-wallet.mnemonic    # Custom output file
     """
     setup_logging()
@@ -79,10 +73,14 @@ def import_mnemonic(
         logger.error(f"Invalid word count: {word_count}. Must be 12, 15, 18, 21, or 24.")
         raise typer.Exit(1)
 
-    # Get mnemonic from argument or interactive input
-    if mnemonic:
+    # Get mnemonic from env var or interactive input
+    import os
+
+    env_mnemonic = os.environ.get("MNEMONIC")
+    if env_mnemonic:
+        mnemonic = env_mnemonic.strip()
         # Validate provided mnemonic
-        words = mnemonic.strip().split()
+        words = mnemonic.split()
         if len(words) != word_count:
             logger.warning(
                 f"Mnemonic has {len(words)} words but --words={word_count} was specified. "
@@ -92,11 +90,11 @@ def import_mnemonic(
             logger.error("Provided mnemonic is INVALID (bad checksum)")
             if not typer.confirm("Continue anyway?", default=False):
                 raise typer.Exit(1)
-        resolved_mnemonic = mnemonic.strip()
+        resolved_mnemonic = mnemonic
     else:
         # Interactive input with autocomplete
         if not sys.stdin.isatty():
-            logger.error("Interactive input requires a terminal. Use --mnemonic instead.")
+            logger.error("Interactive input requires a terminal. Set MNEMONIC env var instead.")
             raise typer.Exit(1)
         resolved_mnemonic = interactive_mnemonic_input(word_count)
 
@@ -121,8 +119,9 @@ def import_mnemonic(
             typer.echo("Import cancelled")
             raise typer.Exit(0)
 
-    # Get password
-    if prompt_password and password is None:
+    # Get password for encryption
+    password: str | None = None
+    if prompt_password:
         password = prompt_password_with_confirmation()
 
     # Save the mnemonic
@@ -147,9 +146,6 @@ def generate(
     ] = True,
     output_file: Annotated[
         Path | None, typer.Option("--output", "-o", help="Output file path")
-    ] = None,
-    password: Annotated[
-        str | None, typer.Option("--password", "-p", help="Password for encryption")
     ] = None,
     prompt_password: Annotated[
         bool,
@@ -200,8 +196,9 @@ def generate(
                     typer.echo("Wallet generation cancelled")
                     raise typer.Exit(0)
 
-            # Prompt for password if requested and not already provided
-            if prompt_password and password is None:
+            # Prompt for password if requested
+            password: str | None = None
+            if prompt_password:
                 password = prompt_password_with_confirmation()
 
             save_mnemonic_file(mnemonic, output_file, password)
@@ -230,20 +227,8 @@ def generate(
 
 @app.command()
 def info(
-    mnemonic: Annotated[str | None, typer.Option("--mnemonic", help="BIP39 mnemonic")] = None,
     mnemonic_file: Annotated[
         Path | None, typer.Option("--mnemonic-file", "-f", help="Path to mnemonic file")
-    ] = None,
-    password: Annotated[
-        str | None, typer.Option("--password", "-p", help="Password for encrypted file")
-    ] = None,
-    bip39_passphrase: Annotated[
-        str | None,
-        typer.Option(
-            "--bip39-passphrase",
-            envvar="BIP39_PASSPHRASE",
-            help="BIP39 passphrase (13th/25th word)",
-        ),
     ] = None,
     prompt_bip39_passphrase: Annotated[
         bool,
@@ -260,10 +245,6 @@ def info(
         ),
     ] = None,
     rpc_url: Annotated[str | None, typer.Option("--rpc-url", envvar="BITCOIN_RPC_URL")] = None,
-    rpc_user: Annotated[str | None, typer.Option("--rpc-user", envvar="BITCOIN_RPC_USER")] = None,
-    rpc_password: Annotated[
-        str | None, typer.Option("--rpc-password", envvar="BITCOIN_RPC_PASSWORD")
-    ] = None,
     neutrino_url: Annotated[
         str | None, typer.Option("--neutrino-url", envvar="NEUTRINO_URL")
     ] = None,
@@ -291,10 +272,7 @@ def info(
     try:
         resolved = resolve_mnemonic(
             settings,
-            mnemonic=mnemonic,
             mnemonic_file=mnemonic_file,
-            password=password,
-            bip39_passphrase=bip39_passphrase,
             prompt_bip39_passphrase=prompt_bip39_passphrase,
         )
         if not resolved:
@@ -311,8 +289,6 @@ def info(
         network=network,
         backend_type=backend_type,
         rpc_url=rpc_url,
-        rpc_user=rpc_user,
-        rpc_password=rpc_password,
         neutrino_url=neutrino_url,
         data_dir=data_dir,
     )
@@ -693,25 +669,43 @@ def _show_extended_wallet_info(
 
 @app.command()
 def validate(
-    mnemonic_arg: Annotated[str | None, typer.Argument(help="Mnemonic to validate")] = None,
     mnemonic_file: Annotated[
         Path | None, typer.Option("--mnemonic-file", "-f", help="Path to mnemonic file")
     ] = None,
-    password: Annotated[str | None, typer.Option("--password", "-p")] = None,
 ) -> None:
-    """Validate a BIP39 mnemonic phrase."""
+    """Validate a BIP39 mnemonic phrase.
+
+    Provide a mnemonic via --mnemonic-file, the MNEMONIC environment variable,
+    or enter it interactively when prompted.
+    """
+    import os
+
     mnemonic: str = ""
 
     if mnemonic_file:
         try:
-            mnemonic = load_mnemonic_file(mnemonic_file, password)
-        except (FileNotFoundError, ValueError) as e:
+            mnemonic = load_mnemonic_file(mnemonic_file)
+        except ValueError as e:
+            if "encrypted" in str(e).lower():
+                # File is encrypted, prompt for password
+                password = typer.prompt("Enter password to decrypt mnemonic file", hide_input=True)
+                try:
+                    mnemonic = load_mnemonic_file(mnemonic_file, password)
+                except (FileNotFoundError, ValueError) as e2:
+                    print(f"Error: {e2}")
+                    raise typer.Exit(1)
+            else:
+                print(f"Error: {e}")
+                raise typer.Exit(1)
+        except FileNotFoundError as e:
             print(f"Error: {e}")
             raise typer.Exit(1)
-    elif mnemonic_arg:
-        mnemonic = mnemonic_arg
     else:
-        mnemonic = typer.prompt("Enter mnemonic to validate")
+        env_mnemonic = os.environ.get("MNEMONIC")
+        if env_mnemonic:
+            mnemonic = env_mnemonic.strip()
+        else:
+            mnemonic = typer.prompt("Enter mnemonic to validate")
 
     if validate_mnemonic(mnemonic):
         print("Mnemonic is VALID")

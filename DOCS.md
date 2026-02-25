@@ -567,7 +567,6 @@ Generate a bond address:
 ```bash
 jm-wallet generate-bond-address \
   --mnemonic-file wallet.enc \
-  --password "your-password" \
   --locktime-date "2026-01-01" \
   --index 0
 ```
@@ -778,8 +777,8 @@ HD path: `m/84'/0'/0'/mixdepth/chain/index` (BIP84 P2WPKH)
 JoinMarket NG supports the optional BIP39 passphrase ("25th word"):
 
 **Important Distinction:**
-- **File encryption password** (`--password`): Encrypts mnemonic file with AES
-- **BIP39 passphrase** (`--bip39-passphrase`): Used in seed derivation per BIP39
+- **File encryption password** (interactive prompt): Encrypts mnemonic file with AES
+- **BIP39 passphrase** (`--prompt-bip39-passphrase` or `BIP39_PASSPHRASE` env var): Used in seed derivation per BIP39
 
 The passphrase is provided when **using** the wallet, not when importing:
 
@@ -789,7 +788,6 @@ jm-wallet import --words 24
 
 # Passphrase provided at usage time:
 jm-wallet info --prompt-bip39-passphrase
-jm-wallet info --bip39-passphrase "my phrase"
 BIP39_PASSPHRASE="my phrase" jm-wallet info
 ```
 

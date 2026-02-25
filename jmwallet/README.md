@@ -44,8 +44,8 @@ jm-wallet generate --no-save --no-prompt-password
 # Interactive word-by-word input with Tab completion (saves to ~/.joinmarket-ng/wallets/default.mnemonic with password)
 jm-wallet import
 
-# Or pass mnemonic directly
-jm-wallet import --mnemonic "your twelve or twenty-four word mnemonic phrase ..."
+# Or pass mnemonic via environment variable (for scripting)
+MNEMONIC="your twelve or twenty-four word mnemonic phrase ..." jm-wallet import
 
 # Import a 12-word mnemonic
 jm-wallet import --words 12
@@ -194,8 +194,8 @@ jm-wallet import
 # Import to specific file
 jm-wallet import --output ~/my-wallet.mnemonic
 
-# Pass mnemonic directly (for scripting)
-jm-wallet import --mnemonic "word1 word2 ..." --no-prompt-password
+# Pass mnemonic via environment variable (for scripting)
+MNEMONIC="word1 word2 ..." jm-wallet import --no-prompt-password
 
 # Import 12-word mnemonic
 jm-wallet import --words 12
@@ -355,19 +355,12 @@ For detailed help on any command, see the auto-generated help sections below.
  List all fidelity bonds in the wallet.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --mnemonic                         TEXT                                      │
 │ --mnemonic-file            -f      PATH                                      │
-│ --password                 -p      TEXT                                      │
-│ --bip39-passphrase                 TEXT     BIP39 passphrase (13th/25th      │
-│                                             word)                            │
-│                                             [env var: BIP39_PASSPHRASE]      │
 │ --prompt-bip39-passphrase                   Prompt for BIP39 passphrase      │
 │ --network                  -n      TEXT     Bitcoin network                  │
 │ --backend                  -b      TEXT     Backend: scantxoutset |          │
 │                                             descriptor_wallet | neutrino     │
 │ --rpc-url                          TEXT     [env var: BITCOIN_RPC_URL]       │
-│ --rpc-user                         TEXT     [env var: BITCOIN_RPC_USER]      │
-│ --rpc-password                     TEXT     [env var: BITCOIN_RPC_PASSWORD]  │
 │ --locktime                 -L      INTEGER  Locktime(s) to scan for          │
 │ --log-level                -l      TEXT     Log level                        │
 │ --help                                      Show this message and exit.      │
@@ -386,12 +379,7 @@ For detailed help on any command, see the auto-generated help sections below.
  Generate a fidelity bond (timelocked P2WSH) address.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --mnemonic                         TEXT                                      │
 │ --mnemonic-file            -f      PATH                                      │
-│ --password                 -p      TEXT                                      │
-│ --bip39-passphrase                 TEXT     BIP39 passphrase (13th/25th      │
-│                                             word)                            │
-│                                             [env var: BIP39_PASSPHRASE]      │
 │ --prompt-bip39-passphrase                   Prompt for BIP39 passphrase      │
 │ --locktime                 -L      INTEGER  Locktime as Unix timestamp       │
 │                                             [default: 0]                     │
@@ -429,19 +417,12 @@ For detailed help on any command, see the auto-generated help sections below.
  Use --max-index to scan more addresses per locktime if needed.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --mnemonic                         TEXT                                      │
 │ --mnemonic-file            -f      PATH                                      │
-│ --password                 -p      TEXT                                      │
-│ --bip39-passphrase                 TEXT     BIP39 passphrase (13th/25th      │
-│                                             word)                            │
-│                                             [env var: BIP39_PASSPHRASE]      │
 │ --prompt-bip39-passphrase                   Prompt for BIP39 passphrase      │
 │ --network                  -n      TEXT     Bitcoin network                  │
 │ --backend                  -b      TEXT     Backend: scantxoutset |          │
 │                                             descriptor_wallet | neutrino     │
 │ --rpc-url                          TEXT     [env var: BITCOIN_RPC_URL]       │
-│ --rpc-user                         TEXT     [env var: BITCOIN_RPC_USER]      │
-│ --rpc-password                     TEXT     [env var: BITCOIN_RPC_PASSWORD]  │
 │ --neutrino-url                     TEXT     [env var: NEUTRINO_URL]          │
 │ --max-index                -i      INTEGER  Max address index per locktime   │
 │                                             to scan (default 1)              │
@@ -719,20 +700,13 @@ For detailed help on any command, see the auto-generated help sections below.
  Changes take effect immediately on each toggle.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --mnemonic                         TEXT     BIP39 mnemonic                   │
 │ --mnemonic-file            -f      PATH     Path to mnemonic file            │
-│ --password                 -p      TEXT     Password for encrypted file      │
-│ --bip39-passphrase                 TEXT     BIP39 passphrase (13th/25th      │
-│                                             word)                            │
-│                                             [env var: BIP39_PASSPHRASE]      │
 │ --prompt-bip39-passphrase                   Prompt for BIP39 passphrase      │
 │                                             interactively                    │
 │ --network                  -n      TEXT     Bitcoin network                  │
 │ --backend                  -b      TEXT     Backend: scantxoutset |          │
 │                                             descriptor_wallet | neutrino     │
 │ --rpc-url                          TEXT     [env var: BITCOIN_RPC_URL]       │
-│ --rpc-user                         TEXT     [env var: BITCOIN_RPC_USER]      │
-│ --rpc-password                     TEXT     [env var: BITCOIN_RPC_PASSWORD]  │
 │ --neutrino-url                     TEXT     [env var: NEUTRINO_URL]          │
 │ --mixdepth                 -m      INTEGER  Filter to a specific mixdepth    │
 │                                             (0-4)                            │
@@ -823,18 +797,12 @@ For detailed help on any command, see the auto-generated help sections below.
  Sync fidelity bond funding status from the blockchain.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --mnemonic                         TEXT                                      │
 │ --mnemonic-file            -f      PATH                                      │
-│ --password                 -p      TEXT                                      │
-│ --bip39-passphrase                 TEXT  BIP39 passphrase (13th/25th word)   │
-│                                          [env var: BIP39_PASSPHRASE]         │
 │ --prompt-bip39-passphrase                Prompt for BIP39 passphrase         │
 │ --network                  -n      TEXT                                      │
 │ --backend                  -b      TEXT  Backend: scantxoutset |             │
 │                                          descriptor_wallet | neutrino        │
 │ --rpc-url                          TEXT  [env var: BITCOIN_RPC_URL]          │
-│ --rpc-user                         TEXT  [env var: BITCOIN_RPC_USER]         │
-│ --rpc-password                     TEXT  [env var: BITCOIN_RPC_PASSWORD]     │
 │ --neutrino-url                     TEXT  [env var: NEUTRINO_URL]             │
 │ --data-dir                         PATH  Data directory (default:            │
 │                                          ~/.joinmarket-ng or                 │
@@ -861,12 +829,7 @@ For detailed help on any command, see the auto-generated help sections below.
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
 │ --amount                   -a      INTEGER  Amount in sats (0 for sweep)     │
 │                                             [default: 0]                     │
-│ --mnemonic                         TEXT                                      │
 │ --mnemonic-file            -f      PATH                                      │
-│ --password                 -p      TEXT                                      │
-│ --bip39-passphrase                 TEXT     BIP39 passphrase (13th/25th      │
-│                                             word)                            │
-│                                             [env var: BIP39_PASSPHRASE]      │
 │ --prompt-bip39-passphrase                   Prompt for BIP39 passphrase      │
 │ --mixdepth                 -m      INTEGER  Source mixdepth [default: 0]     │
 │ --fee-rate                         FLOAT    Manual fee rate in sat/vB (e.g.  │
@@ -879,8 +842,6 @@ For detailed help on any command, see the auto-generated help sections below.
 │ --backend                  -b      TEXT     Backend: scantxoutset |          │
 │                                             descriptor_wallet | neutrino     │
 │ --rpc-url                          TEXT     [env var: BITCOIN_RPC_URL]       │
-│ --rpc-user                         TEXT     [env var: BITCOIN_RPC_USER]      │
-│ --rpc-password                     TEXT     [env var: BITCOIN_RPC_PASSWORD]  │
 │ --neutrino-url                     TEXT     [env var: NEUTRINO_URL]          │
 │ --broadcast                                 Broadcast the transaction        │
 │                                             [default: True]                  │
@@ -907,7 +868,7 @@ For detailed help on any command, see the auto-generated help sections below.
  Import an existing BIP39 mnemonic phrase to create/recover a wallet.
 
  Enter your existing mnemonic interactively with autocomplete support,
- or pass it directly via --mnemonic.
+ or pass it via the MNEMONIC environment variable.
 
  By default, saves to ~/.joinmarket-ng/wallets/default.mnemonic with password
  protection.
@@ -915,18 +876,14 @@ For detailed help on any command, see the auto-generated help sections below.
  Examples:
      jm-wallet import                          # Interactive input, 24 words
      jm-wallet import --words 12               # Interactive input, 12 words
-     jm-wallet import --mnemonic "word1 word2 ..."  # Direct input
+     MNEMONIC="word1 word2 ..." jm-wallet import  # Via environment variable
      jm-wallet import -o my-wallet.mnemonic    # Custom output file
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
 │ --words            -w                          INTEGER  Number of words (12, │
 │                                                         15, 18, 21, or 24)   │
 │                                                         [default: 24]        │
-│ --mnemonic         -m                          TEXT     Mnemonic phrase      │
-│                                                         (space-separated)    │
 │ --output           -o                          PATH     Output file path     │
-│ --password         -p                          TEXT     Password for         │
-│                                                         encryption           │
 │ --prompt-password      --no-prompt-password             Prompt for password  │
 │                                                         interactively        │
 │                                                         (default: prompt)    │
@@ -963,8 +920,6 @@ For detailed help on any command, see the auto-generated help sections below.
 │                                                         (default: save)      │
 │                                                         [default: save]      │
 │ --output           -o                          PATH     Output file path     │
-│ --password         -p                          TEXT     Password for         │
-│                                                         encryption           │
 │ --prompt-password      --no-prompt-password             Prompt for password  │
 │                                                         interactively        │
 │                                                         (default: prompt)    │
@@ -987,20 +942,13 @@ For detailed help on any command, see the auto-generated help sections below.
  Display wallet information and balances by mixdepth.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --mnemonic                         TEXT     BIP39 mnemonic                   │
 │ --mnemonic-file            -f      PATH     Path to mnemonic file            │
-│ --password                 -p      TEXT     Password for encrypted file      │
-│ --bip39-passphrase                 TEXT     BIP39 passphrase (13th/25th      │
-│                                             word)                            │
-│                                             [env var: BIP39_PASSPHRASE]      │
 │ --prompt-bip39-passphrase                   Prompt for BIP39 passphrase      │
 │                                             interactively                    │
 │ --network                  -n      TEXT     Bitcoin network                  │
 │ --backend                  -b      TEXT     Backend: scantxoutset |          │
 │                                             descriptor_wallet | neutrino     │
 │ --rpc-url                          TEXT     [env var: BITCOIN_RPC_URL]       │
-│ --rpc-user                         TEXT     [env var: BITCOIN_RPC_USER]      │
-│ --rpc-password                     TEXT     [env var: BITCOIN_RPC_PASSWORD]  │
 │ --neutrino-url                     TEXT     [env var: NEUTRINO_URL]          │
 │ --extended                 -e               Show detailed address view with  │
 │                                             derivations                      │
@@ -1031,7 +979,6 @@ For detailed help on any command, see the auto-generated help sections below.
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
 │ --mnemonic-file  -f      PATH  Path to mnemonic file                         │
-│ --password       -p      TEXT                                                │
 │ --help                         Show this message and exit.                   │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```

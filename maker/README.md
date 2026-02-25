@@ -232,12 +232,11 @@ jm-wallet import --output ~/.joinmarket-ng/wallets/default.mnemonic
 
 This provides word-by-word entry with Tab completion and auto-complete when only one BIP39 word matches your prefix. The mnemonic is validated and optionally encrypted.
 
-Alternatively, pass the mnemonic directly:
+Alternatively, pass the mnemonic via environment variable:
 
 ```bash
-jm-wallet import \
-  --mnemonic "your twelve or twenty-four word mnemonic phrase here ..." \
-  --output ~/.joinmarket-ng/wallets/default.mnemonic
+MNEMONIC="your twelve or twenty-four word mnemonic phrase here ..." \
+  jm-wallet import --output ~/.joinmarket-ng/wallets/default.mnemonic
 ```
 
 2. **Start the maker** - fidelity bonds are auto-discovered:
@@ -270,12 +269,12 @@ jm-wallet list-bonds --mnemonic-file ~/.joinmarket-ng/wallets/default.mnemonic \
 
 Both commands update the bond registry (`fidelity_bonds.json`) with discovered bonds and their UTXO information.
 
-**BIP39 Passphrase**: If your wallet uses a BIP39 passphrase (13th/25th word), you must provide it via CLI or environment variable:
+**BIP39 Passphrase**: If your wallet uses a BIP39 passphrase (13th/25th word), you must provide it via interactive prompt or environment variable:
 
 ```bash
-# Via CLI argument
+# Via interactive prompt
 jm-wallet recover-bonds --mnemonic-file ~/.joinmarket-ng/wallets/default.mnemonic \
-  --bip39-passphrase "your passphrase"
+  --prompt-bip39-passphrase
 
 # Via environment variable
 BIP39_PASSPHRASE="your passphrase" jm-wallet recover-bonds \
@@ -535,15 +534,7 @@ Thresholds are configurable via environment variables if needed (see config.py).
  priority.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --mnemonic                      TEXT                  BIP39 mnemonic phrase  │
-│                                                       [env var: MNEMONIC]    │
 │ --mnemonic-file         -f      PATH                  Path to mnemonic file  │
-│ --password              -p      TEXT                  Password for encrypted │
-│                                                       mnemonic file          │
-│ --bip39-passphrase              TEXT                  BIP39 passphrase       │
-│                                                       (13th/25th word)       │
-│                                                       [env var:              │
-│                                                       BIP39_PASSPHRASE]      │
 │ --prompt-bip39-passph…                                Prompt for BIP39       │
 │                                                       passphrase             │
 │                                                       interactively          │
@@ -568,14 +559,6 @@ Thresholds are configurable via environment variables if needed (see config.py).
 │                                                       URL                    │
 │                                                       [env var:              │
 │                                                       BITCOIN_RPC_URL]       │
-│ --rpc-user                      TEXT                  Bitcoin full node RPC  │
-│                                                       username               │
-│                                                       [env var:              │
-│                                                       BITCOIN_RPC_USER]      │
-│ --rpc-password                  TEXT                  Bitcoin full node RPC  │
-│                                                       password               │
-│                                                       [env var:              │
-│                                                       BITCOIN_RPC_PASSWORD]  │
 │ --neutrino-url                  TEXT                  Neutrino REST API URL  │
 │                                                       [env var:              │
 │                                                       NEUTRINO_URL]          │
@@ -676,15 +659,7 @@ Thresholds are configurable via environment variables if needed (see config.py).
  Generate a new receive address.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --mnemonic                      TEXT                  BIP39 mnemonic         │
-│                                                       [env var: MNEMONIC]    │
 │ --mnemonic-file         -f      PATH                  Path to mnemonic file  │
-│ --password              -p      TEXT                  Password for encrypted │
-│                                                       mnemonic file          │
-│ --bip39-passphrase              TEXT                  BIP39 passphrase       │
-│                                                       (13th/25th word)       │
-│                                                       [env var:              │
-│                                                       BIP39_PASSPHRASE]      │
 │ --prompt-bip39-passph…                                Prompt for BIP39       │
 │                                                       passphrase             │
 │                                                       interactively          │

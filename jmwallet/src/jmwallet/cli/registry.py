@@ -191,17 +191,7 @@ def registry_show(
 
 @app.command("registry-sync")
 def registry_sync(
-    mnemonic: Annotated[str | None, typer.Option("--mnemonic")] = None,
     mnemonic_file: Annotated[Path | None, typer.Option("--mnemonic-file", "-f")] = None,
-    password: Annotated[str | None, typer.Option("--password", "-p")] = None,
-    bip39_passphrase: Annotated[
-        str | None,
-        typer.Option(
-            "--bip39-passphrase",
-            envvar="BIP39_PASSPHRASE",
-            help="BIP39 passphrase (13th/25th word)",
-        ),
-    ] = None,
     prompt_bip39_passphrase: Annotated[
         bool, typer.Option("--prompt-bip39-passphrase", help="Prompt for BIP39 passphrase")
     ] = False,
@@ -213,10 +203,6 @@ def registry_sync(
         ),
     ] = None,
     rpc_url: Annotated[str | None, typer.Option("--rpc-url", envvar="BITCOIN_RPC_URL")] = None,
-    rpc_user: Annotated[str | None, typer.Option("--rpc-user", envvar="BITCOIN_RPC_USER")] = None,
-    rpc_password: Annotated[
-        str | None, typer.Option("--rpc-password", envvar="BITCOIN_RPC_PASSWORD")
-    ] = None,
     neutrino_url: Annotated[
         str | None, typer.Option("--neutrino-url", envvar="NEUTRINO_URL")
     ] = None,
@@ -238,10 +224,7 @@ def registry_sync(
     try:
         resolved = resolve_mnemonic(
             settings,
-            mnemonic=mnemonic,
             mnemonic_file=mnemonic_file,
-            password=password,
-            bip39_passphrase=bip39_passphrase,
             prompt_bip39_passphrase=prompt_bip39_passphrase,
         )
         if not resolved:
@@ -258,8 +241,6 @@ def registry_sync(
         network=network,
         backend_type=backend_type,
         rpc_url=rpc_url,
-        rpc_user=rpc_user,
-        rpc_password=rpc_password,
         neutrino_url=neutrino_url,
         data_dir=data_dir,
     )

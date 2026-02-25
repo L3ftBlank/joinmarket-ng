@@ -359,12 +359,15 @@ def load_mnemonic_from_file(
 
     # If not plain text, assume it's Fernet encrypted
     if not password:
+        password = os.environ.get("MNEMONIC_PASSWORD")
+    if not password:
         if auto_prompt:
             password = _prompt_for_password()
         else:
             raise ValueError(
                 f"Mnemonic file appears to be encrypted. "
-                f"Use --password <password> to decrypt: {path}"
+                f"Set MNEMONIC_PASSWORD env, wallet.mnemonic_password in config, "
+                f"or use interactive prompt: {path}"
             )
 
     # Try Fernet decryption
@@ -448,8 +451,8 @@ def resolve_mnemonic(
     5. Empty string (default - no passphrase)
 
     For encrypted mnemonic files, the password is resolved as:
-    1. --password CLI argument
-    2. Config file wallet.mnemonic_password setting
+    1. Config file wallet.mnemonic_password setting (or password param)
+    2. MNEMONIC_PASSWORD environment variable
     3. Interactive prompt (if auto_prompt is enabled)
 
     Args:
@@ -515,7 +518,7 @@ def resolve_mnemonic(
     if resolved_mnemonic is None:
         if required:
             raise ValueError(
-                "No mnemonic provided. Use --mnemonic, --mnemonic-file, "
+                "No mnemonic provided. Use --mnemonic-file, "
                 "MNEMONIC env, or set wallet.mnemonic_file in config."
             )
         return None

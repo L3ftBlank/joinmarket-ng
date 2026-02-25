@@ -464,8 +464,9 @@ Use env vars for RPC credentials (see jmwallet README).
  Execute a single CoinJoin transaction.
 
  Configuration is loaded from ~/.joinmarket-ng/config.toml (or
- $JOINMARKET_DATA_DIR/config.toml), environment variables, and CLI arguments.
- CLI arguments have the highest priority.
+ $JOINMARKET_DATA_DIR/config.toml),
+ environment variables, and CLI arguments. CLI arguments have the highest
+ priority.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
 │ *  --amount         -a                     INTEGER          Amount in sats   │
@@ -593,7 +594,8 @@ Use env vars for RPC credentials (see jmwallet README).
  Run a tumbler schedule of CoinJoins.
 
  Configuration is loaded from ~/.joinmarket-ng/config.toml, environment
- variables, and CLI arguments. CLI arguments have the highest priority.
+ variables,
+ and CLI arguments. CLI arguments have the highest priority.
 
 ╭─ Arguments ──────────────────────────────────────────────────────────────────╮
 │ *    schedule_file      PATH  Path to schedule JSON file [required]          │

@@ -385,6 +385,68 @@ class TestBuildMakerConfig:
         assert config.offer_type == OfferType.SW0_RELATIVE
         assert config.cj_fee_relative == settings.maker.cj_fee_relative
 
+    def test_no_fidelity_bond_sets_flag(self) -> None:
+        """Test that no_fidelity_bond=True is stored in the config."""
+        from jmcore.settings import JoinMarketSettings
+
+        from maker.cli import build_maker_config
+
+        settings = JoinMarketSettings()
+        config = build_maker_config(
+            settings=settings,
+            mnemonic=TEST_MNEMONIC,
+            passphrase="",
+            no_fidelity_bond=True,
+        )
+        assert config.no_fidelity_bond is True
+
+    def test_no_fidelity_bond_false_by_default(self) -> None:
+        """Test that no_fidelity_bond defaults to False."""
+        from jmcore.settings import JoinMarketSettings
+
+        from maker.cli import build_maker_config
+
+        settings = JoinMarketSettings()
+        config = build_maker_config(
+            settings=settings,
+            mnemonic=TEST_MNEMONIC,
+            passphrase="",
+        )
+        assert config.no_fidelity_bond is False
+
+    def test_no_fidelity_bond_with_locktime_raises(self) -> None:
+        """Test that combining no_fidelity_bond with fidelity_bond_locktimes raises ValueError."""
+        from jmcore.settings import JoinMarketSettings
+
+        from maker.cli import build_maker_config
+
+        settings = JoinMarketSettings()
+        with pytest.raises(ValueError, match="--no-fidelity-bond cannot be combined"):
+            build_maker_config(
+                settings=settings,
+                mnemonic=TEST_MNEMONIC,
+                passphrase="",
+                no_fidelity_bond=True,
+                fidelity_bond_locktimes=[1700000000],
+            )
+
+    def test_no_fidelity_bond_with_index_raises(self) -> None:
+        """Test that combining no_fidelity_bond with fidelity_bond_index raises ValueError."""
+        from jmcore.settings import JoinMarketSettings
+
+        from maker.cli import build_maker_config
+
+        settings = JoinMarketSettings()
+        with pytest.raises(ValueError, match="--no-fidelity-bond cannot be combined"):
+            build_maker_config(
+                settings=settings,
+                mnemonic=TEST_MNEMONIC,
+                passphrase="",
+                no_fidelity_bond=True,
+                fidelity_bond_index=0,
+                fidelity_bond_locktimes=[1700000000],
+            )
+
 
 class TestCreateWalletService:
     """Tests for create_wallet_service function.

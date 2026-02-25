@@ -68,6 +68,7 @@ def build_maker_config(
     merge_algorithm: str | None = None,
     fidelity_bond_locktimes: list[int] | None = None,
     fidelity_bond_index: int | None = None,
+    no_fidelity_bond: bool = False,
     dual_offers: bool = False,
 ) -> MakerConfig:
     """
@@ -279,6 +280,13 @@ def build_maker_config(
     effective_locktimes = fidelity_bond_locktimes if fidelity_bond_locktimes else []
     effective_bond_index = fidelity_bond_index
 
+    # Validate: no_fidelity_bond is mutually exclusive with other bond options
+    if no_fidelity_bond and (effective_locktimes or effective_bond_index is not None):
+        raise ValueError(
+            "--no-fidelity-bond cannot be combined with "
+            "--fidelity-bond-locktime or --fidelity-bond-index"
+        )
+
     # Validate fidelity bond index requires locktimes
     if effective_bond_index is not None and not effective_locktimes:
         raise ValueError(
@@ -322,6 +330,7 @@ def build_maker_config(
         message_burst_limit=settings.maker.message_burst_limit,
         fidelity_bond_locktimes=list(effective_locktimes),
         fidelity_bond_index=effective_bond_index,
+        no_fidelity_bond=no_fidelity_bond,
         merge_algorithm=parsed_merge_algorithm,
         offer_configs=offer_configs,
     )
@@ -552,6 +561,14 @@ def start(
             help="Specific fidelity bond to use (format: txid:vout)",
         ),
     ] = None,
+    no_fidelity_bond: Annotated[
+        bool,
+        typer.Option(
+            "--no-fidelity-bond",
+            help="Disable fidelity bond usage. Skips registry lookup and bond proof generation "
+            "even when bonds exist in the registry.",
+        ),
+    ] = False,
     merge_algorithm: Annotated[
         str | None,
         typer.Option(
@@ -636,6 +653,7 @@ def start(
             merge_algorithm=merge_algorithm,
             fidelity_bond_locktimes=fidelity_bond_locktimes if fidelity_bond_locktimes else None,
             fidelity_bond_index=fidelity_bond_index,
+            no_fidelity_bond=no_fidelity_bond,
             dual_offers=dual_offers,
         )
     except ValueError as e:
@@ -652,6 +670,10 @@ def start(
     bot = MakerBot(wallet, wallet.backend, config)
 
     # Store the specific fidelity bond selection if provided
+    if fidelity_bond and no_fidelity_bond:
+        logger.error("--fidelity-bond and --no-fidelity-bond are mutually exclusive")
+        raise typer.Exit(1)
+
     if fidelity_bond:
         try:
             parts = fidelity_bond.split(":")

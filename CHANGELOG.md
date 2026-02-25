@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-02-25
+
+### Added
+
+- **`--no-fidelity-bond` flag for maker**: A new CLI flag `--no-fidelity-bond` (config: `no_fidelity_bond = true`) allows running the maker without a fidelity bond proof even when bonds are present in the registry. This is useful for privacy: fidelity bonds are public and linkable to your offers. Mutually exclusive with `--fidelity-bond`, `--fidelity-bond-locktime`, and `--fidelity-bond-index`.
+
 ### Fixed
 
 - **SOCKS5h Proxy Incompatibility with httpx-socks**: The `python-socks` library (used by `httpx-socks`) does not recognise the `socks5h://` URL scheme and raises `ValueError`, which was silently caught. This caused `MempoolAPI` and the GitHub update checker to fall back to direct connections without any proxy, failing with DNS resolution errors on `.onion` addresses ("Temporary failure in name resolution"). Added `normalize_proxy_url()` helper in `tor_isolation` that converts `socks5h://` to `socks5://` + `rdns=True`, enabling remote DNS resolution through the Tor SOCKS proxy. Applied to both `MempoolAPI` and `check_for_updates_from_github`.
@@ -937,7 +943,8 @@ Releases prior to these changes (including 0.13.5, 0.13.6, and 0.13.7) cannot be
 - Pre-built image support for directory server compose.
 - Tor configuration instructions.
 
-[Unreleased]: ../../compare/0.16.0...HEAD
+[Unreleased]: ../../compare/0.17.0...HEAD
+[0.17.0]: ../../compare/0.16.0...0.17.0
 [0.16.0]: ../../compare/0.15.0...0.16.0
 [0.15.0]: ../../compare/0.14.0...0.15.0
 [0.14.0]: ../../compare/0.13.12...0.14.0

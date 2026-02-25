@@ -237,7 +237,8 @@ def load_mnemonic_file(
     # File appears to be encrypted
     if not password:
         raise ValueError(
-            "Mnemonic file appears to be encrypted. Please provide a password with --password"
+            "Mnemonic file appears to be encrypted. "
+            "Set wallet.mnemonic_password in config or use interactive prompt"
         )
 
     return decrypt_mnemonic(data, password)

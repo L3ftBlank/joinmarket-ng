@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking Changes
+
+The following CLI options have been **removed** from all commands (`jm-wallet`, `jm-maker`, `jm-taker`):
+
+| Removed option | Replacement |
+|---|---|
+| `--mnemonic "word1 word2 ..."` | `MNEMONIC="word1 word2 ..." jm-wallet ...` |
+| `--password "pw"` | `MNEMONIC_PASSWORD="pw" jm-wallet ...` or `wallet.mnemonic_password` in config |
+| `--bip39-passphrase "phrase"` | `BIP39_PASSPHRASE="phrase" jm-wallet ...` or `--prompt-bip39-passphrase` |
+| `--rpc-user "user"` | `BITCOIN_RPC_USER="user" jm-wallet ...` or `bitcoin.rpc_user` in config |
+| `--rpc-password "pw"` | `BITCOIN_RPC_PASSWORD="pw" jm-wallet ...` or `bitcoin.rpc_password` in config |
+| `validate <mnemonic>` (positional) | `MNEMONIC="..." jm-wallet validate` or `jm-wallet validate --mnemonic-file wallet.mnemonic` |
+
+These secrets were leaking into shell history, `/proc/PID/cmdline`, `ps aux`, and audit logs.
+
+For unattended/automated operation, set `MNEMONIC_PASSWORD` (or `wallet.mnemonic_password` in config) so encrypted mnemonic files can be decrypted without a terminal prompt.
+
+### Security
+
+- **Remove sensitive credentials from CLI arguments** (#130, #132, #133, #136): The removed options appeared in shell history, `/proc/PID/cmdline`, `ps aux`, and audit logs. Secrets are now supplied via environment variables, config file, or interactive prompt. Added `MNEMONIC_PASSWORD` env var support for unattended decryption of encrypted mnemonic files.
+
 ## [0.17.0] - 2026-02-25
 
 ### Added

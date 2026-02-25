@@ -403,22 +403,8 @@ _NOT_PROVIDED = object()
 
 @app.command()
 def start(
-    mnemonic: Annotated[
-        str | None, typer.Option(help="BIP39 mnemonic phrase", envvar="MNEMONIC")
-    ] = None,
     mnemonic_file: Annotated[
         Path | None, typer.Option("--mnemonic-file", "-f", help="Path to mnemonic file")
-    ] = None,
-    password: Annotated[
-        str | None, typer.Option("--password", "-p", help="Password for encrypted mnemonic file")
-    ] = None,
-    bip39_passphrase: Annotated[
-        str | None,
-        typer.Option(
-            "--bip39-passphrase",
-            envvar="BIP39_PASSPHRASE",
-            help="BIP39 passphrase (13th/25th word)",
-        ),
     ] = None,
     prompt_bip39_passphrase: Annotated[
         bool,
@@ -456,13 +442,6 @@ def start(
     ] = None,
     rpc_url: Annotated[
         str | None, typer.Option(envvar="BITCOIN_RPC_URL", help="Bitcoin full node RPC URL")
-    ] = None,
-    rpc_user: Annotated[
-        str | None, typer.Option(envvar="BITCOIN_RPC_USER", help="Bitcoin full node RPC username")
-    ] = None,
-    rpc_password: Annotated[
-        str | None,
-        typer.Option(envvar="BITCOIN_RPC_PASSWORD", help="Bitcoin full node RPC password"),
     ] = None,
     neutrino_url: Annotated[
         str | None, typer.Option(envvar="NEUTRINO_URL", help="Neutrino REST API URL")
@@ -610,10 +589,7 @@ def start(
     try:
         resolved = resolve_mnemonic(
             settings,
-            mnemonic=mnemonic,
             mnemonic_file=mnemonic_file,
-            password=password,
-            bip39_passphrase=bip39_passphrase,
             prompt_bip39_passphrase=prompt_bip39_passphrase,
         )
         resolved_mnemonic = resolved.mnemonic if resolved else ""
@@ -633,8 +609,6 @@ def start(
             data_dir=data_dir,
             backend_type=backend_type,
             rpc_url=rpc_url,
-            rpc_user=rpc_user,
-            rpc_password=rpc_password,
             neutrino_url=neutrino_url,
             directory_servers=directory_servers,
             tor_socks_host=tor_socks_host,
@@ -719,20 +693,8 @@ def start(
 
 @app.command()
 def generate_address(
-    mnemonic: Annotated[str | None, typer.Option(help="BIP39 mnemonic", envvar="MNEMONIC")] = None,
     mnemonic_file: Annotated[
         Path | None, typer.Option("--mnemonic-file", "-f", help="Path to mnemonic file")
-    ] = None,
-    password: Annotated[
-        str | None, typer.Option("--password", "-p", help="Password for encrypted mnemonic file")
-    ] = None,
-    bip39_passphrase: Annotated[
-        str | None,
-        typer.Option(
-            "--bip39-passphrase",
-            envvar="BIP39_PASSPHRASE",
-            help="BIP39 passphrase (13th/25th word)",
-        ),
     ] = None,
     prompt_bip39_passphrase: Annotated[
         bool,
@@ -766,10 +728,7 @@ def generate_address(
     try:
         resolved = resolve_mnemonic(
             settings,
-            mnemonic=mnemonic,
             mnemonic_file=mnemonic_file,
-            password=password,
-            bip39_passphrase=bip39_passphrase,
             prompt_bip39_passphrase=prompt_bip39_passphrase,
         )
         resolved_mnemonic = resolved.mnemonic if resolved else ""

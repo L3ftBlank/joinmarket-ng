@@ -481,19 +481,8 @@ Use env vars for RPC credentials (see jmwallet README).
 │    --mixdepth       -m                     INTEGER          Source mixdepth  │
 │                                                             [default: 0]     │
 │    --counterparti…  -n                     INTEGER          Number of makers │
-│    --mnemonic                              TEXT             Wallet mnemonic  │
-│                                                             phrase           │
-│                                                             [env var:        │
-│                                                             MNEMONIC]        │
 │    --mnemonic-file  -f                     PATH             Path to mnemonic │
 │                                                             file             │
-│    --password       -p                     TEXT             Password for     │
-│                                                             encrypted        │
-│                                                             mnemonic file    │
-│    --bip39-passph…                         TEXT             BIP39 passphrase │
-│                                                             (13th/25th word) │
-│                                                             [env var:        │
-│                                                             BIP39_PASSPHRAS… │
 │    --prompt-bip39…                                          Prompt for BIP39 │
 │                                                             passphrase       │
 │                                                             interactively    │
@@ -512,15 +501,6 @@ Use env vars for RPC credentials (see jmwallet README).
 │                                                             node RPC URL     │
 │                                                             [env var:        │
 │                                                             BITCOIN_RPC_URL] │
-│    --rpc-user                              TEXT             Bitcoin full     │
-│                                                             node RPC user    │
-│                                                             [env var:        │
-│                                                             BITCOIN_RPC_USE… │
-│    --rpc-password                          TEXT             Bitcoin full     │
-│                                                             node RPC         │
-│                                                             password         │
-│                                                             [env var:        │
-│                                                             BITCOIN_RPC_PAS… │
 │    --neutrino-url                          TEXT             Neutrino REST    │
 │                                                             API URL          │
 │                                                             [env var:        │
@@ -601,15 +581,7 @@ Use env vars for RPC credentials (see jmwallet README).
 │ *    schedule_file      PATH  Path to schedule JSON file [required]          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --mnemonic                      TEXT                  Wallet mnemonic phrase │
-│                                                       [env var: MNEMONIC]    │
 │ --mnemonic-file         -f      PATH                  Path to mnemonic file  │
-│ --password              -p      TEXT                  Password for encrypted │
-│                                                       mnemonic file          │
-│ --bip39-passphrase              TEXT                  BIP39 passphrase       │
-│                                                       (13th/25th word)       │
-│                                                       [env var:              │
-│                                                       BIP39_PASSPHRASE]      │
 │ --prompt-bip39-passph…                                Prompt for BIP39       │
 │                                                       passphrase             │
 │                                                       interactively          │
@@ -623,14 +595,6 @@ Use env vars for RPC credentials (see jmwallet README).
 │                                                       URL                    │
 │                                                       [env var:              │
 │                                                       BITCOIN_RPC_URL]       │
-│ --rpc-user                      TEXT                  Bitcoin full node RPC  │
-│                                                       user                   │
-│                                                       [env var:              │
-│                                                       BITCOIN_RPC_USER]      │
-│ --rpc-password                  TEXT                  Bitcoin full node RPC  │
-│                                                       password               │
-│                                                       [env var:              │
-│                                                       BITCOIN_RPC_PASSWORD]  │
 │ --neutrino-url                  TEXT                  Neutrino REST API URL  │
 │                                                       [env var:              │
 │                                                       NEUTRINO_URL]          │

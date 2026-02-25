@@ -212,6 +212,28 @@ class TestBotInitialization:
 
         assert bot.fidelity_bond is None
 
+    def test_bot_respects_no_fidelity_bond_config(self, mock_wallet, mock_backend):
+        """Test that no_fidelity_bond=True is stored on the config.
+
+        The bot will skip bond selection when this flag is set.
+        """
+        config = MakerConfig(
+            mnemonic="test " * 12,
+            directory_servers=["localhost:5222"],
+            network=NetworkType.REGTEST,
+            no_fidelity_bond=True,
+        )
+
+        bot = MakerBot(
+            wallet=mock_wallet,
+            backend=mock_backend,
+            config=config,
+        )
+
+        assert bot.config.no_fidelity_bond is True
+        # Bot always starts with no bond; the start() coroutine sets it during initialization
+        assert bot.fidelity_bond is None
+
     def test_bot_has_nick(self, mock_wallet, mock_backend, config):
         """Test that bot generates a nick."""
         bot = MakerBot(

@@ -204,6 +204,11 @@
 # UTXO merge algorithm: "default", "gradual", "greedy", "random"
 # merge_algorithm = "default"
 
+# Fidelity bond settings
+# Set to true to run without a fidelity bond even if bonds exist in the registry.
+# This can be useful for privacy - bonds are public and linkable to your offers.
+# no_fidelity_bond = false
+
 # Timeouts and intervals
 # session_timeout_sec = 300
 # rescan_interval_sec = 600

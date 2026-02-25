@@ -313,9 +313,16 @@ class MakerBot(BackgroundTasksMixin, ProtocolHandlersMixin, DirectConnectionMixi
             )
             fidelity_bond_addresses: list[tuple[str, int, int]] = []
 
+            # Fidelity bonds are explicitly disabled
+            if self.config.no_fidelity_bond:
+                logger.info(
+                    "Fidelity bonds disabled (--no-fidelity-bond). Running without bond proof."
+                )
             # Option 1: Manual specification via fidelity_bond_index + locktimes (bypasses registry)
             # This is useful when running in Docker or when you don't have a registry yet
-            if self.config.fidelity_bond_index is not None and self.config.fidelity_bond_locktimes:
+            elif (
+                self.config.fidelity_bond_index is not None and self.config.fidelity_bond_locktimes
+            ):
                 logger.info(
                     f"Using manual fidelity bond specification: "
                     f"index={self.config.fidelity_bond_index}, "
@@ -419,7 +426,10 @@ class MakerBot(BackgroundTasksMixin, ProtocolHandlersMixin, DirectConnectionMixi
 
             # Find fidelity bond for proof generation
             # If a specific bond is selected in config, use it; otherwise use the best one
-            if self.config.selected_fidelity_bond:
+            if self.config.no_fidelity_bond:
+                self.fidelity_bond = None
+                logger.info("Fidelity bond disabled (offers will have no bond proof)")
+            elif self.config.selected_fidelity_bond:
                 # User specified a specific bond
                 sel_txid, sel_vout = self.config.selected_fidelity_bond
                 bonds = await find_fidelity_bonds(self.wallet)

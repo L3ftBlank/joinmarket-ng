@@ -636,6 +636,12 @@ Thresholds are configurable via environment variables if needed (see config.py).
 │ --fidelity-bond         -B      TEXT                  Specific fidelity bond │
 │                                                       to use (format:        │
 │                                                       txid:vout)             │
+│ --no-fidelity-bond                                    Disable fidelity bond  │
+│                                                       usage. Skips registry  │
+│                                                       lookup and bond proof  │
+│                                                       generation even when   │
+│                                                       bonds exist in the     │
+│                                                       registry.              │
 │ --merge-algorithm       -M      TEXT                  UTXO selection         │
 │                                                       strategy: default,     │
 │                                                       gradual, greedy,       │

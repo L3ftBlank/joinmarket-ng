@@ -219,6 +219,12 @@ class MakerConfig(WalletConfig):
         default=None, description="Selected fidelity bond UTXO (txid, vout)"
     )
 
+    # Explicitly disable fidelity bonds - skips registry lookup and bond proof generation
+    # even when bonds exist in the registry
+    no_fidelity_bond: bool = Field(
+        default=False, description="Disable fidelity bond usage (run without bond proof)"
+    )
+
     # Timeouts
     session_timeout_sec: int = Field(
         default=300,

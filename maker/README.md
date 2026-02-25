@@ -530,8 +530,9 @@ Thresholds are configurable via environment variables if needed (see config.py).
  Start the maker bot.
 
  Configuration is loaded from ~/.joinmarket-ng/config.toml (or
- $JOINMARKET_DATA_DIR/config.toml), environment variables, and CLI arguments.
- CLI arguments have the highest priority.
+ $JOINMARKET_DATA_DIR/config.toml),
+ environment variables, and CLI arguments. CLI arguments have the highest
+ priority.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
 │ --mnemonic                      TEXT                  BIP39 mnemonic phrase  │

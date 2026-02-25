@@ -1,3 +1,0 @@
-# jmcore.bitcoin
-
-::: jmcore.bitcoin

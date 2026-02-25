@@ -1,3 +1,0 @@
-# taker.monitoring
-
-::: taker.monitoring

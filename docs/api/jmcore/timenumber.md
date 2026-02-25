@@ -1,3 +1,0 @@
-# jmcore.timenumber
-
-::: jmcore.timenumber

@@ -94,6 +94,11 @@ if [ "$UPDATE_DEV" = true ]; then
         cd ..
         echo ""
     done
+
+    # Documentation dependencies (root-level requirements-docs.in)
+    echo "=== docs ==="
+    pip-compile -U --strip-extras --generate-hashes requirements-docs.in -o requirements-docs.txt
+    echo ""
 fi
 
 echo "========================================="
@@ -101,7 +106,7 @@ echo "All dependencies updated successfully"
 echo "========================================="
 echo ""
 echo "Next steps:"
-echo "  1. Review changes: git diff */requirements*.txt"
+echo "  1. Review changes: git diff */requirements*.txt requirements-docs.txt"
 echo "  2. Test locally: pip install -r <package>/requirements-dev.txt"
 echo "  3. Run tests: pytest"
-echo "  4. Commit: git add */requirements*.txt && git commit"
+echo "  4. Commit: git add */requirements*.txt requirements-docs.txt && git commit"

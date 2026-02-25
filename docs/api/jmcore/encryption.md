@@ -1,3 +1,0 @@
-# jmcore.encryption
-
-::: jmcore.encryption

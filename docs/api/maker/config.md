@@ -1,3 +1,0 @@
-# maker.config
-
-::: maker.config

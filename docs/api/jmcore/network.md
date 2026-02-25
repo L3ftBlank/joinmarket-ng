@@ -1,3 +1,0 @@
-# jmcore.network
-
-::: jmcore.network

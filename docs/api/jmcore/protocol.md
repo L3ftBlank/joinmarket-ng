@@ -1,3 +1,0 @@
-# jmcore.protocol
-
-::: jmcore.protocol

@@ -1,3 +1,0 @@
-# taker.taker
-
-::: taker.taker

@@ -1,3 +1,0 @@
-# taker.cli
-
-::: taker.cli

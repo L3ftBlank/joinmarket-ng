@@ -1,3 +1,0 @@
-# maker.coinjoin
-
-::: maker.coinjoin

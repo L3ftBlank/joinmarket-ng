@@ -1,3 +1,0 @@
-# taker.models
-
-::: taker.models

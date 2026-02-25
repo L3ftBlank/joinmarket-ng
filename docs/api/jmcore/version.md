@@ -1,3 +1,0 @@
-# jmcore.version
-
-::: jmcore.version

@@ -1,3 +1,0 @@
-# taker.podle
-
-::: taker.podle

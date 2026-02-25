@@ -1,3 +1,0 @@
-# maker.podle
-
-::: maker.podle

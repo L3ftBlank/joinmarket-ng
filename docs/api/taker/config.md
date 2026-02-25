@@ -1,3 +1,0 @@
-# taker.config
-
-::: taker.config

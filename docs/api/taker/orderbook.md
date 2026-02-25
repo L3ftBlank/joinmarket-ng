@@ -1,3 +1,0 @@
-# taker.orderbook
-
-::: taker.orderbook

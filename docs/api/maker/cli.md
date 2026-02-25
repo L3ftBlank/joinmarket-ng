@@ -1,3 +1,0 @@
-# maker.cli
-
-::: maker.cli

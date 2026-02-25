@@ -1,3 +1,0 @@
-# jmwallet.history
-
-::: jmwallet.history

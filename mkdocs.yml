@@ -46,17 +46,17 @@ theme:
   # Use the Material theme - a modern, responsive documentation theme
   # Requires: pip install mkdocs-material
   name: material
-  
+
   # Logo displayed in the header and navigation
   logo: media/logo_title_v4.png
-  
+
   # Theme features enabled for this documentation
   features:
     # Add a "copy" button to code blocks for easy copying
     - content.code.copy
     # Enable section index pages - shows an overview page for each section
     - navigation.indexes
-  
+
   # Color scheme configuration
   palette:
     # Use custom primary color defined in docs/stylesheets/extra.css
@@ -79,11 +79,28 @@ plugins:
       exclude:
         - api/*
         - Scripts/*
-  
+
+  # mkdocs-gen-files - Programmatically generate documentation pages at build time
+  # Runs docs/_scripts/gen_ref_pages.py to auto-create API reference .md files
+  # from Python source directories, so they don't need to be committed to git.
+  #
+  # For more information, see: https://oprypin.github.io/mkdocs-gen-files/
+  - gen-files:
+      scripts:
+        - docs/_scripts/gen_ref_pages.py
+
+  # mkdocs-literate-nav - Define navigation structure via SUMMARY.md files
+  # The gen_ref_pages.py script writes api/SUMMARY.md which literate-nav
+  # uses to build the API Reference navigation tree automatically.
+  #
+  # For more information, see: https://oprypin.github.io/mkdocs-literate-nav/
+  - literate-nav:
+      nav_file: SUMMARY.md
+
   # mkdocstrings - Generates API documentation from Python docstrings
   # This plugin reads Python source files and extracts documentation from
   # docstrings, creating formatted API reference pages automatically.
-  # 
+  #
   # For more information, see: https://mkdocstrings.github.io/
   - mkdocstrings:
       handlers:
@@ -102,12 +119,12 @@ plugins:
             # NumPy style is used because it's readable and supports
             # mathematical notation with $...$ delimiters for LaTeX formulas
             docstring_style: numpy
-            
+
             # Custom extension to hide __init__ methods from dataclass documentation
             # This keeps API docs clean by not showing auto-generated __init__ methods
             extensions:
               - docs/_extensions/hide_dataclass_init.py:HideDataclassInit
-            
+
             # Show the source code link in documentation
             show_source: true
             # Show the main heading for each module/class
@@ -138,7 +155,7 @@ markdown_extensions:
   # Enable attribute lists on elements
   # Allows syntax like: ![alt](image.png){ .class #id align=left }
   - attr_list
-  
+
   # Enable Markdown processing inside HTML blocks
   # Required for: <figure markdown="span">![alt](image.png)<figcaption>Caption</figcaption></figure>
   - md_in_html
@@ -146,10 +163,10 @@ markdown_extensions:
   # Syntax highlighting for code blocks
   # Supports many languages with automatic language detection
   - pymdownx.highlight
-  
+
   # Enable ==highlighted text== syntax for highlighting important content
   - pymdownx.mark
-  
+
   # Enhanced fenced code blocks with support for:
   # - Nested code blocks
   # - Custom fences for diagrams (Mermaid)
@@ -161,16 +178,16 @@ markdown_extensions:
         - name: mermaid
           class: mermaid
           format: !!python/name:pymdownx.superfences.fence_code_format
-  
+
   # Inline code syntax highlighting - enables `code:language` syntax
   - pymdownx.inlinehilite
-  
+
   # =============================================================================
   # Mathematical Formula Support (MathJax)
   # =============================================================================
   #
   # This extension enables LaTeX-style mathematical formulas in documentation.
-  # 
+  #
   # Inline formulas: $C = H(P_2)$
   # Block formulas: $$C = H(P_2)$$
   #
@@ -194,10 +211,10 @@ extra_javascript:
   # MathJax configuration file
   # This file configures MathJax to recognize $...$ and $$...$$ delimiters
   # for inline and display math respectively.
-  # 
+  #
   # IMPORTANT: This file MUST be loaded before the MathJax library itself.
   - javascripts/mathjax.js
-  
+
   # MathJax library from CDN
   # This is the main MathJax library that renders mathematical formulas.
   # The tex-mml-chtml.js bundle includes:
@@ -236,7 +253,7 @@ nav:
   # -------------------------------------------------------------------------
   - Home: index.md
   - Installation: install.md
-  
+
   # -------------------------------------------------------------------------
   # Protocol Documentation
   # -------------------------------------------------------------------------
@@ -255,7 +272,7 @@ nav:
       - Development: technical-documentation/DOCS09-Development.md
       - Best Practices: technical-documentation/DOCS10-Best-Practices.md
       - References: technical-documentation/DOCS11-References.md
-  
+
   # -------------------------------------------------------------------------
   # Main Modules
   # -------------------------------------------------------------------------
@@ -264,7 +281,7 @@ nav:
       - Wallet: README_jmwallet.md
       - Taker: README_taker.md
       - Maker: README_maker.md
-  
+
   # -------------------------------------------------------------------------
   # Extra Modules
   # -------------------------------------------------------------------------
@@ -272,136 +289,27 @@ nav:
   - Extra Modules:
       - Orderbook Watcher: README_orderbook_watcher.md
       - Directory Server: README_directory_server.md
-  
+
   # -------------------------------------------------------------------------
   # Visual Separator
   # -------------------------------------------------------------------------
   # This creates a horizontal line separator in the navigation menu
   # The actual styling is defined in docs/stylesheets/extra.css
   - '---': separator.md
-  
+
   # -------------------------------------------------------------------------
   # Scripts
   # -------------------------------------------------------------------------
   - Scripts: README_scripts.md
-  
+
   # -------------------------------------------------------------------------
   # API Reference
   # -------------------------------------------------------------------------
-  # Auto-generated API documentation from Python docstrings
-  # Each entry uses mkdocstrings to pull documentation from source code
-  #
-  # Structure: Module Name: api/<module>/<file>.md
-  # The .md files contain ::: <module.path> directives
-  - API Reference:
-      - api/index.md
-      - jmcore:
-          - Overview: api/jmcore/index.md
-          - bitcoin: api/jmcore/bitcoin.md
-          - bond_calc: api/jmcore/bond_calc.md
-          - btc_script: api/jmcore/btc_script.md
-          - cli_common: api/jmcore/cli_common.md
-          - commitment_blacklist: api/jmcore/commitment_blacklist.md
-          - config: api/jmcore/config.md
-          - confirmation: api/jmcore/confirmation.md
-          - constants: api/jmcore/constants.md
-          - crypto: api/jmcore/crypto.md
-          - deduplication: api/jmcore/deduplication.md
-          - directory_client: api/jmcore/directory_client.md
-          - encryption: api/jmcore/encryption.md
-          - mempool_api: api/jmcore/mempool_api.md
-          - models: api/jmcore/models.md
-          - network: api/jmcore/network.md
-          - nick_tracker: api/jmcore/nick_tracker.md
-          - notifications: api/jmcore/notifications.md
-          - paths: api/jmcore/paths.md
-          - podle: api/jmcore/podle.md
-          - protocol: api/jmcore/protocol.md
-          - rate_limiter: api/jmcore/rate_limiter.md
-          - settings: api/jmcore/settings.md
-          - tasks: api/jmcore/tasks.md
-          - timenumber: api/jmcore/timenumber.md
-          - tor_control: api/jmcore/tor_control.md
-          - version: api/jmcore/version.md
-      - jmwallet:
-          - Overview: api/jmwallet/index.md
-          - history: api/jmwallet/history.md
-          - utxo_selector: api/jmwallet/utxo_selector.md
-          - cli:
-              - bonds: api/jmwallet/cli/bonds.md
-              - cold_wallet: api/jmwallet/cli/cold_wallet.md
-              - freeze: api/jmwallet/cli/freeze.md
-              - history_cmd: api/jmwallet/cli/history_cmd.md
-              - mnemonic: api/jmwallet/cli/mnemonic.md
-              - registry: api/jmwallet/cli/registry.md
-              - send: api/jmwallet/cli/send.md
-              - wallet: api/jmwallet/cli/wallet.md
-          - wallet:
-              - address: api/jmwallet/wallet/address.md
-              - bip32: api/jmwallet/wallet/bip32.md
-              - bond_registry: api/jmwallet/wallet/bond_registry.md
-              - coin_selection: api/jmwallet/wallet/coin_selection.md
-              - constants: api/jmwallet/wallet/constants.md
-              - display: api/jmwallet/wallet/display.md
-              - models: api/jmwallet/wallet/models.md
-              - service: api/jmwallet/wallet/service.md
-              - signing: api/jmwallet/wallet/signing.md
-              - sync: api/jmwallet/wallet/sync.md
-              - utxo_metadata: api/jmwallet/wallet/utxo_metadata.md
-          - backends:
-              - base: api/jmwallet/backends/base.md
-              - bitcoin_core: api/jmwallet/backends/bitcoin_core.md
-              - descriptor_wallet: api/jmwallet/backends/descriptor_wallet.md
-              - mempool: api/jmwallet/backends/mempool.md
-              - neutrino: api/jmwallet/backends/neutrino.md
-      - taker:
-          - Overview: api/taker/index.md
-          - cli: api/taker/cli.md
-          - config: api/taker/config.md
-          - models: api/taker/models.md
-          - monitoring: api/taker/monitoring.md
-          - multi_directory: api/taker/multi_directory.md
-          - orderbook: api/taker/orderbook.md
-          - podle: api/taker/podle.md
-          - podle_manager: api/taker/podle_manager.md
-          - taker: api/taker/taker.md
-          - tx_builder: api/taker/tx_builder.md
-      - maker:
-          - Overview: api/maker/index.md
-          - background_tasks: api/maker/background_tasks.md
-          - bot: api/maker/bot.md
-          - cli: api/maker/cli.md
-          - coinjoin: api/maker/coinjoin.md
-          - config: api/maker/config.md
-          - direct_connection: api/maker/direct_connection.md
-          - fidelity: api/maker/fidelity.md
-          - offers: api/maker/offers.md
-          - podle: api/maker/podle.md
-          - protocol_handlers: api/maker/protocol_handlers.md
-          - protocols: api/maker/protocols.md
-          - rate_limiting: api/maker/rate_limiting.md
-          - tx_verification: api/maker/tx_verification.md
-      - orderbook_watcher:
-          - Overview: api/orderbook_watcher/index.md
-          - aggregator: api/orderbook_watcher/aggregator.md
-          - config: api/orderbook_watcher/config.md
-          - directory_client: api/orderbook_watcher/directory_client.md
-          - health_checker: api/orderbook_watcher/health_checker.md
-          - main: api/orderbook_watcher/main.md
-          - server: api/orderbook_watcher/server.md
-      - directory_server:
-          - Overview: api/directory_server/index.md
-          - cli: api/directory_server/cli.md
-          - config: api/directory_server/config.md
-          - handshake_handler: api/directory_server/handshake_handler.md
-          - health: api/directory_server/health.md
-          - main: api/directory_server/main.md
-          - message_router: api/directory_server/message_router.md
-          - peer_registry: api/directory_server/peer_registry.md
-          - server: api/directory_server/server.md
-#      - Extension Documentation: extension-documentation.md
-#      - Test: test-math.md
-  
+  # Auto-generated from Python source by mkdocs-gen-files + literate-nav.
+  # The gen_ref_pages.py script creates api/ .md files and api/SUMMARY.md
+  # at build time. No manual .md files needed in docs/api/.
+  - API Reference: api/
+
   # -------------------------------------------------------------------------
   # External Links
   # -------------------------------------------------------------------------

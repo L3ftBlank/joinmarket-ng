@@ -28,6 +28,13 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements-docs.txt
+          pip install \
+            -e jmcore \
+            -e jmwallet \
+            -e taker \
+            -e maker \
+            -e directory_server \
+            -e orderbook_watcher
 
       - name: Build documentation
         run: |

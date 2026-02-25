@@ -1,3 +1,0 @@
-# jmcore.confirmation
-
-::: jmcore.confirmation

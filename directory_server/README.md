@@ -89,7 +89,7 @@ cat tor/data/hostname
 docker compose down
 ```
 
-By default, docker-compose.yml uses the pre-built image `ghcr.io/joinmarket-ng/joinmarket-ng/directory-server:master`. To build locally, uncomment the `build` section and comment out the `image` line in docker-compose.yml.
+By default, docker-compose.yml uses the pre-built image `ghcr.io/joinmarket-ng/joinmarket-ng/directory-server:main`. To build locally, uncomment the `build` section and comment out the `image` line in docker-compose.yml.
 
 #### Debug Image
 
@@ -100,22 +100,22 @@ A debug variant is available with full Python debug symbols and debugging tools 
 
 ```bash
 # Pull the debug image
-docker pull ghcr.io/joinmarket-ng/joinmarket-ng/directory-server:master-debug
+docker pull ghcr.io/joinmarket-ng/joinmarket-ng/directory-server:main-debug
 
 # Run with debug image
 docker run -it --rm \
   -e LOG_LEVEL=DEBUG \
-  ghcr.io/joinmarket-ng/joinmarket-ng/directory-server:master-debug
+  ghcr.io/joinmarket-ng/joinmarket-ng/directory-server:main-debug
 
 # Profile memory usage with memray
 docker run -it --rm \
   -v $(pwd)/memray-output:/app/memray-output \
-  ghcr.io/joinmarket-ng/joinmarket-ng/directory-server:master-debug \
+  ghcr.io/joinmarket-ng/joinmarket-ng/directory-server:main-debug \
   memray run -o /app/memray-output/profile.bin -m directory_server.main
 
 # Attach debugger (requires adding breakpoint() in code)
 docker run -it --rm \
-  ghcr.io/joinmarket-ng/joinmarket-ng/directory-server:master-debug
+  ghcr.io/joinmarket-ng/joinmarket-ng/directory-server:main-debug
 ```
 
 #### Live Profiling (Attach)
@@ -126,7 +126,7 @@ To attach memray to a running container, the `SYS_PTRACE` capability is required
 ```yaml
 services:
   directory_server:
-    image: ghcr.io/joinmarket-ng/joinmarket-ng/directory-server:master-debug
+    image: ghcr.io/joinmarket-ng/joinmarket-ng/directory-server:main-debug
     cap_add:
       - SYS_PTRACE
 ```

@@ -7,7 +7,7 @@ Mix your bitcoin for privacy via CoinJoin. Takers initiate transactions and pay 
 Install JoinMarket-NG with the taker component:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/master/install.sh | bash -s -- --taker
+curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/main/install.sh | bash -s -- --taker
 ```
 
 See [Installation](install.md) for complete installation instructions including:

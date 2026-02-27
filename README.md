@@ -26,7 +26,7 @@ JoinMarket NG (Next Generation) is a modern implementation of [JoinMarket](https
 **Install** (Linux/macOS):
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/master/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/main/install.sh | bash
 ```
 
 **Configure** (`~/.joinmarket-ng/config.toml`):

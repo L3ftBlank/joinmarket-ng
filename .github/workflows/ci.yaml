@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - master
     paths:
       - 'jmcore/**'
       - 'jmwallet/**'
@@ -1092,7 +1091,7 @@ jobs:
 
   # ==========================================================================
   # Stage 4a: ARM64 builds (parallel with everything else)
-  # Only on main/master to save time on PRs
+  # Only on main to save time on PRs
   # Builds ARM64 images natively on ARM64 runners for faster builds
   # ==========================================================================
   build-arm64:
@@ -1101,7 +1100,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     strategy:
       fail-fast: false
       matrix:
@@ -1169,7 +1168,7 @@ jobs:
 
   # ==========================================================================
   # Stage 4b: ARMv7 builds (parallel with everything else)
-  # Only on main/master to save time on PRs
+  # Only on main to save time on PRs
   # Builds ARMv7 images using QEMU emulation
   # ==========================================================================
   build-armv7:
@@ -1178,7 +1177,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     strategy:
       fail-fast: false
       matrix:
@@ -1277,7 +1276,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     strategy:
       fail-fast: false
       matrix:

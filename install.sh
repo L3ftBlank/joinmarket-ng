@@ -5,9 +5,9 @@
 # When piped from curl, auto-confirms Tor setup and other prompts.
 #
 # Usage:
-#   curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/master/install.sh | bash
-#   curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/master/install.sh | bash -s -- --maker
-#   curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/master/install.sh | bash -s -- --update
+#   curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/main/install.sh | bash
+#   curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/main/install.sh | bash -s -- --maker
+#   curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/main/install.sh | bash -s -- --update
 #
 # Or run locally:
 #   ./install.sh
@@ -461,16 +461,16 @@ setup_data_directory() {
         print_info "Creating config file at $config_file..."
 
         # Download config template from repository
-        # Use VERSION if available, otherwise use master branch
-        local version_tag="${VERSION:-master}"
+        # Use VERSION if available, otherwise use main branch
+        local version_tag="${VERSION:-main}"
         local config_template_url="https://raw.githubusercontent.com/$GITHUB_REPO/${version_tag}/config.toml.template"
         if ! curl -fsSL "$config_template_url" -o "$config_file"; then
             print_warning "Failed to download config template, using fallback..."
             # Fallback: create minimal config if download fails
             cat > "$config_file" << 'EOF'
 # JoinMarket-NG Configuration
-# See: https://github.com/joinmarket-ng/joinmarket-ng/blob/master/DOCS.md
-# For full template: https://github.com/joinmarket-ng/joinmarket-ng/blob/master/config.toml.template
+# See: https://github.com/joinmarket-ng/joinmarket-ng/blob/main/DOCS.md
+# For full template: https://github.com/joinmarket-ng/joinmarket-ng/blob/main/config.toml.template
 
 # [bitcoin]
 # rpc_url = "http://127.0.0.1:8332"
@@ -619,7 +619,7 @@ print_completion() {
 
     echo ""
     echo -e "${BLUE}To update later:${NC}"
-    echo "  curl -sSL https://raw.githubusercontent.com/${GITHUB_REPO}/master/install.sh | bash -s -- --update"
+    echo "  curl -sSL https://raw.githubusercontent.com/${GITHUB_REPO}/main/install.sh | bash -s -- --update"
     echo ""
     echo -e "${BLUE}Documentation:${NC}"
     echo "  https://github.com/${GITHUB_REPO}"
@@ -637,7 +637,7 @@ show_help() {
 JoinMarket-NG Installation Script
 
 Usage:
-  curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/master/install.sh | bash
+  curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/main/install.sh | bash
   curl -sSL ... | bash -s -- [OPTIONS]
   ./install.sh [OPTIONS]
 
@@ -648,7 +648,7 @@ Options:
   --maker             Install maker component (installed by default)
   --taker             Install taker component (installed by default)
   --version VERSION   Install specific version (default: latest)
-  --dev               Install from master branch (for development)
+  --dev               Install from main branch (for development)
   --skip-tor          Skip Tor installation and configuration
   --venv PATH         Custom virtual environment path
 
@@ -658,7 +658,7 @@ Note: When piped from curl, auto-confirm is enabled by default for Tor
 
 Examples:
   # Install with both maker and taker (default)
-  curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/master/install.sh | bash
+  curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/main/install.sh | bash
 
   # Install maker only
   curl -sSL ... | bash -s -- --maker
@@ -718,7 +718,7 @@ parse_args() {
                 shift 2
                 ;;
             --dev)
-                INSTALL_VERSION="master"
+                INSTALL_VERSION="main"
                 shift
                 ;;
             --skip-tor)

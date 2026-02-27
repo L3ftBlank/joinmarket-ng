@@ -301,8 +301,8 @@ class TestDirectoryServers:
         settings = JoinMarketSettings(network_config={"network": "signet"})
 
         servers = settings.get_directory_servers()
-        # Signet has no default directory servers - users must configure their own
-        assert len(servers) == 0
+        assert len(servers) >= 1
+        assert all(".onion:" in s for s in servers)
 
 
 class TestGetSettings:

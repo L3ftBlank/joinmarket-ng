@@ -53,8 +53,11 @@ DIRECTORY_NODES_MAINNET: list[str] = [
     "jmarketxf5wc4aldf3slm5u6726zsky52bqnfv6qyxe5hnafgly6yuyd.onion:5222",
 ]
 
-# No default directory nodes for testnet/signet/regtest - must be configured by user
-DIRECTORY_NODES_SIGNET: list[str] = []
+# Signet default directory nodes
+DIRECTORY_NODES_SIGNET: list[str] = [
+    "signetvaxgd3ivj4tml4g6ed3samaa2rscre2gyeyohncmwk4fbesiqd.onion:5222",
+]
+# No default directory nodes for testnet/regtest - must be configured by user
 DIRECTORY_NODES_TESTNET: list[str] = []
 
 

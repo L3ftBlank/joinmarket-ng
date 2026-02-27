@@ -24,6 +24,10 @@ These secrets were leaking into shell history, `/proc/PID/cmdline`, `ps aux`, an
 
 For unattended/automated operation, set `MNEMONIC_PASSWORD` (or `wallet.mnemonic_password` in config) so encrypted mnemonic files can be decrypted without a terminal prompt.
 
+### Added
+
+- **Signet infrastructure defaults**: The joinmarket-ng public signet directory node (`signetvaxgd3ivj4tml4g6ed3samaa2rscre2gyeyohncmwk4fbesiqd.onion:5222`) is now the default when signet network is selected. The public orderbook watcher for signet is available at `https://joinmarket-ng-signet.sgn.space/`. Updated `config.toml.template` and `orderbook_watcher/.env.example` with signet examples.
+
 ### Security
 
 - **Remove sensitive credentials from CLI arguments** (#130, #132, #133, #136): The removed options appeared in shell history, `/proc/PID/cmdline`, `ps aux`, and audit logs. Secrets are now supplied via environment variables, config file, or interactive prompt. Added `MNEMONIC_PASSWORD` env var support for unattended decryption of encrypted mnemonic files.

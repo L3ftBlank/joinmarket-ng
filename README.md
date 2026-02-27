@@ -6,7 +6,7 @@
 
 JoinMarket NG (Next Generation) is a modern implementation of [JoinMarket](https://github.com/JoinMarket-Org/joinmarket-clientserver/) - decentralized Bitcoin privacy through CoinJoin.
 
-- Live orderbook: https://joinmarket-ng.sgn.space/
+- Live orderbook: https://joinmarket-ng.sgn.space/ (mainnet) / https://joinmarket-ng-signet.sgn.space/ (signet)
 - Live docs: https://joinmarket-ng.github.io/joinmarket-ng/
 
 ## What It Is

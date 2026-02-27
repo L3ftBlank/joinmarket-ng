@@ -62,7 +62,9 @@ DEFAULT_DIRECTORY_SERVERS: dict[str, list[str]] = {
         "odpwaf67rs5226uabcamvypg3y4bngzmfk7255flcdodesqhsvkptaid.onion:5222",
         "jmarketxf5wc4aldf3slm5u6726zsky52bqnfv6qyxe5hnafgly6yuyd.onion:5222",
     ],
-    "signet": [],
+    "signet": [
+        "signetvaxgd3ivj4tml4g6ed3samaa2rscre2gyeyohncmwk4fbesiqd.onion:5222",
+    ],
     "testnet": [],
     "regtest": [],
 }
@@ -858,8 +860,15 @@ def generate_config_template() -> str:
             elif isinstance(default, list):
                 # For directory_servers, show example from defaults
                 if field_name == "directory_servers" and prefix == "network_config":
+                    lines.append("# Mainnet defaults (leave empty to use automatically):")
                     lines.append("# directory_servers = [")
                     for server in DEFAULT_DIRECTORY_SERVERS["mainnet"]:
+                        lines.append(f'#   "{server}",')
+                    lines.append("# ]")
+                    lines.append("")
+                    lines.append("# Signet defaults:")
+                    lines.append("# directory_servers = [")
+                    for server in DEFAULT_DIRECTORY_SERVERS["signet"]:
                         lines.append(f'#   "{server}",')
                     lines.append("# ]")
                     lines.append("")

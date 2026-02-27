@@ -316,3 +316,10 @@ nav:
   # Link to external resources - opens in new tab
   - '---': separator.md
   - JoinMarket NG Orderbook: https://joinmarket-ng.sgn.space/
+
+# =============================================================================
+# Hooks
+# =============================================================================
+# Transform GitHub-compatible links to MkDocs-compatible links during build
+hooks:
+  - docs/_hooks/link_fixer.py

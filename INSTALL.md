@@ -379,7 +379,7 @@ jm-wallet generate --save --prompt-password \
 jm-taker coinjoin -f ~/.joinmarket-ng/wallets/default.mnemonic --amount 1000000
 ```
 
-See [Taker](README_taker.md) for schedules and tumbler mode.
+See [taker/README.md](./taker/README.md) for schedules and tumbler mode.
 
 **As a Maker** (earn fees):
 
@@ -387,7 +387,7 @@ See [Taker](README_taker.md) for schedules and tumbler mode.
 jm-maker start -f ~/.joinmarket-ng/wallets/default.mnemonic
 ```
 
-See [Maker](README_maker.md) for configuration.
+See [maker/README.md](./maker/README.md) for configuration.
 
 ---
 

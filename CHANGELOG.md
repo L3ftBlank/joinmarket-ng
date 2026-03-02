@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-03-02
+
 ### Breaking Changes
 
 The following CLI options have been **removed** from all commands (`jm-wallet`, `jm-maker`, `jm-taker`):
@@ -969,7 +971,8 @@ Releases prior to these changes (including 0.13.5, 0.13.6, and 0.13.7) cannot be
 - Pre-built image support for directory server compose.
 - Tor configuration instructions.
 
-[Unreleased]: ../../compare/0.17.0...HEAD
+[Unreleased]: ../../compare/0.18.0...HEAD
+[0.18.0]: ../../compare/0.17.0...0.18.0
 [0.17.0]: ../../compare/0.16.0...0.17.0
 [0.16.0]: ../../compare/0.15.0...0.16.0
 [0.15.0]: ../../compare/0.14.0...0.15.0

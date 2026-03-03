@@ -11,10 +11,11 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from bech32 import convertbits
 from jmcore.bitcoin import estimate_vsize, get_address_type
 from loguru import logger
 
-from jmwallet.wallet.address import convertbits, pubkey_to_p2wpkh_script
+from jmwallet.wallet.address import pubkey_to_p2wpkh_script
 from jmwallet.wallet.signing import (
     create_p2wpkh_script_code,
     create_p2wsh_witness_stack,
@@ -58,7 +59,10 @@ def _decode_bech32_scriptpubkey(address: str) -> bytes:
     # Remove checksum (last 6 characters)
     witness_data = data_values[:-6]
     witness_version = witness_data[0]
-    witness_program = bytes(convertbits(bytes(witness_data[1:]), 5, 8, False))
+    converted = convertbits(bytes(witness_data[1:]), 5, 8, False)
+    if converted is None:
+        raise ValueError(f"Invalid bech32 witness program in address: {address}")
+    witness_program = bytes(converted)
 
     if witness_version == 0 and len(witness_program) == 20:
         return bytes([0x00, 0x14]) + witness_program

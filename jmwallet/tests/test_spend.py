@@ -254,6 +254,8 @@ def _make_mock_wallet(utxos: list[UTXOInfo], change_addr: str = REGTEST_P2WPKH_A
     """Create a mock WalletService for direct_send tests."""
     wallet = MagicMock()
     wallet.get_utxos = AsyncMock(return_value=utxos)
+    # Raise ValueError so direct_send falls back to get_utxos for coin selection
+    wallet.select_utxos = MagicMock(side_effect=ValueError("no coin selection in tests"))
     wallet.get_key_for_address = MagicMock(return_value=_make_mock_key())
     wallet.get_next_address_index = MagicMock(return_value=0)
     wallet.get_change_address = MagicMock(return_value=change_addr)

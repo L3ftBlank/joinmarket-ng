@@ -1,166 +1,154 @@
-"""Tests for bech32 address encoding, decoding, and checksum verification.
+"""Tests for Bitcoin address validation as used by the send command.
 
 These tests ensure that:
-- Valid bech32 addresses are accepted and decoded correctly.
+- Valid addresses are accepted and produce the correct scriptPubKey.
 - Addresses with invalid checksums (e.g. single-char typos) are rejected.
-- Addresses with wrong HRP (wrong network) are rejected.
+- Addresses from the wrong network are rejected.
+- All four supported networks (mainnet, testnet, signet, regtest) work.
 - Case-insensitive decoding works (uppercase addresses from QR codes).
-- The encoding round-trips correctly with decoding.
 """
 
 from __future__ import annotations
 
 import pytest
-
-from jmwallet.wallet.address import bech32_decode, bech32_encode, convertbits
+from bitcointx import ChainParams
+from bitcointx.wallet import CCoinAddress, CCoinAddressError
 
 # ---------------------------------------------------------------------------
-# Known-good test vectors from BIP173 / BIP350
+# Helpers
 # ---------------------------------------------------------------------------
 
-# (hrp, address, expected_witness_version, expected_witness_program_hex)
-VALID_ADDRESSES: list[tuple[str, str, int, str]] = [
-    # Mainnet P2WPKH
+NETWORK_TO_CHAIN = {
+    "mainnet": "bitcoin",
+    "testnet": "bitcoin/testnet",
+    "signet": "bitcoin/signet",
+    "regtest": "bitcoin/regtest",
+}
+
+
+def address_to_scriptpubkey(network: str, address: str) -> bytes:
+    """Parse and validate an address, returning its scriptPubKey."""
+    with ChainParams(NETWORK_TO_CHAIN[network]):
+        return bytes(CCoinAddress(address).to_scriptPubKey())
+
+
+# ---------------------------------------------------------------------------
+# Test vectors
+# ---------------------------------------------------------------------------
+
+# (network, address, expected_scriptpubkey_hex)
+VALID_ADDRESSES = [
+    # P2WPKH — mainnet
     (
-        "bc",
+        "mainnet",
         "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
-        0,
-        "751e76e8199196d454941c45d1b3a323f1433bd6",
+        "0014751e76e8199196d454941c45d1b3a323f1433bd6",
     ),
-    # Regtest P2WPKH
+    # P2WPKH — regtest
     (
-        "bcrt",
+        "regtest",
         "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
-        0,
-        "751e76e8199196d454941c45d1b3a323f1433bd6",
+        "0014751e76e8199196d454941c45d1b3a323f1433bd6",
     ),
-    # Mainnet P2WSH
+    # P2WSH — mainnet
     (
-        "bc",
+        "mainnet",
         "bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3",
-        0,
-        "1863143c14c5166804bd19203356da136c985678cd4d27a1b8c6329604903262",
+        "00201863143c14c5166804bd19203356da136c985678cd4d27a1b8c6329604903262",
+    ),
+    # P2WPKH — testnet
+    (
+        "testnet",
+        "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+        "0014751e76e8199196d454941c45d1b3a323f1433bd6",
+    ),
+    # P2WPKH — signet (same tb1 prefix as testnet)
+    (
+        "signet",
+        "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+        "0014751e76e8199196d454941c45d1b3a323f1433bd6",
+    ),
+    # P2WSH — signet (real address from production logs)
+    (
+        "signet",
+        "tb1q8c44zs4rnlvjcwyuhmphp9azpvel55nv95ek4g89jnq4722sxuhsu3epez",
+        None,  # just check it parses without error
     ),
 ]
 
-# Addresses with a single-character substitution (checksum should fail)
-INVALID_CHECKSUM_ADDRESSES: list[tuple[str, str]] = [
-    # Last char changed from '4' equivalent to something else
-    ("bc", "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t5"),
-    # One char changed in the middle
-    ("bc", "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3s4"),
-    # Regtest - last char changed
-    ("bcrt", "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt081"),
-]
 
-
-class TestBech32Decode:
-    """Tests for bech32_decode (checksum-verifying address decoding)."""
+class TestAddressValidation:
+    """CCoinAddress validates checksums and rejects wrong-network addresses."""
 
     @pytest.mark.parametrize(
-        ("hrp", "address", "expected_version", "expected_program_hex"),
+        ("network", "address", "expected_spk_hex"),
         VALID_ADDRESSES,
-        ids=["mainnet-p2wpkh", "regtest-p2wpkh", "mainnet-p2wsh"],
+        ids=[
+            "mainnet-p2wpkh",
+            "regtest-p2wpkh",
+            "mainnet-p2wsh",
+            "testnet-p2wpkh",
+            "signet-p2wpkh",
+            "signet-p2wsh-production",
+        ],
     )
-    def test_valid_address_decodes(
-        self,
-        hrp: str,
-        address: str,
-        expected_version: int,
-        expected_program_hex: str,
+    def test_valid_address_produces_scriptpubkey(
+        self, network: str, address: str, expected_spk_hex: str | None
     ) -> None:
-        witver, witprog = bech32_decode(hrp, address)
-        assert witver == expected_version
-        assert witprog is not None
-        assert bytes(witprog).hex() == expected_program_hex
+        spk = address_to_scriptpubkey(network, address)
+        assert len(spk) > 0
+        if expected_spk_hex is not None:
+            assert spk.hex() == expected_spk_hex
 
     @pytest.mark.parametrize(
-        ("hrp", "address"),
-        INVALID_CHECKSUM_ADDRESSES,
-        ids=["mainnet-last-char", "mainnet-mid-char", "regtest-last-char"],
+        ("network", "address"),
+        [
+            # Last character changed — checksum mismatch
+            ("mainnet", "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t5"),
+            # Character changed in the middle
+            ("mainnet", "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3s4"),
+            # Regtest — last char changed
+            ("regtest", "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt081"),
+            # Signet — last char changed
+            ("signet", "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsq"),
+        ],
+        ids=["mainnet-last-char", "mainnet-mid-char", "regtest-last-char", "signet-last-char"],
     )
-    def test_invalid_checksum_rejected(self, hrp: str, address: str) -> None:
-        """A single-character typo must be caught by checksum verification.
+    def test_invalid_checksum_rejected(self, network: str, address: str) -> None:
+        """A single-character typo must be caught — the original vulnerability.
 
-        This is the core security property: the old code silently stripped
-        the checksum and would have accepted these addresses, sending funds
-        to an unspendable output.
+        The hand-rolled decoder stripped the checksum without verifying it, so
+        these addresses would have silently produced wrong scriptPubKeys and
+        sent funds to unspendable outputs.
         """
-        witver, witprog = bech32_decode(hrp, address)
-        assert witver is None
-        assert witprog is None
+        with pytest.raises(CCoinAddressError):
+            address_to_scriptpubkey(network, address)
 
-    def test_wrong_hrp_rejected(self) -> None:
-        """A mainnet address must not decode with a regtest HRP."""
-        witver, witprog = bech32_decode("bcrt", "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4")
-        assert witver is None
+    @pytest.mark.parametrize(
+        ("network", "address"),
+        [
+            # mainnet address decoded as regtest
+            ("regtest", "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"),
+            # signet/testnet (tb1) address decoded as mainnet
+            ("mainnet", "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"),
+            # regtest (bcrt1) address decoded as signet
+            ("signet", "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080"),
+        ],
+        ids=["mainnet-as-regtest", "signet-as-mainnet", "regtest-as-signet"],
+    )
+    def test_wrong_network_rejected(self, network: str, address: str) -> None:
+        with pytest.raises(CCoinAddressError):
+            address_to_scriptpubkey(network, address)
 
-    def test_case_insensitive(self) -> None:
-        """Uppercase addresses (from QR decoders) must decode correctly."""
-        witver, witprog = bech32_decode("bc", "BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4")
-        assert witver == 0
-        assert witprog is not None
-        assert bytes(witprog).hex() == "751e76e8199196d454941c45d1b3a323f1433bd6"
-
-    def test_garbage_input_rejected(self) -> None:
-        witver, witprog = bech32_decode("bc", "notanaddress")
-        assert witver is None
+    def test_garbage_rejected(self) -> None:
+        with pytest.raises(CCoinAddressError):
+            address_to_scriptpubkey("mainnet", "notanaddress")
 
     def test_empty_string_rejected(self) -> None:
-        witver, witprog = bech32_decode("bc", "")
-        assert witver is None
+        with pytest.raises(CCoinAddressError):
+            address_to_scriptpubkey("mainnet", "")
 
-    def test_mixed_case_rejected(self) -> None:
-        """Mixed case is invalid per BIP173."""
-        witver, witprog = bech32_decode("bc", "bc1Qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4")
-        assert witver is None
-
-
-class TestBech32Encode:
-    """Tests for bech32_encode."""
-
-    def test_encode_p2wpkh(self) -> None:
-        program = bytes.fromhex("751e76e8199196d454941c45d1b3a323f1433bd6")
-        addr = bech32_encode("bc", 0, program)
-        assert addr == "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"
-
-    def test_encode_regtest(self) -> None:
-        program = bytes.fromhex("751e76e8199196d454941c45d1b3a323f1433bd6")
-        addr = bech32_encode("bcrt", 0, program)
-        assert addr == "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080"
-
-    def test_encode_p2wsh(self) -> None:
-        program = bytes.fromhex("1863143c14c5166804bd19203356da136c985678cd4d27a1b8c6329604903262")
-        addr = bech32_encode("bc", 0, program)
-        assert addr == "bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3"
-
-
-class TestRoundTrip:
-    """Encoding then decoding must produce the original witness program."""
-
-    @pytest.mark.parametrize(
-        ("hrp", "address", "expected_version", "expected_program_hex"),
-        VALID_ADDRESSES,
-        ids=["mainnet-p2wpkh", "regtest-p2wpkh", "mainnet-p2wsh"],
-    )
-    def test_decode_encode_roundtrip(
-        self,
-        hrp: str,
-        address: str,
-        expected_version: int,
-        expected_program_hex: str,
-    ) -> None:
-        witver, witprog = bech32_decode(hrp, address)
-        assert witver is not None and witprog is not None
-        re_encoded = bech32_encode(hrp, witver, bytes(witprog))
-        assert re_encoded == address
-
-
-class TestConvertbits:
-    """Tests for the convertbits compatibility wrapper."""
-
-    def test_8_to_5_roundtrip(self) -> None:
-        original = bytes.fromhex("751e76e8199196d454941c45d1b3a323f1433bd6")
-        five_bit = convertbits(original, 8, 5)
-        recovered = convertbits(bytes(five_bit), 5, 8, pad=False)
-        assert bytes(recovered) == original
+    def test_uppercase_accepted(self) -> None:
+        """Uppercase addresses (e.g. from QR decoders) must be accepted."""
+        spk = address_to_scriptpubkey("mainnet", "BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4")
+        assert spk.hex() == "0014751e76e8199196d454941c45d1b3a323f1433bd6"

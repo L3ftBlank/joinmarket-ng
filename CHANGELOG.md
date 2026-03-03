@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Maker PoDLE commitment failure due to unconfirmed UTXOs**: Fixed a bug where the maker bot would advertise liquidity based on unconfirmed UTXOs but fail to complete the coinjoin during `!auth` because unconfirmed UTXOs are excluded from the selection phase. The maker now correctly respects `min_confirmations` (default: 1) for all balance calculations used in offer creation and periodic updates, ensuring it only advertises spendable, confirmed liquidity.
 
+### Added
+
+- **Signet support in send command**: Sending to signet addresses (`tb1…`) now works correctly. Custom address decoding code replaced with `python-bitcointx` (`CCoinAddress`), which handles all address types and networks without manual script construction.
+
 ## [0.18.0] - 2026-03-02
 
 ### Breaking Changes

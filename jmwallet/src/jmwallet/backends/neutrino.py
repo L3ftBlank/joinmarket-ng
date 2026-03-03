@@ -746,96 +746,25 @@ class NeutrinoBackend(BlockchainBackend):
             )
 
     def _scriptpubkey_to_address(self, scriptpubkey: str) -> str | None:
-        """
-        Convert scriptPubKey to address for watch list.
+        """Convert a scriptPubKey hex string to a Bitcoin address."""
+        from bitcointx import ChainParams
+        from bitcointx.core.script import CScript
+        from bitcointx.wallet import CCoinAddress as _CCoinAddress
+        from bitcointx.wallet import CCoinAddressError
 
-        Supports common script types:
-        - P2WPKH: 0014<20-byte-hash> -> bc1q...
-        - P2WSH: 0020<32-byte-hash> -> bc1q...
-        - P2PKH: 76a914<20-byte-hash>88ac -> 1...
-        - P2SH: a914<20-byte-hash>87 -> 3...
-
-        Args:
-            scriptpubkey: Hex-encoded scriptPubKey
-
-        Returns:
-            Bitcoin address or None if conversion fails
-        """
+        network_to_chain = {
+            "mainnet": "bitcoin",
+            "testnet": "bitcoin/testnet",
+            "signet": "bitcoin/signet",
+            "regtest": "bitcoin/regtest",
+        }
+        chain = network_to_chain.get(self.network, "bitcoin")
         try:
-            script_bytes = bytes.fromhex(scriptpubkey)
-
-            # P2WPKH: OP_0 <20 bytes>
-            if len(script_bytes) == 22 and script_bytes[0] == 0x00 and script_bytes[1] == 0x14:
-                # Use bech32 encoding
-                return self._encode_bech32_address(script_bytes[2:], 0)
-
-            # P2WSH: OP_0 <32 bytes>
-            if len(script_bytes) == 34 and script_bytes[0] == 0x00 and script_bytes[1] == 0x20:
-                return self._encode_bech32_address(script_bytes[2:], 0)
-
-            # P2PKH: OP_DUP OP_HASH160 <20 bytes> OP_EQUALVERIFY OP_CHECKSIG
-            if (
-                len(script_bytes) == 25
-                and script_bytes[0] == 0x76
-                and script_bytes[1] == 0xA9
-                and script_bytes[2] == 0x14
-                and script_bytes[23] == 0x88
-                and script_bytes[24] == 0xAC
-            ):
-                return self._encode_base58check_address(script_bytes[3:23], 0x00)
-
-            # P2SH: OP_HASH160 <20 bytes> OP_EQUAL
-            if (
-                len(script_bytes) == 23
-                and script_bytes[0] == 0xA9
-                and script_bytes[1] == 0x14
-                and script_bytes[22] == 0x87
-            ):
-                return self._encode_base58check_address(script_bytes[2:22], 0x05)
-
-            logger.warning(f"Unknown scriptPubKey format: {scriptpubkey[:20]}...")
-            return None
-
-        except Exception as e:
+            with ChainParams(chain):
+                return str(_CCoinAddress.from_scriptPubKey(CScript(bytes.fromhex(scriptpubkey))))
+        except (CCoinAddressError, ValueError) as e:
             logger.warning(f"Failed to convert scriptPubKey to address: {e}")
             return None
-
-    def _encode_bech32_address(self, witness_program: bytes, witness_version: int) -> str:
-        """Encode witness program as bech32 address."""
-        from bech32 import encode as bech32_encode
-
-        hrp = "bc" if self.network == "mainnet" else "bcrt" if self.network == "regtest" else "tb"
-        result = bech32_encode(hrp, witness_version, witness_program)
-        if result is None:
-            raise ValueError(
-                f"Failed to encode bech32 address: "
-                f"version={witness_version}, program={witness_program.hex()}"
-            )
-        return result
-
-    def _encode_base58check_address(self, payload: bytes, version: int) -> str:
-        """Encode payload as base58check address."""
-        import hashlib
-
-        versioned = bytes([version]) + payload
-        checksum = hashlib.sha256(hashlib.sha256(versioned).digest()).digest()[:4]
-        data = versioned + checksum
-
-        ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"  # noqa: N806
-        n = int.from_bytes(data, "big")
-        result = ""
-        while n > 0:
-            n, r = divmod(n, 58)
-            result = ALPHABET[r] + result
-
-        # Add leading zeros
-        for byte in data:
-            if byte == 0:
-                result = "1" + result
-            else:
-                break
-
-        return result
 
     async def get_filter_header(self, block_height: int) -> str:
         """

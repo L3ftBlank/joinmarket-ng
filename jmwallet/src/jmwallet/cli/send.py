@@ -406,36 +406,26 @@ async def _send_transaction(
             raise typer.Exit(1)
 
         # Build unsigned transaction
+        from bitcointx import ChainParams
+        from bitcointx.wallet import CCoinAddress, CCoinAddressError
+
         from jmwallet.wallet.address import pubkey_to_p2wpkh_script
 
-        # Convert destination to scriptPubKey
-        if destination.startswith(("bc1", "tb1", "bcrt1")):
-            from bech32 import decode as bech32_decode
-
-            network_to_hrp = {"mainnet": "bc", "testnet": "tb", "regtest": "bcrt"}
-            expected_hrp = network_to_hrp.get(backend_settings.network, "bc")
-
-            witness_version, witness_program_list = bech32_decode(expected_hrp, destination)
-            if witness_version is None or witness_program_list is None:
-                logger.error(
-                    f"Invalid bech32 address (bad checksum, format, or wrong network): "
-                    f"{destination}"
-                )
-                raise typer.Exit(1)
-
-            witness_program = bytes(witness_program_list)
-
-            if witness_version == 0 and len(witness_program) == 20:
-                # P2WPKH
-                dest_script = bytes([0x00, 0x14]) + witness_program
-            elif witness_version == 0 and len(witness_program) == 32:
-                # P2WSH
-                dest_script = bytes([0x00, 0x20]) + witness_program
-            else:
-                logger.error(f"Unsupported witness program: version={witness_version}")
-                raise typer.Exit(1)
-        else:
-            logger.error("Only bech32 addresses are supported currently")
+        # Convert destination to scriptPubKey — CCoinAddress validates the
+        # bech32 checksum, rejects wrong-network addresses, and handles all
+        # supported address types (P2WPKH, P2WSH, P2TR, …).
+        network_to_chain = {
+            "mainnet": "bitcoin",
+            "testnet": "bitcoin/testnet",
+            "signet": "bitcoin/signet",
+            "regtest": "bitcoin/regtest",
+        }
+        chain = network_to_chain.get(backend_settings.network, "bitcoin")
+        try:
+            with ChainParams(chain):
+                dest_script = bytes(CCoinAddress(destination).to_scriptPubKey())
+        except CCoinAddressError:
+            logger.error(f"Invalid address (bad checksum, format, or wrong network): {destination}")
             raise typer.Exit(1)
 
         # Build raw transaction

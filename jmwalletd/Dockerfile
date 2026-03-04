@@ -7,8 +7,6 @@ ARG PYTHON_VERSION=3.14
 ARG PYTHON_SLIM_DIGEST=sha256:6a27522252aef8432841f224d9baaa6e9fce07b07584154fa0b9a96603af7456
 ARG NODE_VERSION=24
 ARG NODE_SLIM_DIGEST=sha256:e8e2e91b1378f83c5b2dd15f0247f34110e2fe895f6ca7719dbb780f929368eb
-ARG SETUPTOOLS_VERSION=82.0.0
-ARG WHEEL_VERSION=0.46.3
 
 # JAM frontend: pinned commit hash for reproducible builds
 # Update with: ./scripts/update-base-images.sh
@@ -18,8 +16,6 @@ ARG JAM_COMMIT=d5dd2add951db5d0807d4c0730dcdd2d9adfad75
 # Stage 1: Build Python environment
 # =============================================================================
 FROM python:${PYTHON_VERSION}-slim@${PYTHON_SLIM_DIGEST} AS builder
-ARG SETUPTOOLS_VERSION
-ARG WHEEL_VERSION
 WORKDIR /app
 
 # build-essential + cmake + pkg-config needed to compile coincurve (no wheels for 3.14 yet)
@@ -33,10 +29,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-
-# Pin setuptools and wheel for reproducible builds
-RUN printf 'setuptools==%s\nwheel==%s\n' "${SETUPTOOLS_VERSION}" "${WHEEL_VERSION}" > /tmp/pip-constraints.txt
-ENV PIP_CONSTRAINT=/tmp/pip-constraints.txt
 
 COPY jmcore/requirements.txt /tmp/requirements-jmcore.txt
 RUN pip install --no-cache-dir -r /tmp/requirements-jmcore.txt

@@ -1,0 +1,133 @@
+/*
+ * Workaround: MkDocs Material does not have native separator support.
+ * Creates a horizontal line separator in the navigation.
+ */
+
+/* 
+ * The link element - hides the actual link text and displays a border line 
+ */
+.md-nav__link[href*="separator"] {
+    pointer-events: none !important;    /* disable all mouse interactions */
+    cursor: default !important;          /* show default cursor, not pointer */
+    color: transparent !important;       /* hide link text color */
+    font-size: 0 !important;             /* hide link text by setting size to 0 */
+    display: block !important;           /* display as block element */
+    border-top: 1px solid var(--md-default-fg-color--lightest) !important;  /* separator line */
+    margin: 0 !important;                /* remove default margins */
+    padding: 0 !important;               /* remove default padding */
+}
+
+.md-nav__link[href*="separator"]:hover {
+    background-color: transparent !important;  /* no hover effect for separator */
+}
+
+/* 
+ * The parent li element - adds spacing around the separator 
+ */
+.md-nav__item:has(.md-nav__link[href*="separator"]) {
+    margin-top: 0.6em !important;        /* space above separator */
+    margin-bottom: 0.6em !important;     /* space below separator */
+    padding-top: 0 !important;           /* no extra padding top */
+    padding-bottom: 0 !important;        /* no extra padding bottom */
+}
+
+/*
+ * Bitcoin Orange Theme (#FF8000)
+ * CMYK: 0, 50, 100, 0
+ * RGB: 255, 128, 0
+ */
+
+:root {
+    /* 
+     * Bitcoin Orange - Primary colors (used for header, buttons, icons) 
+     */
+    --md-primary-fg-color: #FF8000;            /* main Bitcoin Orange */
+    --md-primary-fg-color--light: #FF9933;     /* lighter variant for highlights */
+    --md-primary-fg-color--dark: #CC6600;      /* darker variant for pressed states */
+
+    /* 
+     * Bitcoin Orange - Accent colors (used for hover, focus, active states) 
+     */
+    --md-accent-fg-color: #FF8000;                    /* accent Bitcoin Orange */
+    --md-accent-fg-color--transparent: rgba(255, 128, 0, 0.1);  /* semi-transparent for backgrounds */
+
+    /* 
+     * Link color in content area 
+     */
+    --md-typeset-a-color: #FF8000;            /* default link color */
+}
+
+/* 
+ * Header - top navigation bar background 
+ */
+.md-header {
+    background-color: #FF8000;               /* Bitcoin Orange header background */
+}
+
+/* 
+ * Links - hover state in content area 
+ */
+.md-typeset a:hover {
+    color: #CC6600;                           /* darker Bitcoin Orange on hover */
+}
+
+/* 
+ * Sidebar - currently active navigation link 
+ */
+.md-nav__link--active {
+    color: #FF8000;                           /* Bitcoin Orange for active link */
+}
+
+/* 
+ * Sidebar - hover state for navigation links 
+ */
+.md-nav__link:hover {
+    color: #FF8000;                           /* Bitcoin Orange on hover */
+}
+
+/* 
+ * Tabs - active tab indicator (if tabs are enabled) 
+ */
+.md-tabs__link--active {
+    border-bottom-color: #FF8000;             /* Bitcoin Orange underline for active tab */
+}
+
+/* 
+ * Bitcoin Orange highlight for ==text== markdown syntax 
+ */
+mark,
+.md-typeset mark {
+    background-color: rgba(255, 128, 0, 0.5);  /* Bitcoin Orange with 50% opacity */
+    color: inherit;                              /* keep original text color */
+}
+/* 
+ * External link icon in navigation 
+ */
+.md-nav__link[href^="http"]::after {
+    content: " ↗";                            /* arrow icon after external links */
+    font-size: 0.8em;                          /* slightly smaller than text */
+}
+/* 
+ * External link icon for content area links 
+ */
+.md-typeset a[href^="http"]::after {
+    content: " ↗";                            /* arrow icon after external links */
+    font-size: 0.8em;                          /* slightly smaller than text */
+}
+
+/* 
+ * Fix: ASCII-Art / Directory Tree rendering
+ * Ensures proper monospace font and line height for code blocks
+ */
+.md-typeset pre,
+.md-typeset pre code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', 'Courier New', Courier, monospace !important;
+    line-height: 1.4 !important;
+    letter-spacing: 0em !important;
+}
+
+/* Force preformatted text to maintain spacing */
+.md-typeset pre {
+    white-space: pre !important;
+    overflow-x: auto !important;
+}

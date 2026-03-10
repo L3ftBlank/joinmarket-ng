@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Maker tracking via offer reannouncements**: After a coinjoin, makers re-announce offers with an exact `maxsize` reflecting their new balance, allowing observers to correlate balance changes with on-chain transactions (especially when combined with fidelity bond identity). Two mitigations: (1) `maxsize` is now rounded down to the nearest power of 2 so that small balance changes produce no visible offer update and (2) a configurable random delay (`offer_reannounce_delay_max`, default 600s) is applied before re-announcing to break timing correlation with block confirmations.
+
 ## [0.20.0] - 2026-03-11
 
 ### Fixed

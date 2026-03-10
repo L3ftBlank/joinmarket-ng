@@ -355,6 +355,21 @@ if [[ "$REPRODUCE" == true ]]; then
     git -C "$PROJECT_ROOT" worktree add --detach "$REPO_DIR" "$COMMIT"
     # Clean up worktree on exit
     trap "rm -rf '$WORK_DIR'; git -C '$PROJECT_ROOT' worktree remove --force '$REPO_DIR' 2>/dev/null || true" EXIT
+
+    # Overlay current Dockerfiles onto the worktree.
+    # Dockerfiles define the *build process* (pinned tool versions, reproducibility
+    # fixes) while the worktree supplies the *source code and dependencies* that were
+    # tagged.  Using the latest Dockerfiles ensures reproducibility fixes (e.g.
+    # PIP_CONSTRAINT for build-isolation) are applied when verifying older releases
+    # whose original Dockerfiles had bugs that only surfaced after PyPI state changed.
+    log_info "Overlaying current Dockerfiles onto worktree..."
+    for df in directory_server/Dockerfile maker/Dockerfile taker/Dockerfile \
+              orderbook_watcher/Dockerfile jmwalletd/Dockerfile; do
+        if [[ -f "$PROJECT_ROOT/$df" ]]; then
+            cp "$PROJECT_ROOT/$df" "$REPO_DIR/$df"
+        fi
+    done
+
     cd "$REPO_DIR"
 
     # Build images for current architecture only

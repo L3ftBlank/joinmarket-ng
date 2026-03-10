@@ -37,33 +37,38 @@ ARG SETUPTOOLS_VERSION
 ARG WHEEL_VERSION
 RUN echo "setuptools==${SETUPTOOLS_VERSION}" > /build/constraints.txt && \
     echo "wheel==${WHEEL_VERSION}" >> /build/constraints.txt
-# NOTE: We do NOT set PIP_CONSTRAINT as an environment variable here.
-# PIP_CONSTRAINT is inherited by pip subprocess invocations (e.g. build-dep resolution
-# when compiling source packages on armv7 where no wheel exists). This causes a conflict
-# when a package's own build-deps request a different setuptools version.
-# Instead we pass --constraint explicitly only on our own installs.
+# Set PIP_CONSTRAINT as env var so it applies to pip's build isolation environments too.
+# Without this, pip downloads the latest setuptools for PEP 517 builds, and the setuptools
+# version is stamped into WHEEL metadata (Generator: setuptools (x.y.z)), breaking
+# reproducibility when a new setuptools release appears on PyPI.
+ENV PIP_CONSTRAINT=/build/constraints.txt
 
 # Install jmcore dependencies (with hash verification)
 COPY jmcore/requirements.txt /build/jmcore/requirements.txt
 RUN if [ -n "$SOURCE_DATE_EPOCH" ]; then export SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH; fi && \
-    pip install --no-cache-dir --user --constraint /build/constraints.txt -r /build/jmcore/requirements.txt
+    pip install --no-cache-dir --user -r /build/jmcore/requirements.txt
 
 # Copy jmcore source and install (with notifications support)
 COPY jmcore/src /build/jmcore/src
 COPY jmcore/pyproject.toml /build/jmcore/
 RUN if [ -n "$SOURCE_DATE_EPOCH" ]; then export SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH; fi && \
-    pip install --no-cache-dir --user --constraint /build/constraints.txt "/build/jmcore"
+    pip install --no-cache-dir --user "/build/jmcore"
 
 # Install directory_server dependencies
 COPY directory_server/requirements.txt /build/directory_server/requirements.txt
 RUN if [ -n "$SOURCE_DATE_EPOCH" ]; then export SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH; fi && \
-    pip install --no-cache-dir --user --constraint /build/constraints.txt -r /build/directory_server/requirements.txt
+    pip install --no-cache-dir --user -r /build/directory_server/requirements.txt
 
 # Copy directory_server source and install
 COPY directory_server/src /build/directory_server/src
 COPY directory_server/pyproject.toml /build/directory_server/
 RUN if [ -n "$SOURCE_DATE_EPOCH" ]; then export SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH; fi && \
-    pip install --no-cache-dir --user --constraint /build/constraints.txt /build/directory_server
+    pip install --no-cache-dir --user /build/directory_server
+
+# Normalize installed Python environment mtimes for reproducible COPY layer digests
+RUN if [ -n "$SOURCE_DATE_EPOCH" ]; then \
+        find /root/.local -exec touch -d @${SOURCE_DATE_EPOCH} {} +; \
+    fi
 
 # =============================================================================
 # Production stage: Minimal runtime image
@@ -134,30 +139,35 @@ ARG SETUPTOOLS_VERSION
 ARG WHEEL_VERSION
 RUN echo "setuptools==${SETUPTOOLS_VERSION}" > /build/constraints.txt && \
     echo "wheel==${WHEEL_VERSION}" >> /build/constraints.txt
-# NOTE: We do NOT set PIP_CONSTRAINT as an environment variable here.
-# See builder stage comment for details.
+# Set PIP_CONSTRAINT as env var so it applies to pip's build isolation environments too.
+ENV PIP_CONSTRAINT=/build/constraints.txt
 
 # Install jmcore dependencies (with hash verification)
 COPY jmcore/requirements.txt /build/jmcore/requirements.txt
 RUN if [ -n "$SOURCE_DATE_EPOCH" ]; then export SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH; fi && \
-    pip install --no-cache-dir --user --constraint /build/constraints.txt -r /build/jmcore/requirements.txt
+    pip install --no-cache-dir --user -r /build/jmcore/requirements.txt
 
 # Copy jmcore source and install (with notifications support)
 COPY jmcore/src /build/jmcore/src
 COPY jmcore/pyproject.toml /build/jmcore/
 RUN if [ -n "$SOURCE_DATE_EPOCH" ]; then export SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH; fi && \
-    pip install --no-cache-dir --user --constraint /build/constraints.txt "/build/jmcore"
+    pip install --no-cache-dir --user "/build/jmcore"
 
 # Install directory_server dependencies
 COPY directory_server/requirements.txt /build/directory_server/requirements.txt
 RUN if [ -n "$SOURCE_DATE_EPOCH" ]; then export SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH; fi && \
-    pip install --no-cache-dir --user --constraint /build/constraints.txt -r /build/directory_server/requirements.txt
+    pip install --no-cache-dir --user -r /build/directory_server/requirements.txt
 
 # Copy directory_server source and install
 COPY directory_server/src /build/directory_server/src
 COPY directory_server/pyproject.toml /build/directory_server/
 RUN if [ -n "$SOURCE_DATE_EPOCH" ]; then export SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH; fi && \
-    pip install --no-cache-dir --user --constraint /build/constraints.txt /build/directory_server
+    pip install --no-cache-dir --user /build/directory_server
+
+# Normalize installed Python environment mtimes for reproducible COPY layer digests
+RUN if [ -n "$SOURCE_DATE_EPOCH" ]; then \
+        find /root/.local -exec touch -d @${SOURCE_DATE_EPOCH} {} +; \
+    fi
 
 FROM python:${PYTHON_VERSION}@${PYTHON_FULL_DIGEST} AS debug
 

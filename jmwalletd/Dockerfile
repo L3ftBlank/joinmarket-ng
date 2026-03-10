@@ -45,38 +45,38 @@ ARG SETUPTOOLS_VERSION
 ARG WHEEL_VERSION
 RUN echo "setuptools==${SETUPTOOLS_VERSION}" > /build/constraints.txt && \
     echo "wheel==${WHEEL_VERSION}" >> /build/constraints.txt
-# NOTE: We do NOT set PIP_CONSTRAINT as an environment variable here.
-# PIP_CONSTRAINT is inherited by pip subprocess invocations (e.g. build-dep resolution
-# when compiling source packages like httptools on armv7 where no wheel exists). This
-# causes a conflict when the package's own build-deps request a different setuptools
-# version. Instead we pass --constraint explicitly only on our own installs.
+# Set PIP_CONSTRAINT as env var so it applies to pip's build isolation environments too.
+# Without this, pip downloads the latest setuptools for PEP 517 builds, and the setuptools
+# version is stamped into WHEEL metadata (Generator: setuptools (x.y.z)), breaking
+# reproducibility when a new setuptools release appears on PyPI.
+ENV PIP_CONSTRAINT=/build/constraints.txt
 
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 COPY jmcore/requirements.txt /build/requirements-jmcore.txt
 RUN if [ -n "$SOURCE_DATE_EPOCH" ]; then export SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH; fi && \
-    pip install --no-cache-dir --constraint /build/constraints.txt -r /build/requirements-jmcore.txt
+    pip install --no-cache-dir -r /build/requirements-jmcore.txt
 
 COPY jmwallet/requirements.txt /build/requirements-jmwallet.txt
 RUN if [ -n "$SOURCE_DATE_EPOCH" ]; then export SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH; fi && \
-    pip install --no-cache-dir --constraint /build/constraints.txt -r /build/requirements-jmwallet.txt
+    pip install --no-cache-dir -r /build/requirements-jmwallet.txt
 
 COPY maker/requirements.txt /build/requirements-maker.txt
 RUN if [ -n "$SOURCE_DATE_EPOCH" ]; then export SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH; fi && \
-    pip install --no-cache-dir --constraint /build/constraints.txt -r /build/requirements-maker.txt
+    pip install --no-cache-dir -r /build/requirements-maker.txt
 
 COPY taker/requirements.txt /build/requirements-taker.txt
 RUN if [ -n "$SOURCE_DATE_EPOCH" ]; then export SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH; fi && \
-    pip install --no-cache-dir --constraint /build/constraints.txt -r /build/requirements-taker.txt
+    pip install --no-cache-dir -r /build/requirements-taker.txt
 
 COPY orderbook_watcher/requirements.txt /build/requirements-obwatcher.txt
 RUN if [ -n "$SOURCE_DATE_EPOCH" ]; then export SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH; fi && \
-    pip install --no-cache-dir --constraint /build/constraints.txt -r /build/requirements-obwatcher.txt
+    pip install --no-cache-dir -r /build/requirements-obwatcher.txt
 
 COPY jmwalletd/requirements.txt /build/requirements-jmwalletd.txt
 RUN if [ -n "$SOURCE_DATE_EPOCH" ]; then export SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH; fi && \
-    pip install --no-cache-dir --constraint /build/constraints.txt -r /build/requirements-jmwalletd.txt
+    pip install --no-cache-dir -r /build/requirements-jmwalletd.txt
 
 # Copy source packages individually to allow layer caching per component
 COPY jmcore/src /build/jmcore/src
@@ -100,7 +100,7 @@ RUN if [ -n "$SOURCE_DATE_EPOCH" ]; then \
     fi
 
 RUN if [ -n "$SOURCE_DATE_EPOCH" ]; then export SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH; fi && \
-    pip install --no-cache-dir --no-deps --constraint /build/constraints.txt \
+    pip install --no-cache-dir --no-deps \
         /build/jmcore \
         /build/jmwallet \
         /build/maker \

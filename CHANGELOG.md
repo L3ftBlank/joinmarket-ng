@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Ephemeral-identity PoDLE commitment broadcast**: Commitment broadcasts (`!hp2`) are now sent from a fresh random nick on a separate Tor circuit, rather than from the maker's long-lived identity. After verifying a taker's PoDLE proof, the maker opens ephemeral connections to all directory servers using unique SOCKS5 credentials (forcing stream isolation) and a random nick identity, broadcasts the commitment, then tears down the connections. This prevents any party from correlating the `!hp2` broadcast with the maker that participated in the CoinJoin. The same ephemeral approach is used when relaying `!hp2` requests from other makers. Concurrent ephemeral broadcasts are capped at 2 via a semaphore to prevent Sybil DoS attacks.
 
+### Fixed
+
+- **Docker image reproducibility broken by setuptools version drift**: Fixed reproducibility of Docker images (`directory-server`, `maker`, `taker`, `orderbook-watcher`, `jmwalletd`) which broke when setuptools 82.0.1 was released on PyPI. The root cause: pip's `--constraint` flag only applies to install dependencies, not to PEP 517 build isolation environments. When building our packages from source, pip would download the latest setuptools, which stamps its version into `WHEEL` metadata (`Generator: setuptools (x.y.z)`), producing different layer digests. Fixed by setting `ENV PIP_CONSTRAINT` in Dockerfiles so constraints also apply to build isolation. The `verify-release.sh` script now overlays current Dockerfiles onto the release worktree so reproducibility fixes apply retroactively to past releases.
+
 ## [0.19.3] - 2026-03-05
 
 ### Added

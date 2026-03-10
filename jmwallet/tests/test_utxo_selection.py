@@ -70,28 +70,59 @@ def wallet_service(test_mnemonic: str, mock_backend) -> WalletService:
                 path="m/84'/0'/0'/0/2",
                 mixdepth=0,
             ),
+        ],
+        1: [
             UTXOInfo(
-                txid="d" * 64,
+                txid="f" * 64,
+                vout=0,
+                value=100_000,
+                address="bcrt1test1_md1",
+                confirmations=10,
+                scriptpubkey="0014" + "ff" * 20,
+                path="m/84'/0'/1'/0/0",
+                mixdepth=1,
+            ),
+            UTXOInfo(
+                txid="g" * 64,
+                vout=0,
+                value=50_000,
+                address="bcrt1test2_md1",
+                confirmations=5,
+                scriptpubkey="0014" + "gg" * 20,
+                path="m/84'/0'/1'/0/1",
+                mixdepth=1,
+            ),
+            UTXOInfo(
+                txid="h" * 64,
+                vout=0,
+                value=30_000,
+                address="bcrt1test3_md1",
+                confirmations=3,
+                scriptpubkey="0014" + "hh" * 20,
+                path="m/84'/0'/1'/0/2",
+                mixdepth=1,
+            ),
+            UTXOInfo(
+                txid="i" * 64,
                 vout=0,
                 value=20_000,
-                address="bcrt1test4",
+                address="bcrt1test4_md1",
                 confirmations=2,
-                scriptpubkey="0014" + "dd" * 20,
-                path="m/84'/0'/0'/0/3",
-                mixdepth=0,
+                scriptpubkey="0014" + "ii" * 20,
+                path="m/84'/0'/1'/0/3",
+                mixdepth=1,
             ),
             UTXOInfo(
-                txid="e" * 64,
+                txid="j" * 64,
                 vout=0,
                 value=10_000,
-                address="bcrt1test5",
+                address="bcrt1test5_md1",
                 confirmations=1,
-                scriptpubkey="0014" + "ee" * 20,
-                path="m/84'/0'/0'/0/4",
-                mixdepth=0,
+                scriptpubkey="0014" + "jj" * 20,
+                path="m/84'/0'/1'/0/4",
+                mixdepth=1,
             ),
         ],
-        1: [],
     }
 
     return ws
@@ -142,7 +173,7 @@ class TestGetAllUtxos:
     def test_get_all_returns_all_eligible(self, wallet_service: WalletService):
         """Returns all UTXOs meeting confirmation requirement."""
         all_utxos = wallet_service.get_all_utxos(0, min_confirmations=1)
-        assert len(all_utxos) == 5  # All 5 UTXOs
+        assert len(all_utxos) == 3  # All 3 UTXOs in md0
 
     def test_get_all_respects_confirmations(self, wallet_service: WalletService):
         """Filters by confirmation requirement."""
@@ -152,7 +183,7 @@ class TestGetAllUtxos:
 
     def test_get_all_empty_mixdepth(self, wallet_service: WalletService):
         """Empty mixdepth returns empty list."""
-        all_utxos = wallet_service.get_all_utxos(1, min_confirmations=1)
+        all_utxos = wallet_service.get_all_utxos(2, min_confirmations=1)
         assert len(all_utxos) == 0
 
 
@@ -171,7 +202,7 @@ class TestSelectUtxosWithMerge:
     def test_gradual_algorithm_adds_one(self, wallet_service: WalletService):
         """Gradual algorithm adds exactly one extra UTXO."""
         selected = wallet_service.select_utxos_with_merge(
-            0, 80_000, min_confirmations=1, merge_algorithm="gradual"
+            1, 80_000, min_confirmations=1, merge_algorithm="gradual"
         )
         # Should select 1 (minimum) + 1 (gradual) = 2 UTXOs
         assert len(selected) == 2
@@ -182,7 +213,7 @@ class TestSelectUtxosWithMerge:
     def test_greedy_algorithm_selects_all(self, wallet_service: WalletService):
         """Greedy algorithm selects all eligible UTXOs."""
         selected = wallet_service.select_utxos_with_merge(
-            0, 80_000, min_confirmations=1, merge_algorithm="greedy"
+            1, 80_000, min_confirmations=1, merge_algorithm="greedy"
         )
         # Should select all 5 UTXOs
         assert len(selected) == 5
@@ -194,7 +225,7 @@ class TestSelectUtxosWithMerge:
         counts = set()
         for _ in range(50):
             selected = wallet_service.select_utxos_with_merge(
-                0, 80_000, min_confirmations=1, merge_algorithm="random"
+                1, 80_000, min_confirmations=1, merge_algorithm="random"
             )
             counts.add(len(selected))
 
@@ -205,7 +236,7 @@ class TestSelectUtxosWithMerge:
     def test_greedy_respects_confirmations(self, wallet_service: WalletService):
         """Greedy algorithm still respects confirmation requirement."""
         selected = wallet_service.select_utxos_with_merge(
-            0, 50_000, min_confirmations=5, merge_algorithm="greedy"
+            1, 50_000, min_confirmations=5, merge_algorithm="greedy"
         )
         # Only 2 UTXOs have 5+ confirms
         assert len(selected) == 2
@@ -222,11 +253,55 @@ class TestSelectUtxosWithMerge:
         """Gradual with no remaining UTXOs doesn't add any."""
         # Request almost all funds - needs all UTXOs
         selected = wallet_service.select_utxos_with_merge(
-            0, 200_000, min_confirmations=1, merge_algorithm="gradual"
+            1, 200_000, min_confirmations=1, merge_algorithm="gradual"
         )
         # All 5 UTXOs needed to meet 200k (total is 210k)
-        # No remaining to add, so same as default
         assert len(selected) == 5
+
+    def test_mixdepth_0_returns_single_large_utxo(self, wallet_service: WalletService):
+        """mixdepth 0 should strictly return 1 UTXO without merging."""
+        selected = wallet_service.select_utxos_with_merge(
+            0, 80_000, min_confirmations=1, merge_algorithm="greedy"
+        )
+        assert len(selected) == 1
+        assert selected[0].value == 100_000
+
+    def test_mixdepth_0_insufficient_single_utxo_raises(self, wallet_service: WalletService):
+        """mixdepth 0 should raise ValueError if no SINGLE UTXO is large enough."""
+        with pytest.raises(ValueError, match="Cannot merge md0 UTXOs for privacy reasons"):
+            wallet_service.select_utxos_with_merge(
+                0, 140_000, min_confirmations=1, merge_algorithm="greedy"
+            )
+
+    def test_mixdepth_1_merges_utxos(self, wallet_service: WalletService):
+        """Other mixdepths should still merge UTXOs as requested."""
+        wallet_service.utxo_cache[1] = [
+            UTXOInfo(
+                txid="f" * 64,
+                vout=0,
+                value=100_000,
+                address="md1_1",
+                confirmations=10,
+                scriptpubkey="",
+                path="",
+                mixdepth=1,
+            ),
+            UTXOInfo(
+                txid="g" * 64,
+                vout=0,
+                value=50_000,
+                address="md1_2",
+                confirmations=10,
+                scriptpubkey="",
+                path="",
+                mixdepth=1,
+            ),
+        ]
+        selected = wallet_service.select_utxos_with_merge(
+            1, 140_000, min_confirmations=1, merge_algorithm="greedy"
+        )
+        assert len(selected) == 2
+        assert sum(u.value for u in selected) == 150_000
 
 
 class TestFindUTXOByAddress:
@@ -251,27 +326,27 @@ class TestFindUTXOByAddress:
 
     def test_find_utxo_by_address_across_mixdepths(self, wallet_service: WalletService):
         """Test that find_utxo_by_address searches all mixdepths."""
-        # Add a UTXO in mixdepth 1 to test cross-mixdepth search
-        wallet_service.utxo_cache[1] = [
+        # Add a UTXO in mixdepth 2 to test cross-mixdepth search
+        wallet_service.utxo_cache[2] = [
             UTXOInfo(
                 txid="f" * 64,
                 vout=0,
                 value=200_000,
-                address="bcrt1test_md1",
+                address="bcrt1test_md2",
                 confirmations=5,
                 scriptpubkey="0014" + "ff" * 20,
-                path="m/84'/0'/1'/0/0",
-                mixdepth=1,
+                path="m/84'/0'/2'/0/0",
+                mixdepth=2,
             )
         ]
 
-        # Find address from mixdepth 1
-        utxo = wallet_service.find_utxo_by_address("bcrt1test_md1")
+        # Find address from mixdepth 2
+        utxo = wallet_service.find_utxo_by_address("bcrt1test_md2")
 
         assert utxo is not None
-        assert utxo.address == "bcrt1test_md1"
+        assert utxo.address == "bcrt1test_md2"
         assert utxo.value == 200_000
-        assert utxo.mixdepth == 1
+        assert utxo.mixdepth == 2
 
     def test_find_utxo_by_address_returns_first_match(self, wallet_service: WalletService):
         """Test that find_utxo_by_address returns the first match if duplicates exist."""
@@ -283,10 +358,10 @@ class TestFindUTXOByAddress:
             address="bcrt1test1",  # Same address as mixdepth 0
             confirmations=20,
             scriptpubkey="0014" + "zz" * 20,
-            path="m/84'/0'/2'/0/0",
-            mixdepth=2,
+            path="m/84'/0'/3'/0/0",
+            mixdepth=3,
         )
-        wallet_service.utxo_cache[2] = [duplicate_utxo]
+        wallet_service.utxo_cache[3] = [duplicate_utxo]
 
         # Should find the first one (from mixdepth 0)
         utxo = wallet_service.find_utxo_by_address("bcrt1test1")
@@ -360,6 +435,27 @@ def wallet_with_timelocked(test_mnemonic: str, mock_backend) -> WalletService:
                 path="m/84'/0'/1'/0/0",
                 mixdepth=1,
             ),
+            UTXOInfo(
+                txid="e" * 64,
+                vout=0,
+                value=500_000,
+                address="bcrt1timelocked_md1",
+                confirmations=100,
+                scriptpubkey="0020" + "ff" * 32,
+                path="m/84'/0'/1'/2/0:1893456000",
+                mixdepth=1,
+                locktime=1893456000,
+            ),
+            UTXOInfo(
+                txid="f" * 64,
+                vout=0,
+                value=50_000,
+                address="bcrt1test5",
+                confirmations=5,
+                scriptpubkey="0014" + "ee" * 20,
+                path="m/84'/0'/1'/0/1",
+                mixdepth=1,
+            ),
         ],
     }
 
@@ -406,8 +502,8 @@ class TestFidelityBondUTXOFiltering:
         self, wallet_with_timelocked: WalletService
     ):
         """get_fidelity_bond_balance() returns 0 for mixdepth without fidelity bonds."""
-        balance = await wallet_with_timelocked.get_fidelity_bond_balance(1)
-        # Mixdepth 1 has no fidelity bond UTXOs
+        balance = await wallet_with_timelocked.get_fidelity_bond_balance(2)
+        # Mixdepth 2 has no fidelity bond UTXOs
         assert balance == 0
 
     @pytest.mark.asyncio
@@ -416,8 +512,8 @@ class TestFidelityBondUTXOFiltering:
     ):
         """get_total_balance() includes fidelity bonds by default."""
         balance = await wallet_with_timelocked.get_total_balance()
-        # MD0: 650k, MD1: 200k = 850k
-        assert balance == 850_000
+        # MD0: 650k, MD1: 750k = 1.4m
+        assert balance == 1_400_000
 
     @pytest.mark.asyncio
     async def test_get_total_balance_exclude_fidelity_bonds(
@@ -425,8 +521,8 @@ class TestFidelityBondUTXOFiltering:
     ):
         """get_total_balance(include_fidelity_bonds=False) excludes fidelity bonds."""
         balance = await wallet_with_timelocked.get_total_balance(include_fidelity_bonds=False)
-        # MD0: 150k, MD1: 200k = 350k
-        assert balance == 350_000
+        # MD0: 150k, MD1: 250k = 400k
+        assert balance == 400_000
 
     def test_select_utxos_excludes_fidelity_bonds_by_default(
         self, wallet_with_timelocked: WalletService
@@ -470,24 +566,24 @@ class TestFidelityBondUTXOFiltering:
         """select_utxos_with_merge() excludes fidelity bond UTXOs by default."""
         # Use greedy to get all eligible UTXOs
         selected = wallet_with_timelocked.select_utxos_with_merge(
-            0, 50_000, min_confirmations=1, merge_algorithm="greedy"
+            1, 50_000, min_confirmations=1, merge_algorithm="greedy"
         )
-        # Should only include 2 regular UTXOs
+        # Should only include 2 regular UTXOs in md1
         assert len(selected) == 2
         assert all(not u.is_fidelity_bond for u in selected)
-        assert sum(u.value for u in selected) == 150_000
+        assert sum(u.value for u in selected) == 250_000
 
     def test_select_utxos_with_merge_include_fidelity_bonds(
         self, wallet_with_timelocked: WalletService
     ):
         """select_utxos_with_merge(include_fidelity_bonds=True) includes fidelity bonds."""
         selected = wallet_with_timelocked.select_utxos_with_merge(
-            0, 50_000, min_confirmations=1, merge_algorithm="greedy", include_fidelity_bonds=True
+            1, 50_000, min_confirmations=1, merge_algorithm="greedy", include_fidelity_bonds=True
         )
-        # Should include all 3 UTXOs
+        # Should include all 3 UTXOs in md1
         assert len(selected) == 3
         assert any(u.is_fidelity_bond for u in selected)
-        assert sum(u.value for u in selected) == 650_000
+        assert sum(u.value for u in selected) == 750_000
 
 
 # ---------------------------------------------------------------------------
@@ -540,7 +636,39 @@ def wallet_with_frozen(test_mnemonic: str, mock_backend) -> WalletService:
                 mixdepth=0,
             ),
         ],
-        1: [],
+        1: [
+            UTXOInfo(
+                txid="d" * 64,
+                vout=0,
+                value=100_000,
+                address="bcrt1test4",
+                confirmations=10,
+                scriptpubkey="0014" + "dd" * 20,
+                path="m/84'/0'/1'/0/0",
+                mixdepth=1,
+                frozen=True,
+            ),
+            UTXOInfo(
+                txid="e" * 64,
+                vout=0,
+                value=50_000,
+                address="bcrt1test5",
+                confirmations=5,
+                scriptpubkey="0014" + "ee" * 20,
+                path="m/84'/0'/1'/0/1",
+                mixdepth=1,
+            ),
+            UTXOInfo(
+                txid="f" * 64,
+                vout=0,
+                value=30_000,
+                address="bcrt1test6",
+                confirmations=3,
+                scriptpubkey="0014" + "ff" * 20,
+                path="m/84'/0'/1'/0/2",
+                mixdepth=1,
+            ),
+        ],
     }
 
     return ws
@@ -572,9 +700,9 @@ class TestFrozenUTXOFiltering:
     def test_select_utxos_with_merge_excludes_frozen(self, wallet_with_frozen: WalletService):
         """select_utxos_with_merge() greedy mode excludes frozen UTXOs."""
         selected = wallet_with_frozen.select_utxos_with_merge(
-            0, 30_000, min_confirmations=1, merge_algorithm="greedy"
+            1, 30_000, min_confirmations=1, merge_algorithm="greedy"
         )
-        # Greedy selects all spendable: 50k + 30k = 80k (not the frozen 100k)
+        # Greedy selects all spendable in md1: 50k + 30k = 80k (not the frozen 100k)
         assert len(selected) == 2
         assert sum(u.value for u in selected) == 80_000
         assert all(not u.frozen for u in selected)
@@ -590,7 +718,10 @@ class TestFrozenUTXOFiltering:
     async def test_get_total_balance_excludes_frozen(self, wallet_with_frozen: WalletService):
         """get_total_balance() excludes frozen UTXOs across all mixdepths."""
         balance = await wallet_with_frozen.get_total_balance()
-        assert balance == 80_000
+        # MD0: 80k (100k frozen out of 180k)
+        # MD1: 80k (100k frozen out of 180k)
+        # Total: 160k
+        assert balance == 160_000
 
 
 class TestFrozenUTXOWithFidelityBonds:

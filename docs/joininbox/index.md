@@ -1,119 +1,34 @@
----
-title: JoininBox
----
-The JoininBox main menu displayed in a terminal:
+# JoininBox Main Menu
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│         JoininBox GUI [VERSION] network:[NET] IP:[IP]       │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  Choose from the options:                                   │
-│                                                             │
-│  [START](quickstart.md)    Quickstart with JoinMarket       │
-│  [JAM]                     JoinMarket Web UI (RaspiBlitz)   │
-│                                                             │
-│  [WALLET](wallet.md)       Wallet management options        │
-│  [MAKER](maker.md)         Yield Generator options          │
-│                                                             │
-│  [SEND](send.md)           Pay with/without coinjoin        │
-│  [FREEZE](freeze.md)       Coin control                     │
-│  [PAYJOIN](payjoin.md)     Send/Receive PayJoin             │
-│                                                             │
-│  [OFFERS](orderbook.md)    Watch the Order Book locally     │
-│                                                             │
-│  [CONFIG](config.md)       Connection settings              │
-│  [TOOLS](tools.md)         Helper functions                 │
-│  [UPDATE](update.md)       Update JoininBox/JoinMarket      │
-│                                                             │
-│  [BLITZ]                   RaspiBlitz menu (RaspiBlitz)     │
-│  [REBOOT]                  Restart the computer             │
-│  [SHUTDOWN]                Switch off the computer          │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
+The main menu of JoininBox provides access to all core JoinMarket-NG functionalities through a terminal interface.
 
-## Starting the Menu
-
-To start the JoininBox menu, run:
-
-```bash
-menu
-```
-
-Or directly:
-
-```bash
-/home/joinmarket/menu.sh
-```
-
-## Documentation Sections
-
-### Getting Started
-
-| Section | Description |
-|---------|-------------|
-| [Installation](installation.md) | Install JoininBox on your system |
-| [Quickstart](quickstart.md) | Quick start options for new users |
-
-### Core Functions
-
-| Section | Description |
-|---------|-------------|
-| [Wallet](wallet.md) | Wallet creation, recovery, and management |
-| [Yield Generator](maker.md) | Run as a liquidity provider to earn fees |
-| [Send Payment](send.md) | Send payments with or without CoinJoin |
-| [Freeze UTXO](freeze.md) | Coin control - freeze and unfreeze UTXOs |
-| [PayJoin](payjoin.md) | Direct PayJoin transactions between JoinMarket wallets |
-| [Order Book](orderbook.md) | Monitor the JoinMarket order book locally |
-
-### Configuration & Maintenance
-
-| Section | Description |
-|---------|-------------|
-| [Configuration](config.md) | Connection settings and joinmarket.cfg |
-| [Tools](tools.md) | Helper functions and additional services |
-| [Update](update.md) | Update JoininBox and JoinMarket |
-| [CLI Commands](commands.md) | Command-line shortcuts and aliases |
-
-## Key Features
-
-| Feature | Description |
-|---------|-------------|
-| **Wallet Management** | Create, recover, display, and manage JoinMarket wallets |
-| **CoinJoin** | Send payments with privacy-enhancing CoinJoin |
-| **Yield Generator** | Earn sats by providing liquidity as a Maker |
-| **PayJoin** | Direct collaborative transactions between JoinMarket users |
-| **Fidelity Bonds** | Create timelocked addresses for improved Maker reputation |
-| **Order Book** | Local monitoring of available offers via Tor hidden service |
-| **Coin Control** | Freeze and unfreeze specific UTXOs |
-| **QR Codes** | Display addresses and information as QR codes |
-
-## Mixdepths
-
-JoinMarket wallets use 5 mixdepths (0-4) for coin segregation:
-
-```
-Mixdepth 0 ←→ Mixdepth 1 ←→ Mixdepth 2 ←→ Mixdepth 3 ←→ Mixdepth 4
-```
-
-- Each mixdepth acts as a separate account within the wallet
-- Coins automatically move between mixdepths during CoinJoins
-- Use mixdepth 0 for incoming funds
-- Higher mixdepths indicate more privacy rounds
-
-## Configuration Files
-
-| File | Path | Description |
-|------|------|-------------|
-| `joinmarket.cfg` | `~/.joinmarket/joinmarket.cfg` | Main JoinMarket configuration |
-| `joinin.conf` | `~/joinin.conf` | JoininBox settings |
-| Wallets | `~/.joinmarket/wallets/` | Wallet files (`.jmdat`) |
-| Logs | `~/.joinmarket/logs/` | Log files |
-| YG Statement | `~/.joinmarket/logs/yigen-statement.csv` | Yield Generator earnings |
-
-## Related Resources
-
-- [JoininBox GitHub Repository](https://github.com/openoms/joininbox)
-- [JoinMarket Usage Documentation](https://github.com/JoinMarket-Org/joinmarket-clientserver/blob/master/docs/USAGE.md)
-- [JoinMarket NG Orderbook](https://joinmarket-ng.sgn.space/)
+<div class="terminal-menu">
+┌────────────────JoininBox v0.8.5 mainnet─────────────────┐
+│                                                         │
+│   Choose from the options:                              │
+│  ┌───────────────────────────────────────────────────┐  │
+│  │                                                   │  │
+│  │<a href="../start/">START</a>     Quickstart with JoinMarket               │  │
+│  │                                                   │  │
+│  │<a href="../wallet/">WALLET</a>    Wallet management options                │  │
+│  │<a href="../maker/">MAKER</a>     Yield Generator options                  │  │
+│  │                                                   │  │
+│  │<a href="../send/">SEND</a>      Pay to an address with/without a coinjoin│  │
+│  │<a href="../freeze/">FREEZE</a>    Exercise coin control within a mixdepth  │  │
+│  │<a href="../payjoin/">PAYJOIN</a>   Send/Receive between JoinMarket wallets  │  │
+│  │                                                   │  │
+│  │<a href="../offers/">OFFERS</a>    Watch the Order Book locally             │  │
+│  │                                                   │  │
+│  │<a href="../config/">CONFIG</a>    Connection and joinmarket.cfg settings   │  │
+│  │<a href="../tools/">TOOLS</a>     Extra helper functions and services      │  │
+│  │<a href="../update/">UPDATE</a>    Update JoininBox or JoinMarket           │  │
+│  │                                                   │  │
+│  │BLITZ     Switch to the RaspiBlitz menu            │  │
+│  │REBOOT    Restart the computer                     │  │
+│  │SHUTDOWN  Switch off the computer                  │  │
+│  │                                                   │  │
+│  └───────────────────────────────────────────────────┘  │
+├─────────────────────────────────────────────────────────┤
+│               <a href="../menu-main/">< Select ></a>        <a href="../menu-main/">< Exit ></a>                │
+└─────────────────────────────────────────────────────────┘
+</div>

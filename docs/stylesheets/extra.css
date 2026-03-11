@@ -93,11 +93,69 @@ mark,
 code,
 .highlight pre {
     font-family: 'JetBrains Mono', Consolas, Monaco, 'Courier New', monospace !important;
-    line-height: 1.5 !important;
+    line-height: 1.1 !important;
     letter-spacing: 0 !important;
 }
 
 .md-typeset pre {
     white-space: pre !important;
     overflow-x: auto !important;
+}
+/* =============================================================================
+   Clickable Links in Code Blocks
+   ============================================================================= */
+
+/* Link styling inside code blocks */
+.code-link {
+  color: #4fc3f7;
+  text-decoration: underline;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.code-link:hover {
+  color: #81d4fa;
+  text-decoration: none;
+}
+
+/* Dark mode adjustments */
+[data-md-color-scheme="slate"] .code-link {
+  color: #4fc3f7;
+}
+
+[data-md-color-scheme="slate"] .code-link:hover {
+  color: #81d4fa;
+}
+
+/* Remove unnecessary scrollbars from pre elements */
+.md-typeset pre {
+    overflow-y: hidden !important;
+    max-height: none !important;
+    height: auto !important;
+}
+
+/* Ensure proper box sizing */
+.md-typeset pre {
+    box-sizing: border-box;
+    padding: 1.2em 1.4em;
+    margin: 0 0 1.6em;
+}
+
+/* Terminal menu specific styling */
+.terminal-menu {
+    background-color: var(--md-code-bg-color, #f8f8f8) !important;
+    border: 1px solid var(--md-default-fg-color--lightest, #ddd) !important;
+    padding: 1.2em 1.4em !important;
+    margin: 0 0 1.6em !important;
+    font-family: 'JetBrains Mono', Consolas, Monaco, 'Courier New', monospace !important;
+    line-height: 1.1 !important;
+    letter-spacing: 0 !important;
+    white-space: pre !important;
+    overflow: hidden !important;
+}
+
+/* Dark mode */
+[data-md-color-scheme="slate"] .terminal-menu {
+    background-color: var(--md-code-bg-color, #2f2f2f) !important;
+    border: 1px solid var(--md-default-fg-color--lightest, #444) !important;
 }

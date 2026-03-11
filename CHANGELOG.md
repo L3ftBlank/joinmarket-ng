@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-03-11
+
 ### Fixed
 
 - **Hardware wallet signature rejection in `import-certificate`**: The cold storage fidelity bond `import-certificate` command rejected signatures from segwit hardware wallets (via Sparrow). Hardware wallets encode the address type in the signature header byte per the extended Electrum format (35-38 for P2SH-P2WPKH, 39-42 for P2WPKH), but the verification code only handled legacy P2PKH header bytes (27-34). Extended `_verify_recoverable_signature()` to accept all four Electrum ranges (27-42).
@@ -1042,7 +1044,8 @@ Releases prior to these changes (including 0.13.5, 0.13.6, and 0.13.7) cannot be
 - Pre-built image support for directory server compose.
 - Tor configuration instructions.
 
-[Unreleased]: ../../compare/0.19.3...HEAD
+[Unreleased]: ../../compare/0.20.0...HEAD
+[0.20.0]: ../../compare/0.19.3...0.20.0
 [0.19.3]: ../../compare/0.19.2...0.19.3
 [0.19.2]: ../../compare/0.19.1...0.19.2
 [0.19.1]: ../../compare/0.19.0...0.19.1

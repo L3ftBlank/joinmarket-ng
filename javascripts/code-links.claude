@@ -1,0 +1,138 @@
+// code-links.js — Clickable links in ASCII-art code blocks
+// Moves padding to end of line instead of after link text
+// Aligns all descriptions to a common column
+document.addEventListener("DOMContentLoaded", function() {
+
+    // Tooltip definitions by cleaned URL (without .md)
+    var tooltipMap = {
+        "../quickstart": "Quickstart with JoinMarket",
+        "../wallet":     "Wallet management options",
+        "maker":         "Yield Generator options",
+        "send":          "Pay to an address with/without a coinjoin",
+        "freeze":        "Exercise coin control within a mixdepth",
+        "payjoin":       "Send/Receive between JoinMarket wallets",
+        "orderbook":     "Watch the Order Book locally",
+        "config":        "Connection and joinmarket.cfg settings",
+        "tools":         "Extra helper functions and services",
+        "update":        "Update JoininBox or JoinMarket"
+    };
+
+    var codeBlocks = document.querySelectorAll("pre code, code.highlight");
+
+    codeBlocks.forEach(function(block) {
+        var content = block.innerHTML;
+        if (content.includes('class="code-link"')) return;
+
+        // Read actual rendered font from the code block
+        var cs = window.getComputedStyle(block);
+        var codeFont = cs.fontFamily;
+        var codeFontSize = cs.fontSize;
+        var codeLineHeight = cs.lineHeight;
+
+        // Regex: \x5BTEXT\x5D\x28URL.md\x29 + trailing whitespace
+        //   \x5B=\x5B  \x5D=\x5D  \x28=\x28  \x29=\x29
+        //   Group 1: link text
+        //   Group 2: URL ending with .md
+        //   Group 3: trailing whitespace after \x29
+        var linkPattern = /\x5B([^\x5D]+)\x5D\x28([^\s"\x29]+\.md)\x29(\s*)/g;
+
+        // --- Pass 1: Find longest link text for alignment ---
+        var maxLinkLen = 0;
+        content.replace(linkPattern, function(match, text) {
+            if (text.length > maxLinkLen) maxLinkLen = text.length;
+            return match;
+        });
+
+        // No links found — skip this block
+        if (maxLinkLen === 0) return;
+
+        // All descriptions align to this column (relative to link start)
+        var alignCol = maxLinkLen + 2;
+
+        // Inline style — overrides Material Theme, guaranteed monospace
+        var inlineStyle = ''
+            + 'font-family:' + codeFont + ';'
+            + 'font-size:' + codeFontSize + ';'
+            + 'line-height:' + codeLineHeight + ';'
+            + 'letter-spacing:0;word-spacing:0;'
+            + 'color:#FF8000;text-decoration:underline;cursor:pointer;'
+            + 'display:inline;padding:0;margin:0;border:none;';
+
+        // --- Pass 2: Replace links line by line ---
+        var lines = content.split('\n');
+        var processedLines = lines.map(function(line) {
+            var totalRemoved = 0;
+
+            var newLine = line.replace(linkPattern, function(match, text, url, trailing) {
+                // Skip non-http protocols (but allow relative paths)
+                if (!url.startsWith('http') && url.includes('://')) {
+                    return match;
+                }
+
+                // Alignment padding: enough spaces to reach alignCol
+                var linkPad = alignCol - text.length;
+                if (linkPad < 1) linkPad = 1;
+
+                // Track how many visible characters we removed:
+                //   Original visible = match.length (all chars were visible)
+                //   New visible      = text.length + linkPad
+                //   Removed          = match.length - text.length - linkPad
+                totalRemoved += match.length - text.length - linkPad;
+
+                // Clean URL: remove .md extension for MkDocs
+                var cleanUrl = url.slice(0, -3);
+
+                // Tooltip from map
+                var title = tooltipMap.hasOwnProperty(cleanUrl)
+                    ? tooltipMap[cleanUrl] : '';
+                var titleAttr = title
+                    ? ' title="' + title + '"' : '';
+
+                return '<a href="' + cleanUrl + '"'
+                    + titleAttr
+                    + ' class="code-link"'
+                    + ' style="' + inlineStyle + '"'
+                    + '>' + text + '</a>'
+                    + ' '.repeat(linkPad);
+            });
+
+            // Move removed characters to end of line (before box border)
+            // This preserves total line width without creating a visible gap
+            if (totalRemoved > 0) {
+                // Match trailing space + box border at end of line
+                // \u2502 = Unicode BOX DRAWINGS LIGHT VERTICAL
+                var borderPattern = /(\s*)(\u2502\s*\u2502)\s*$/;
+                var borderMatch = newLine.match(borderPattern);
+                if (borderMatch) {
+                    // Insert extra spaces before the closing border
+                    var before = newLine.slice(0, borderMatch.index);
+                    var spaces = borderMatch[1]
+                        + ' '.repeat(totalRemoved);
+                    var border = borderMatch[2];
+                    newLine = before + spaces + border;
+                } else {
+                    // No border found — append spaces at line end
+                    newLine = newLine + ' '.repeat(totalRemoved);
+                }
+            }
+
+            return newLine;
+        });
+
+        content = processedLines.join('\n');
+        block.innerHTML = content;
+
+        // Hover effects via JS (inline styles cannot use :hover)
+        var links = block.querySelectorAll('a.code-link');
+        links.forEach(function(link) {
+            link.addEventListener('mouseenter', function() {
+                this.style.color = '#CC6600';
+                this.style.textDecoration = 'none';
+            });
+            link.addEventListener('mouseleave', function() {
+                this.style.color = '#FF8000';
+                this.style.textDecoration = 'underline';
+            });
+        });
+    });
+});

@@ -1,0 +1,32 @@
+---
+title: Main Menu
+---
+```
+┌────────────────────JoininBox v0.8.5 mainnet─────────────────────┐
+│                                                                 │
+│   Choose from the options:                                      │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │                                                           │  │
+│  │[START](../a.md)  Quickstart with JoinMarket               │  │
+│  │                                                           │  │
+│  │[WALLET](../b.md) Wallet management options                │  │
+│  │[MAKER](../c.md)  Yield Generator options                  │  │ 
+│  │                                                           │  │
+│  │[SEND](../d.md)   Pay to an address with/without a coinjoin│  │
+│  │[FREEZE](../e.md) Exercise coin control within a mixdepth  │  │
+│  │[PAYJOIN](../f.md)Send/Receive between JoinMarket wallets  │  │
+│  │                                                           │  │
+│  │[OFFERS](../g.md) Watch the Order Book locally             │  │
+│  │                                                           │  │
+│  │[CONFIG](../h.md) Connection and joinmarket.cfg settings   │  │
+│  │[TOOLS](../i.md)  Extra helper functions and services      │  │
+│  │[UPDATE](../j.md) Update JoininBox or JoinMarket           │  │
+│  │                                                           │  │
+│  │BLITZ             Switch to the RaspiBlitz menu            │  │
+│  │REBOOT            Restart the computer                     │  │
+│  │SHUTDOWN          Switch off the computer                  │  │
+│  │                                                           │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                 <Select>               < Exit >                 │
+└─────────────────────────────────────────────────────────────────┘
+```

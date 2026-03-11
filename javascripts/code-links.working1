@@ -1,0 +1,26 @@
+// Make links clickable inside code blocks while preserving ASCII art formatting
+document.addEventListener("DOMContentLoaded", function() {
+  var codeBlocks = document.querySelectorAll("pre code, code.highlight");
+  codeBlocks.forEach(function(block) {
+    var content = block.innerHTML;
+    if (content.includes('class="code-link"')) return;
+    
+    content = content.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(match, text, url) {
+      if (url.endsWith('.md')) {
+        // Remove .md extension for clean URLs
+        url = url.slice(0, -3);
+      }
+      if (url.startsWith('http') || !url.includes('://')) {
+        // Calculate padding needed to preserve original width
+        var paddingLength = match.length - text.length;
+        var padding = ' '.repeat(paddingLength);
+        
+        // Return clickable text + padding
+        return '<a href="' + url + '" class="code-link">' + text + '</a>' + padding;
+      }
+      return match;
+    });
+    
+    block.innerHTML = content;
+  });
+});

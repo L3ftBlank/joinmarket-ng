@@ -1,0 +1,6525 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+        <link rel="prev" href="../README-taker/">
+      
+      
+        <link rel="next" href="../README-orderbook-watcher/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.4">
+    
+    
+      
+        <title>Maker - JoinMarket NG</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#joinmarket-maker-bot" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="JoinMarket NG" class="md-header__button md-logo" aria-label="JoinMarket NG" data-md-component="logo">
+      
+  <img src="../media/logo_title_v4.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            JoinMarket NG
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Maker
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/joinmarket-ng/joinmarket-ng" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="JoinMarket NG" class="md-nav__button md-logo" aria-label="JoinMarket NG" data-md-component="logo">
+      
+  <img src="../media/logo_title_v4.png" alt="logo">
+
+    </a>
+    JoinMarket NG
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/joinmarket-ng/joinmarket-ng" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../technical/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Technical Documentation
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Technical Documentation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../technical/concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../technical/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../technical/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../technical/protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../technical/privacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../technical/wallet/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Wallet
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../technical/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../technical/security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../technical/development/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../technical/best-practices/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Best Practices
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../technical/references/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    References
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Main Modules
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Main Modules
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../README-jmcore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    JM Core
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../README-jmwallet/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Wallet
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../README-taker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Taker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Maker
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Maker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Start
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Quick Start">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-create-a-wallet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Create a Wallet
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-check-balance-get-deposit-address" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Check Balance &amp; Get Deposit Address
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-fund-your-wallet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Fund Your Wallet
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-start-earning-fees" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Start Earning Fees
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Start Earning Fees">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#option-a-bitcoin-core-full-node-recommended" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Option A: Bitcoin Core Full Node (Recommended)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#option-b-neutrino-backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Option B: Neutrino Backend
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#default-fee-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Default Fee Settings
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#offer-types-and-fees" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Offer Types and Fees
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Offer Types and Fees">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#relative-fees-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relative Fees (Default)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#absolute-fees" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Absolute Fees
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#custom-fee-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom Fee Settings
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fidelity-bonds-advanced" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fidelity Bonds (Advanced)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#migrating-from-joinmarket-reference-implementation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Migrating from JoinMarket Reference Implementation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Migrating from JoinMarket Reference Implementation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#quick-migration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Migration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fidelity-bond-recovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fidelity Bond Recovery
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#docker-deployment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Docker Deployment
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Docker Deployment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#quick-start_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Start
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#using-neutrino-instead-of-bitcoin-core" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Using Neutrino Instead of Bitcoin Core
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#customizing-fees" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Customizing Fees
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#viewing-logs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Viewing Logs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment Variables
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Environment Variables">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#required" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Required
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tor-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tor Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#backend-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backend Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#network-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Network Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fee-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fee Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#advanced-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Advanced Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cli-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CLI Reference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CLI Reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#key-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Options
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#security" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Security">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#spam-protection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Spam Protection
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#command-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Command Reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extra Modules
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Extra Modules
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../README-orderbook-watcher/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Orderbook Watcher
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../README-directory-server/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Directory Server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../separator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ---
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../README-scripts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scripts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_8" id="__nav_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/jmcore/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    jmcore:
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_8_2" id="__nav_8_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    jmcore:
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmcore/bitcoin/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    bitcoin
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmcore/bond_calc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    bond_calc
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmcore/btc_script/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    btc_script
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmcore/cli_common/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    cli_common
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmcore/commitment_blacklist/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    commitment_blacklist
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmcore/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmcore/confirmation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    confirmation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmcore/constants/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    constants
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmcore/crypto/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    crypto
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmcore/deduplication/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    deduplication
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmcore/directory_client/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    directory_client
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmcore/encryption/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    encryption
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmcore/mempool_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    mempool_api
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmcore/models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmcore/network/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    network
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmcore/nick_tracker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    nick_tracker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmcore/notifications/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    notifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmcore/paths/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    paths
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmcore/podle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    podle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmcore/protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmcore/rate_limiter/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    rate_limiter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmcore/settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmcore/tasks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    tasks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmcore/timenumber/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    timenumber
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmcore/tor_control/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    tor_control
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmcore/tor_isolation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    tor_isolation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmcore/version/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    version
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/jmwallet/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    jmwallet:
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_8_3" id="__nav_8_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    jmwallet:
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmwallet/history/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    history
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmwallet/utxo_selector/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    utxo_selector
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_3_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_8_3_4" id="__nav_8_3_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    backends:
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_8_3_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_3_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    backends:
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmwallet/backends/base/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    base
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmwallet/backends/bitcoin_core/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    bitcoin_core
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmwallet/backends/descriptor_wallet/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    descriptor_wallet
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmwallet/backends/mempool/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    mempool
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmwallet/backends/neutrino/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    neutrino
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_3_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_8_3_5" id="__nav_8_3_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    cli:
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_8_3_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_3_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    cli:
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmwallet/cli/bonds/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    bonds
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmwallet/cli/cold_wallet/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    cold_wallet
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmwallet/cli/freeze/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    freeze
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmwallet/cli/history_cmd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    history_cmd
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmwallet/cli/mnemonic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    mnemonic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmwallet/cli/registry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    registry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmwallet/cli/send/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    send
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmwallet/cli/wallet/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    wallet
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_3_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_8_3_6" id="__nav_8_3_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    wallet:
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_8_3_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_3_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    wallet:
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmwallet/wallet/address/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    address
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmwallet/wallet/bip32/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    bip32
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmwallet/wallet/bond_registry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    bond_registry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmwallet/wallet/coin_selection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    coin_selection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmwallet/wallet/constants/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    constants
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmwallet/wallet/display/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    display
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmwallet/wallet/models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmwallet/wallet/service/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    service
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmwallet/wallet/signing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    signing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmwallet/wallet/spend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    spend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmwallet/wallet/sync/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sync
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jmwallet/wallet/utxo_metadata/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    utxo_metadata
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/taker/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    taker:
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_8_4" id="__nav_8_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    taker:
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/taker/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    cli
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/taker/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/taker/models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/taker/monitoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/taker/multi_directory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    multi_directory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/taker/orderbook/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    orderbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/taker/podle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    podle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/taker/podle_manager/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    podle_manager
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/taker/taker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    taker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/taker/tx_builder/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    tx_builder
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/maker/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    maker:
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_8_5" id="__nav_8_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    maker:
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/maker/background_tasks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    background_tasks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/maker/bot/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    bot
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/maker/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    cli
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/maker/coinjoin/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    coinjoin
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/maker/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/maker/direct_connection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    direct_connection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/maker/fidelity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fidelity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/maker/offers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    offers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/maker/podle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    podle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/maker/protocol_handlers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    protocol_handlers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/maker/protocols/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    protocols
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/maker/rate_limiting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    rate_limiting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/maker/tx_verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    tx_verification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/orderbook_watcher/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    orderbook_watcher:
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_8_6" id="__nav_8_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    orderbook_watcher:
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/orderbook_watcher/aggregator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    aggregator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/orderbook_watcher/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/orderbook_watcher/directory_client/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    directory_client
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/orderbook_watcher/health_checker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    health_checker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/orderbook_watcher/main/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    main
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/orderbook_watcher/server/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/directory_server/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    directory_server:
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_8_7" id="__nav_8_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    directory_server:
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/directory_server/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    cli
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/directory_server/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/directory_server/handshake_handler/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    handshake_handler
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/directory_server/health/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    health
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/directory_server/main/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    main
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/directory_server/message_router/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    message_router
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/directory_server/peer_registry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    peer_registry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/directory_server/server/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../separator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ---
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://joinmarket-ng.sgn.space/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    JoinMarket NG Orderbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../separator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ---
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_12" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../joininbox/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    JoininBox
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_12" id="__nav_12_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    JoininBox
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../joininbox/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../joininbox/menu-main/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Menu MAIN
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tooltip-test/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tooltip Test
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Start
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Quick Start">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-create-a-wallet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Create a Wallet
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-check-balance-get-deposit-address" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Check Balance &amp; Get Deposit Address
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-fund-your-wallet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Fund Your Wallet
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-start-earning-fees" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Start Earning Fees
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Start Earning Fees">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#option-a-bitcoin-core-full-node-recommended" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Option A: Bitcoin Core Full Node (Recommended)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#option-b-neutrino-backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Option B: Neutrino Backend
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#default-fee-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Default Fee Settings
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#offer-types-and-fees" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Offer Types and Fees
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Offer Types and Fees">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#relative-fees-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relative Fees (Default)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#absolute-fees" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Absolute Fees
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#custom-fee-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom Fee Settings
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fidelity-bonds-advanced" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fidelity Bonds (Advanced)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#migrating-from-joinmarket-reference-implementation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Migrating from JoinMarket Reference Implementation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Migrating from JoinMarket Reference Implementation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#quick-migration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Migration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fidelity-bond-recovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fidelity Bond Recovery
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#docker-deployment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Docker Deployment
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Docker Deployment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#quick-start_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Start
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#using-neutrino-instead-of-bitcoin-core" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Using Neutrino Instead of Bitcoin Core
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#customizing-fees" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Customizing Fees
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#viewing-logs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Viewing Logs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment Variables
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Environment Variables">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#required" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Required
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tor-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tor Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#backend-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backend Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#network-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Network Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fee-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fee Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#advanced-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Advanced Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cli-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CLI Reference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CLI Reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#key-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Options
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#security" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Security">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#spam-protection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Spam Protection
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#command-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Command Reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="joinmarket-maker-bot">JoinMarket Maker Bot</h1>
+<p>Earn fees by providing liquidity for CoinJoin transactions. Makers passively earn bitcoin while enhancing network privacy.</p>
+<h2 id="installation">Installation</h2>
+<p>Install JoinMarket-NG with the maker component:</p>
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-sSL<span class="w"> </span>https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/main/install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>bash<span class="w"> </span>-s<span class="w"> </span>--<span class="w"> </span>--maker
+</code></pre></div>
+<p>See <a href="../install/">Installation</a> for complete installation instructions including:</p>
+<ul>
+<li>Backend setup (Bitcoin Core or Neutrino)</li>
+<li>Tor configuration</li>
+<li>Manual installation for developers</li>
+</ul>
+<h2 id="prerequisites">Prerequisites</h2>
+<p><strong>Tor is REQUIRED for production use.</strong> Makers need Tor for privacy and to advertise .onion addresses for direct peer connections.</p>
+<p>See <a href="../install/#tor-setup">Installation - Tor Setup</a> for installation and configuration instructions.</p>
+<p>The maker bot tries to auto-detect Tor configuration. For manual setup, see <a href="#environment-variables">Environment Variables</a>.</p>
+<h2 id="quick-start">Quick Start</h2>
+<h3 id="1-create-a-wallet">1. Create a Wallet</h3>
+<p>Generate a new encrypted wallet file:</p>
+<div class="highlight"><pre><span></span><code>jm-wallet<span class="w"> </span>generate<span class="w"> </span>--output<span class="w"> </span>~/.joinmarket-ng/wallets/default.mnemonic
+</code></pre></div>
+<p><strong>IMPORTANT</strong>: Write down the displayed mnemonic - it's your only backup!</p>
+<p>Or import an existing mnemonic (e.g., migrating from reference implementation):</p>
+<div class="highlight"><pre><span></span><code>jm-wallet<span class="w"> </span>import<span class="w"> </span>--output<span class="w"> </span>~/.joinmarket-ng/wallets/default.mnemonic
+</code></pre></div>
+<p>See <a href="../README-jmwallet/">jmwallet</a> for wallet management details.</p>
+<h3 id="2-check-balance-get-deposit-address">2. Check Balance &amp; Get Deposit Address</h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># View balance and addresses</span>
+jm-wallet<span class="w"> </span>info<span class="w"> </span>--mnemonic-file<span class="w"> </span>~/.joinmarket-ng/wallets/default.mnemonic<span class="w"> </span>--backend<span class="w"> </span>neutrino
+
+<span class="c1"># Or use jm-maker to get a specific address</span>
+jm-maker<span class="w"> </span>generate-address<span class="w"> </span>--mnemonic-file<span class="w"> </span>~/.joinmarket-ng/wallets/default.mnemonic
+</code></pre></div>
+<h3 id="3-fund-your-wallet">3. Fund Your Wallet</h3>
+<p>Send bitcoin to displayed addresses. For best results, spread funds across multiple mixdepths (0-4).</p>
+<p><strong>Minimum</strong>: ~100,000 sats per mixdepth to create offers.</p>
+<h3 id="4-start-earning-fees">4. Start Earning Fees</h3>
+<h4 id="option-a-bitcoin-core-full-node-recommended">Option A: Bitcoin Core Full Node (Recommended)</h4>
+<p>For maximum trustlessness, privacy, and compatibility with all takers. Configure your Bitcoin Core credentials in the config file:</p>
+<div class="highlight"><pre><span></span><code>nano<span class="w"> </span>~/.joinmarket-ng/config.toml
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><span class="k">[bitcoin]</span>
+<span class="n">backend_type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;descriptor_wallet&quot;</span>
+<span class="n">rpc_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;http://127.0.0.1:8332&quot;</span>
+<span class="n">rpc_user</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;your_rpc_user&quot;</span>
+<span class="n">rpc_password</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;your_rpc_password&quot;</span>
+</code></pre></div>
+<p>Start maker bot:</p>
+<div class="highlight"><pre><span></span><code>jm-maker<span class="w"> </span>start<span class="w"> </span>--mnemonic-file<span class="w"> </span>~/.joinmarket-ng/wallets/default.mnemonic
+</code></pre></div>
+<h4 id="option-b-neutrino-backend">Option B: Neutrino Backend</h4>
+<p>Lightweight alternative if you cannot run a full node. Note that Neutrino makers can only participate in CoinJoins with takers that support <code>neutrino_compat</code> mode.</p>
+<p>Start Neutrino server:</p>
+<div class="highlight"><pre><span></span><code>docker<span class="w"> </span>run<span class="w"> </span>-d<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--name<span class="w"> </span>neutrino<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-p<span class="w"> </span><span class="m">8334</span>:8334<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-v<span class="w"> </span>neutrino-data:/data/neutrino<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-e<span class="w"> </span><span class="nv">NETWORK</span><span class="o">=</span>mainnet<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-e<span class="w"> </span><span class="nv">LOG_LEVEL</span><span class="o">=</span>info<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>ghcr.io/m0wer/neutrino-api
+</code></pre></div>
+<p><strong>Note</strong>: Pre-built binaries available at <a href="https://github.com/m0wer/neutrino-api/releases">m0wer/neutrino-api releases</a>.</p>
+<p>Configure in <code>~/.joinmarket-ng/config.toml</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="k">[bitcoin]</span>
+<span class="n">backend_type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;neutrino&quot;</span>
+<span class="n">neutrino_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;http://127.0.0.1:8334&quot;</span>
+</code></pre></div>
+<p>Start maker bot:</p>
+<div class="highlight"><pre><span></span><code>jm-maker<span class="w"> </span>start<span class="w"> </span>--mnemonic-file<span class="w"> </span>~/.joinmarket-ng/wallets/default.mnemonic
+</code></pre></div>
+<p>The bot will:</p>
+<ul>
+<li>Sync your wallet</li>
+<li>Create offers based on available balance</li>
+<li>Create an ephemeral Tor .onion address (if Tor control available)</li>
+<li>Connect to directory servers and wait for takers</li>
+</ul>
+<blockquote>
+<p><strong>⚠️ Production Warning:</strong> Without Tor control access, maker falls back to <code>NOT-SERVING-ONION</code> mode (all traffic via directory). Check logs for Tor warnings.</p>
+</blockquote>
+<h2 id="configuration">Configuration</h2>
+<p>All settings can be configured in <code>~/.joinmarket-ng/config.toml</code>. CLI arguments and environment variables override the config file.</p>
+<h3 id="default-fee-settings">Default Fee Settings</h3>
+<p>The defaults are sensible for most users:</p>
+<ul>
+<li><strong>Fee model</strong>: Relative fees (0.1%)</li>
+<li><strong>Minimum size</strong>: 100,000 sats</li>
+</ul>
+<p>To customize fees, add to your config file:</p>
+<div class="highlight"><pre><span></span><code><span class="k">[maker]</span>
+<span class="n">cj_fee_relative</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0.001</span><span class="w">   </span><span class="c1"># 0.1% fee</span>
+<span class="n">min_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">100000</span><span class="w">         </span><span class="c1"># Minimum CoinJoin size in sats</span>
+</code></pre></div>
+<h3 id="offer-types-and-fees">Offer Types and Fees</h3>
+<p>JoinMarket supports two fee models. The maker bot <strong>automatically detects</strong> which model to use based on which fee parameter you provide:</p>
+<h4 id="relative-fees-default">Relative Fees (Default)</h4>
+<p>Charge a percentage of the CoinJoin amount:</p>
+<ul>
+<li><strong>Auto-selected when</strong>: You provide <code>--cj-fee-relative</code> (or neither fee parameter)</li>
+<li><strong>Offer type</strong>: <code>sw0reloffer</code></li>
+<li><strong>Default</strong>: 0.1% (0.001)</li>
+<li><strong>Example</strong>: 0.2% of 1 BTC = 200,000 sats</li>
+<li><strong>Pros</strong>: Scales with transaction size, competitive for large amounts</li>
+<li><strong>Cons</strong>: May earn less on small transactions</li>
+</ul>
+<h4 id="absolute-fees">Absolute Fees</h4>
+<p>Charge a fixed satoshi amount regardless of CoinJoin size:</p>
+<ul>
+<li><strong>Auto-selected when</strong>: You provide <code>--cj-fee-absolute</code></li>
+<li><strong>Offer type</strong>: <code>sw0absoffer</code></li>
+<li><strong>Default</strong>: Not used (relative is default)</li>
+<li><strong>Example</strong>: Fixed 1000 sats per CoinJoin</li>
+<li><strong>Pros</strong>: Predictable earnings, better for small transactions</li>
+<li><strong>Cons</strong>: May be uncompetitive for large amounts</li>
+</ul>
+<p><strong>Important</strong>: Only provide ONE fee parameter. If you provide both, the maker will exit with an error.</p>
+<h3 id="custom-fee-settings">Custom Fee Settings</h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># Relative fee (0.2%) - auto-selects sw0reloffer</span>
+jm-maker<span class="w"> </span>start<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--mnemonic-file<span class="w"> </span>~/.joinmarket-ng/wallets/default.mnemonic<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--backend-type<span class="w"> </span>neutrino<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--cj-fee-relative<span class="w"> </span><span class="m">0</span>.002<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--min-size<span class="w"> </span><span class="m">200000</span>
+
+<span class="c1"># Absolute fee (1000 sats) - auto-selects sw0absoffer</span>
+jm-maker<span class="w"> </span>start<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--mnemonic-file<span class="w"> </span>~/.joinmarket-ng/wallets/default.mnemonic<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--backend-type<span class="w"> </span>neutrino<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--cj-fee-absolute<span class="w"> </span><span class="m">1000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--min-size<span class="w"> </span><span class="m">200000</span>
+</code></pre></div>
+<h3 id="fidelity-bonds-advanced">Fidelity Bonds (Advanced)</h3>
+<p>Increase offer visibility by locking bitcoin for a period. See wallet CLI:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Generate bond address (saves to registry for auto-discovery)</span>
+jm-wallet<span class="w"> </span>generate-bond-address<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--mnemonic-file<span class="w"> </span>~/.joinmarket-ng/wallets/default.mnemonic<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--locktime<span class="w"> </span><span class="m">1735689600</span>
+
+<span class="c1"># List existing bonds (also updates registry with UTXO info)</span>
+jm-wallet<span class="w"> </span>list-bonds<span class="w"> </span>--mnemonic-file<span class="w"> </span>~/.joinmarket-ng/wallets/default.mnemonic
+
+<span class="c1"># Discover bonds by scanning specific locktimes (updates registry)</span>
+jm-wallet<span class="w"> </span>list-bonds<span class="w"> </span>--mnemonic-file<span class="w"> </span>~/.joinmarket-ng/wallets/default.mnemonic<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--locktime<span class="w"> </span><span class="m">1735689600</span>
+
+<span class="c1"># View registry entries</span>
+jm-wallet<span class="w"> </span>registry-list
+
+<span class="c1"># Sync registry with blockchain (check funding status)</span>
+jm-wallet<span class="w"> </span>registry-sync<span class="w"> </span>--mnemonic-file<span class="w"> </span>~/.joinmarket-ng/wallets/default.mnemonic
+</code></pre></div>
+<p><strong>Auto-discovery</strong>: Bonds created with <code>generate-bond-address</code> are saved to the bond registry (<code>~/.joinmarket-ng/fidelity_bonds.json</code>). The maker bot <strong>automatically discovers</strong> these bonds at startup - no need to specify locktimes manually.</p>
+<p>If you need to manually specify locktimes (e.g., for bonds created outside this tool):</p>
+<div class="highlight"><pre><span></span><code>jm-maker<span class="w"> </span>start<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--mnemonic-file<span class="w"> </span>~/.joinmarket-ng/wallets/default.mnemonic<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--fidelity-bond-locktimes<span class="w"> </span><span class="m">1735689600</span>
+</code></pre></div>
+<h2 id="migrating-from-joinmarket-reference-implementation">Migrating from JoinMarket Reference Implementation</h2>
+<p>If you have an existing maker on the reference implementation (JoinMarket-Org/joinmarket-clientserver), migration is simple - <strong>all you need is your mnemonic</strong>.</p>
+<h3 id="quick-migration">Quick Migration</h3>
+<ol>
+<li><strong>Import your mnemonic</strong> with the interactive import command:</li>
+</ol>
+<div class="highlight"><pre><span></span><code>jm-wallet<span class="w"> </span>import<span class="w"> </span>--output<span class="w"> </span>~/.joinmarket-ng/wallets/default.mnemonic
+</code></pre></div>
+<p>This provides word-by-word entry with Tab completion and auto-complete when only one BIP39 word matches your prefix. The mnemonic is validated and optionally encrypted.</p>
+<p>Alternatively, pass the mnemonic via environment variable:</p>
+<div class="highlight"><pre><span></span><code><span class="nv">MNEMONIC</span><span class="o">=</span><span class="s2">&quot;your twelve or twenty-four word mnemonic phrase here ...&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>jm-wallet<span class="w"> </span>import<span class="w"> </span>--output<span class="w"> </span>~/.joinmarket-ng/wallets/default.mnemonic
+</code></pre></div>
+<ol>
+<li><strong>Start the maker</strong> - fidelity bonds are auto-discovered:</li>
+</ol>
+<div class="highlight"><pre><span></span><code>jm-maker<span class="w"> </span>start<span class="w"> </span>--mnemonic-file<span class="w"> </span>~/.joinmarket-ng/wallets/default.mnemonic
+</code></pre></div>
+<p>That's it! The maker will:</p>
+<ul>
+<li>Derive all addresses from your mnemonic (same BIP84 paths as reference implementation)</li>
+<li><strong>Automatically discover any existing fidelity bonds</strong> by scanning the blockchain</li>
+<li>Start serving offers with your existing balance</li>
+</ul>
+<h3 id="fidelity-bond-recovery">Fidelity Bond Recovery</h3>
+<p>JoinMarket-NG can scan all 960 possible fidelity bond timelocks (Jan 2020 - Dec 2099) to find your existing bonds. This is useful when migrating from another wallet or recovering from backup.</p>
+<p><strong>Full bond recovery</strong> (scans all timelocks, may take time on mainnet):</p>
+<div class="highlight"><pre><span></span><code>jm-wallet<span class="w"> </span>recover-bonds<span class="w"> </span>--mnemonic-file<span class="w"> </span>~/.joinmarket-ng/wallets/default.mnemonic
+</code></pre></div>
+<p><strong>Quick discovery</strong> (if you know the locktime):</p>
+<div class="highlight"><pre><span></span><code>jm-wallet<span class="w"> </span>list-bonds<span class="w"> </span>--mnemonic-file<span class="w"> </span>~/.joinmarket-ng/wallets/default.mnemonic<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--locktime<span class="w"> </span><span class="m">1735689600</span>
+</code></pre></div>
+<p>Both commands update the bond registry (<code>fidelity_bonds.json</code>) with discovered bonds and their UTXO information.</p>
+<p><strong>BIP39 Passphrase</strong>: If your wallet uses a BIP39 passphrase (13th/25th word), you must provide it via interactive prompt or environment variable:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Via interactive prompt</span>
+jm-wallet<span class="w"> </span>recover-bonds<span class="w"> </span>--mnemonic-file<span class="w"> </span>~/.joinmarket-ng/wallets/default.mnemonic<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--prompt-bip39-passphrase
+
+<span class="c1"># Via environment variable</span>
+<span class="nv">BIP39_PASSPHRASE</span><span class="o">=</span><span class="s2">&quot;your passphrase&quot;</span><span class="w"> </span>jm-wallet<span class="w"> </span>recover-bonds<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--mnemonic-file<span class="w"> </span>~/.joinmarket-ng/wallets/default.mnemonic
+</code></pre></div>
+<p>Note: The BIP39 passphrase is intentionally NOT read from <code>config.toml</code> for security reasons.</p>
+<h2 id="docker-deployment">Docker Deployment</h2>
+<p>A production-ready <code>docker-compose.yml</code> is provided in this directory with:</p>
+<ul>
+<li><strong>Bitcoin Core backend</strong> for maximum trustlessness and compatibility</li>
+<li><strong>Tor</strong> with control port for ephemeral .onion address creation</li>
+<li><strong>Logging limits</strong> to prevent disk exhaustion from log flooding</li>
+<li><strong>Resource limits</strong> for CPU and memory</li>
+<li><strong>Health checks</strong> for service dependencies</li>
+</ul>
+<blockquote>
+<p><strong>Note</strong>: Bitcoin Core is strongly recommended for makers. Neutrino-based makers can only
+participate in CoinJoins with takers that support <code>neutrino_compat</code> mode, limiting your
+potential earnings and network compatibility.</p>
+</blockquote>
+<h3 id="quick-start_1">Quick Start</h3>
+<ol>
+<li><strong>Create Tor configuration directory:</strong></li>
+</ol>
+<div class="highlight"><pre><span></span><code>mkdir<span class="w"> </span>-p<span class="w"> </span>tor/conf<span class="w"> </span>tor/run
+</code></pre></div>
+<ol>
+<li><strong>Create <code>tor/conf/torrc</code>:</strong></li>
+</ol>
+<div class="highlight"><pre><span></span><code># Minimal Tor configuration for JoinMarket maker
+SocksPort 0.0.0.0:9050
+ControlPort 0.0.0.0:9051
+CookieAuthentication 1
+CookieAuthFile /var/lib/tor/control_auth_cookie
+DataDirectory /var/lib/tor
+Log notice stdout
+</code></pre></div>
+<ol>
+<li><strong>Ensure your wallet is ready:</strong></li>
+</ol>
+<div class="highlight"><pre><span></span><code>mkdir<span class="w"> </span>-p<span class="w"> </span>~/.joinmarket-ng/wallets
+<span class="c1"># Create or copy your mnemonic file to ~/.joinmarket-ng/wallets/default.mnemonic</span>
+</code></pre></div>
+<ol>
+<li>
+<p><strong>Update RPC credentials</strong> in <code>docker-compose.yml</code> (change <code>rpcuser</code>/<code>rpcpassword</code>).</p>
+</li>
+<li>
+<p><strong>Start the maker:</strong></p>
+</li>
+</ol>
+<div class="highlight"><pre><span></span><code>docker-compose<span class="w"> </span>up<span class="w"> </span>-d
+</code></pre></div>
+<blockquote>
+<p><strong>Note</strong>: Initial Bitcoin Core sync can take several hours to days depending on hardware.</p>
+</blockquote>
+<h3 id="using-neutrino-instead-of-bitcoin-core">Using Neutrino Instead of Bitcoin Core</h3>
+<p>If you cannot run a full node, Neutrino is available as a lightweight alternative.
+Be aware this limits compatibility with takers.</p>
+<p>Replace the <code>bitcoind</code> service with <code>neutrino</code> and update maker environment:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">environment</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BACKEND_TYPE=neutrino</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BITCOIN__NEUTRINO_URL=http://neutrino:8334</span>
+
+<span class="c1"># Replace bitcoind service with:</span>
+<span class="nt">neutrino</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/m0wer/neutrino-api</span>
+<span class="w">  </span><span class="nt">environment</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">NETWORK=mainnet</span>
+<span class="w">  </span><span class="nt">volumes</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">neutrino-data:/data/neutrino</span>
+</code></pre></div>
+<h3 id="customizing-fees">Customizing Fees</h3>
+<p>Edit the environment section in <code>docker-compose.yml</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">environment</span><span class="p">:</span>
+<span class="w">  </span><span class="c1"># Relative fee (0.1% - default)</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">MAKER__CJ_FEE_RELATIVE=0.001</span>
+<span class="w">  </span><span class="c1"># OR absolute fee (uncomment one, not both)</span>
+<span class="w">  </span><span class="c1"># - MAKER__CJ_FEE_ABSOLUTE=1000</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">MAKER__MIN_SIZE=100000</span>
+</code></pre></div>
+<h3 id="viewing-logs">Viewing Logs</h3>
+<div class="highlight"><pre><span></span><code>docker-compose<span class="w"> </span>logs<span class="w"> </span>-f<span class="w"> </span>maker
+</code></pre></div>
+<h2 id="environment-variables">Environment Variables</h2>
+<h3 id="required">Required</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>WALLET__MNEMONIC_FILE</code></td>
+<td>-</td>
+<td>Path to encrypted mnemonic file (recommended)</td>
+</tr>
+<tr>
+<td><code>WALLET__MNEMONIC</code></td>
+<td>-</td>
+<td>Direct mnemonic phrase (not recommended for production)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="tor-configuration">Tor Configuration</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>TOR__SOCKS_HOST</code></td>
+<td><code>127.0.0.1</code></td>
+<td>Tor SOCKS proxy host</td>
+</tr>
+<tr>
+<td><code>TOR__SOCKS_PORT</code></td>
+<td><code>9050</code></td>
+<td>Tor SOCKS proxy port</td>
+</tr>
+<tr>
+<td><code>TOR__CONTROL_ENABLED</code></td>
+<td>Auto-detect</td>
+<td>Enable Tor control port (auto-detected in Docker)</td>
+</tr>
+<tr>
+<td><code>TOR__CONTROL_HOST</code></td>
+<td><code>127.0.0.1</code></td>
+<td>Tor control host</td>
+</tr>
+<tr>
+<td><code>TOR__CONTROL_PORT</code></td>
+<td><code>9051</code></td>
+<td>Tor control port</td>
+</tr>
+<tr>
+<td><code>TOR__COOKIE_PATH</code></td>
+<td>Auto-detect</td>
+<td>Path to Tor cookie auth file</td>
+</tr>
+</tbody>
+</table>
+<h3 id="backend-configuration">Backend Configuration</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>BITCOIN__BACKEND_TYPE</code></td>
+<td><code>descriptor_wallet</code></td>
+<td>Backend type: <code>descriptor_wallet</code>, <code>scantxoutset</code>, or <code>neutrino</code></td>
+</tr>
+<tr>
+<td><code>BITCOIN__RPC_URL</code></td>
+<td><code>http://localhost:8332</code></td>
+<td>Bitcoin Core RPC URL (descriptor_wallet and scantxoutset)</td>
+</tr>
+<tr>
+<td><code>BITCOIN__RPC_USER</code></td>
+<td>-</td>
+<td>Bitcoin Core RPC username (descriptor_wallet and scantxoutset)</td>
+</tr>
+<tr>
+<td><code>BITCOIN__RPC_PASSWORD</code></td>
+<td>-</td>
+<td>Bitcoin Core RPC password (descriptor_wallet and scantxoutset)</td>
+</tr>
+<tr>
+<td><code>BITCOIN__NEUTRINO_URL</code></td>
+<td><code>http://localhost:8334</code></td>
+<td>Neutrino REST API URL (neutrino only)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="network-configuration">Network Configuration</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>NETWORK__NETWORK</code></td>
+<td><code>mainnet</code></td>
+<td>Protocol network: <code>mainnet</code>, <code>testnet</code>, <code>signet</code>, <code>regtest</code></td>
+</tr>
+<tr>
+<td><code>NETWORK__BITCOIN_NETWORK</code></td>
+<td><code>$NETWORK__NETWORK</code></td>
+<td>Bitcoin network for address generation (if different from protocol network)</td>
+</tr>
+<tr>
+<td><code>NETWORK__DIRECTORY_SERVERS</code></td>
+<td>(network defaults)</td>
+<td>JSON array of directory servers (e.g., <code>["host1:port1", "host2:port2"]</code>)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="fee-configuration">Fee Configuration</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MAKER__MIN_SIZE</code></td>
+<td><code>100000</code></td>
+<td>Minimum CoinJoin size in sats</td>
+</tr>
+<tr>
+<td><code>MAKER__CJ_FEE_RELATIVE</code></td>
+<td><code>0.001</code></td>
+<td>Relative fee (0.001 = 0.1%) - auto-selects <code>sw0reloffer</code> type</td>
+</tr>
+<tr>
+<td><code>MAKER__CJ_FEE_ABSOLUTE</code></td>
+<td>-</td>
+<td>Absolute fee in sats - auto-selects <code>sw0absoffer</code> type if set</td>
+</tr>
+<tr>
+<td><code>MAKER__TX_FEE_CONTRIBUTION</code></td>
+<td><code>0</code></td>
+<td>Transaction fee contribution in sats</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Important:</strong> Only set ONE of <code>MAKER__CJ_FEE_RELATIVE</code> or <code>MAKER__CJ_FEE_ABSOLUTE</code>. The offer type is automatically selected based on which you provide.</p>
+</blockquote>
+<h3 id="advanced-configuration">Advanced Configuration</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MAKER__FIDELITY_BOND_LOCKTIMES</code></td>
+<td>Auto-discover</td>
+<td>JSON array of Unix timestamps for fidelity bond locktimes (e.g., <code>["1893456000", "1924992000"]</code>)</td>
+</tr>
+<tr>
+<td><code>MAKER__MERGE_ALGORITHM</code></td>
+<td><code>default</code></td>
+<td>UTXO selection: <code>default</code>, <code>gradual</code>, <code>greedy</code>, <code>random</code></td>
+</tr>
+<tr>
+<td><code>NETWORK__ONION_SERVING_HOST</code></td>
+<td><code>127.0.0.1</code></td>
+<td>Bind address for incoming connections (set to <code>0.0.0.0</code> in Docker)</td>
+</tr>
+<tr>
+<td><code>NETWORK__ONION_SERVING_PORT</code></td>
+<td><code>5222</code></td>
+<td>Port for incoming .onion connections</td>
+</tr>
+<tr>
+<td><code>NETWORK__TOR_TARGET_HOST</code></td>
+<td><code>127.0.0.1</code></td>
+<td>Target hostname for Tor hidden service (set to service name in Docker Compose)</td>
+</tr>
+<tr>
+<td><code>WALLET__JOINMARKET_DATA_DIR</code></td>
+<td><code>~/.joinmarket-ng</code></td>
+<td>Data directory for history and blacklist</td>
+</tr>
+</tbody>
+</table>
+<h2 id="cli-reference">CLI Reference</h2>
+<div class="highlight"><pre><span></span><code><span class="c1"># Start maker bot</span>
+jm-maker<span class="w"> </span>start<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+
+<span class="c1"># Generate receive address</span>
+jm-maker<span class="w"> </span>generate-address<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+
+<span class="c1"># See all options</span>
+jm-maker<span class="w"> </span>start<span class="w"> </span>--help
+</code></pre></div>
+<h3 id="key-options">Key Options</h3>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--mnemonic-file</code></td>
+<td>-</td>
+<td>Path to encrypted wallet file</td>
+</tr>
+<tr>
+<td><code>--backend-type</code></td>
+<td>descriptor_wallet</td>
+<td>Backend: descriptor_wallet, scantxoutset, or neutrino</td>
+</tr>
+<tr>
+<td><code>--cj-fee-relative</code></td>
+<td>0.001</td>
+<td>Relative fee (0.001 = 0.1%) - auto-selects sw0reloffer</td>
+</tr>
+<tr>
+<td><code>--cj-fee-absolute</code></td>
+<td>-</td>
+<td>Absolute fee in sats - auto-selects sw0absoffer</td>
+</tr>
+<tr>
+<td><code>--min-size</code></td>
+<td>100000</td>
+<td>Minimum CoinJoin size in sats</td>
+</tr>
+<tr>
+<td><code>--tor-control-host</code></td>
+<td>Auto-detect</td>
+<td>Tor control port host</td>
+</tr>
+<tr>
+<td><code>--tor-control-port</code></td>
+<td>9051</td>
+<td>Tor control port</td>
+</tr>
+<tr>
+<td><code>--tor-cookie-path</code></td>
+<td>Auto-detect</td>
+<td>Path to Tor cookie auth file</td>
+</tr>
+<tr>
+<td><code>--disable-tor-control</code></td>
+<td>-</td>
+<td>Disable ephemeral hidden service creation (NOT recommended)</td>
+</tr>
+</tbody>
+</table>
+<p>Use env vars for RPC credentials (see jmwallet README).</p>
+<h2 id="security">Security</h2>
+<ul>
+<li>Wallet files are encrypted - keep your password safe</li>
+<li>Bot verifies all transactions before signing</li>
+<li>All directory connections go through Tor</li>
+<li>Never expose your mnemonic or share wallet files</li>
+<li>File permissions automatically set to 600</li>
+</ul>
+<h3 id="spam-protection">Spam Protection</h3>
+<p>The maker includes automatic rate limiting with exponential backoff to prevent orderbook spam attacks:</p>
+<ul>
+<li><strong>Normal</strong>: 1 response per 10 seconds</li>
+<li><strong>After 10 violations</strong>: Backoff to 60 seconds (moderate)</li>
+<li><strong>After 50 violations</strong>: Backoff to 300 seconds (severe)</li>
+<li><strong>After 100 violations</strong>: Peer banned for 1 hour</li>
+</ul>
+<p>Thresholds are configurable via environment variables if needed (see config.py).</p>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<p><strong>"No offers created"</strong>
+- Check balance: <code>jm-wallet info --mnemonic-file ~/.joinmarket-ng/wallets/default.mnemonic</code>
+- Need at least 100,000 sats per mixdepth by default</p>
+<p><strong>"Failed to connect to directory server"</strong>
+- Ensure Tor is running
+- Check network connectivity</p>
+<p><strong>"Transaction verification failed"</strong>
+- Safety feature - invalid transaction from taker
+- Your funds are safe, no action needed</p>
+<h2 id="command-reference">Command Reference</h2>
+<!-- AUTO-GENERATED HELP START: jm-maker -->
+
+<details>
+<summary><code>jm-maker --help</code></summary>
+
+<div class="highlight"><pre><span></span><code> Usage: jm-maker [OPTIONS] COMMAND [ARGS]...
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ start              Start the maker bot.                                      │
+│ generate-address   Generate a new receive address.                           │
+│ config-init        Initialize the config file with default settings.         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+</code></pre></div>
+
+</details>
+
+<details>
+<summary><code>jm-maker start --help</code></summary>
+
+<div class="highlight"><pre><span></span><code> Usage: jm-maker start [OPTIONS]
+
+ Start the maker bot.
+
+ Configuration is loaded from ~/.joinmarket-ng/config.toml (or
+ $JOINMARKET_DATA_DIR/config.toml),
+ environment variables, and CLI arguments. CLI arguments have the highest
+ priority.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --mnemonic-file         -f      PATH                  Path to mnemonic file  │
+│ --prompt-bip39-passph…                                Prompt for BIP39       │
+│                                                       passphrase             │
+│                                                       interactively          │
+│ --data-dir              -d      PATH                  Data directory for     │
+│                                                       JoinMarket files.      │
+│                                                       Defaults to            │
+│                                                       ~/.joinmarket-ng       │
+│                                                       [env var:              │
+│                                                       JOINMARKET_DATA_DIR]   │
+│ --network                       [mainnet|testnet|sig  Protocol network       │
+│                                 net|regtest]          (mainnet, testnet,     │
+│                                                       signet, regtest)       │
+│ --bitcoin-network               [mainnet|testnet|sig  Bitcoin network for    │
+│                                 net|regtest]          address generation     │
+│                                                       (defaults to           │
+│                                                       --network)             │
+│ --backend-type                  TEXT                  Backend type:          │
+│                                                       scantxoutset |         │
+│                                                       descriptor_wallet |    │
+│                                                       neutrino               │
+│ --rpc-url                       TEXT                  Bitcoin full node RPC  │
+│                                                       URL                    │
+│                                                       [env var:              │
+│                                                       BITCOIN_RPC_URL]       │
+│ --neutrino-url                  TEXT                  Neutrino REST API URL  │
+│                                                       [env var:              │
+│                                                       NEUTRINO_URL]          │
+│ --min-size                      INTEGER               Minimum CoinJoin size  │
+│                                                       in sats                │
+│ --cj-fee-relative               TEXT                  Relative coinjoin fee  │
+│                                                       (e.g., 0.001 = 0.1%)   │
+│                                                       [env var:              │
+│                                                       CJ_FEE_RELATIVE]       │
+│ --cj-fee-absolute               INTEGER               Absolute coinjoin fee  │
+│                                                       in sats. Mutually      │
+│                                                       exclusive with         │
+│                                                       --cj-fee-relative.     │
+│                                                       [env var:              │
+│                                                       CJ_FEE_ABSOLUTE]       │
+│ --tx-fee-contribution           INTEGER               Tx fee contribution in │
+│                                                       sats                   │
+│ --directory             -D      TEXT                  Directory servers      │
+│                                                       (comma-separated       │
+│                                                       host:port)             │
+│                                                       [env var:              │
+│                                                       DIRECTORY_SERVERS]     │
+│ --tor-socks-host                TEXT                  Tor SOCKS proxy host   │
+│                                                       (overrides             │
+│                                                       TOR__SOCKS_HOST)       │
+│ --tor-socks-port                INTEGER               Tor SOCKS proxy port   │
+│                                                       (overrides             │
+│                                                       TOR__SOCKS_PORT)       │
+│ --tor-control-host              TEXT                  Tor control port host  │
+│                                                       (overrides             │
+│                                                       TOR__CONTROL_HOST)     │
+│ --tor-control-port              INTEGER               Tor control port       │
+│                                                       (overrides             │
+│                                                       TOR__CONTROL_PORT)     │
+│ --tor-cookie-path               PATH                  Path to Tor cookie     │
+│                                                       auth file (overrides   │
+│                                                       TOR__COOKIE_PATH)      │
+│ --disable-tor-control                                 Disable Tor control    │
+│                                                       port integration       │
+│ --onion-serving-host            TEXT                  Bind address for       │
+│                                                       incoming connections   │
+│                                                       (overrides             │
+│                                                       MAKER__ONION_SERVING_… │
+│ --onion-serving-port            INTEGER               Port for incoming      │
+│                                                       .onion connections     │
+│                                                       (overrides             │
+│                                                       MAKER__ONION_SERVING_… │
+│ --tor-target-host               TEXT                  Target hostname for    │
+│                                                       Tor hidden service     │
+│                                                       (overrides             │
+│                                                       TOR__TARGET_HOST)      │
+│ --fidelity-bond-lockt…  -L      INTEGER               Fidelity bond          │
+│                                                       locktimes to scan for  │
+│ --fidelity-bond-index   -I      INTEGER               Fidelity bond          │
+│                                                       derivation index       │
+│                                                       [env var:              │
+│                                                       FIDELITY_BOND_INDEX]   │
+│ --fidelity-bond         -B      TEXT                  Specific fidelity bond │
+│                                                       to use (format:        │
+│                                                       txid:vout)             │
+│ --no-fidelity-bond                                    Disable fidelity bond  │
+│                                                       usage. Skips registry  │
+│                                                       lookup and bond proof  │
+│                                                       generation even when   │
+│                                                       bonds exist in the     │
+│                                                       registry.              │
+│ --merge-algorithm       -M      TEXT                  UTXO selection         │
+│                                                       strategy: default,     │
+│                                                       gradual, greedy,       │
+│                                                       random                 │
+│                                                       [env var:              │
+│                                                       MERGE_ALGORITHM]       │
+│ --dual-offers                                         Create both relative   │
+│                                                       and absolute fee       │
+│                                                       offers simultaneously. │
+│                                                       Each offer gets a      │
+│                                                       unique ID (0 for       │
+│                                                       relative, 1 for        │
+│                                                       absolute). Use with    │
+│                                                       --cj-fee-relative and  │
+│                                                       --cj-fee-absolute to   │
+│                                                       set fees for each.     │
+│ --log-level             -l      TEXT                  Log level              │
+│ --help                                                Show this message and  │
+│                                                       exit.                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+</code></pre></div>
+
+</details>
+
+<details>
+<summary><code>jm-maker generate-address --help</code></summary>
+
+<div class="highlight"><pre><span></span><code> Usage: jm-maker generate-address [OPTIONS]
+
+ Generate a new receive address.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --mnemonic-file         -f      PATH                  Path to mnemonic file  │
+│ --prompt-bip39-passph…                                Prompt for BIP39       │
+│                                                       passphrase             │
+│                                                       interactively          │
+│ --network                       [mainnet|testnet|sig  Protocol network       │
+│                                 net|regtest]                                 │
+│ --bitcoin-network               [mainnet|testnet|sig  Bitcoin network for    │
+│                                 net|regtest]          address generation     │
+│                                                       (defaults to           │
+│                                                       --network)             │
+│ --backend-type                  TEXT                  Backend type           │
+│ --log-level             -l      TEXT                  Log level              │
+│ --help                                                Show this message and  │
+│                                                       exit.                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+</code></pre></div>
+
+</details>
+
+<details>
+<summary><code>jm-maker config-init --help</code></summary>
+
+<div class="highlight"><pre><span></span><code> Usage: jm-maker config-init [OPTIONS]
+
+ Initialize the config file with default settings.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --data-dir  -d      PATH  Data directory for JoinMarket files                │
+│                           [env var: JOINMARKET_DATA_DIR]                     │
+│ --help                    Show this message and exit.                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+</code></pre></div>
+
+</details>
+
+<!-- AUTO-GENERATED HELP END: jm-maker -->
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      <a href="license">MIT License</a> © 2025 JoinMarket contributors
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "navigation.indexes", "content.tooltips"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+        <script src="../javascripts/code-links.js"></script>
+      
+    
+  </body>
+</html>

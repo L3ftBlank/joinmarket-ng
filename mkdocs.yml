@@ -332,5 +332,9 @@ nav:
   - JoininBox:
       - joininbox/index.md
       - Installation: joininbox/installation.md
-      - Menu MAIN: joininbox/menu-main.md
-  - Tooltip Test: tooltip-test.md    
+#      - Menu MAIN: joininbox/menu-main.md
+      - Sub Menu START: joininbox/start.md
+      - Sub Menu WALLET: joininbox/wallet.md
+      - Sub Menu MAKER: joininbox/maker.md      
+
+#  - Tooltip Test: tooltip-test.md    

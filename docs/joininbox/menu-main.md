@@ -1,7 +1,4 @@
 # JoininBox Main Menu
-
-The main menu of JoininBox provides access to all core JoinMarket-NG functionalities through a terminal interface.
-
 <div class="terminal-menu">
 ┌────────────────JoininBox v0.8.5 mainnet─────────────────┐
 │                                                         │
@@ -32,10 +29,4 @@ The main menu of JoininBox provides access to all core JoinMarket-NG functionali
 │               <a href="../menu-main/">< Select ></a>        <a href="../menu-main/">< Exit ></a>                │
 └─────────────────────────────────────────────────────────┘
 </div>
-
-Select an option by typing the name in brackets (e.g., `START`) and pressing Enter, or click on the menu items above.
-
-## Navigation
-
-- [WALLET](wallet2.md) - Wallet management functions
-- [MAKER](start2.md) - Yield Generator options
+Select an option by clicking its label (e.g., <span class="menu-option">START</span>).

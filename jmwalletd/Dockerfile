@@ -10,13 +10,13 @@ ARG NODE_SLIM_DIGEST=sha256:e8e2e91b1378f83c5b2dd15f0247f34110e2fe895f6ca7719dbb
 
 # JAM frontend: pinned commit hash for reproducible builds
 # Update with: ./scripts/update-base-images.sh
-ARG JAM_COMMIT=d5dd2add951db5d0807d4c0730dcdd2d9adfad75
+ARG JAM_COMMIT=c9c2ea7989f42295f3f4a9b52054923cb69a41f7
 
 # Pin build tools for reproducible builds
 # setuptools version is stamped into WHEEL metadata (Generator: setuptools (x.y.z))
 # Different versions produce different WHEEL/RECORD files, breaking layer reproducibility
 # Update versions with: ./scripts/update-base-images.sh
-ARG SETUPTOOLS_VERSION=82.0.0
+ARG SETUPTOOLS_VERSION=82.0.1
 ARG WHEEL_VERSION=0.46.3
 
 # =============================================================================

@@ -9,7 +9,7 @@ ARG PYTHON_SLIM_DIGEST=sha256:6a27522252aef8432841f224d9baaa6e9fce07b07584154fa0
 # setuptools version is stamped into WHEEL metadata (Generator: setuptools (x.y.z))
 # Different versions produce different WHEEL/RECORD files, breaking layer reproducibility
 # Update versions with: ./scripts/update-base-images.sh
-ARG SETUPTOOLS_VERSION=82.0.0
+ARG SETUPTOOLS_VERSION=82.0.1
 ARG WHEEL_VERSION=0.46.3
 
 FROM python:${PYTHON_VERSION}-slim@${PYTHON_SLIM_DIGEST} AS builder

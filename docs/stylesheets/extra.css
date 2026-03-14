@@ -168,3 +168,68 @@ code,
     color: var(--md-primary-fg-color); /* #FF8000 - Bitcoin Orange */
     font-weight: normal; /* Normal weight, not bold - matches terminal menu */
 }
+
+/* Entfernt das automatisch eingefügte Material-Icon (das blaue Symbol) */
+.md-typeset details summary::before {
+    display: none !important;
+}
+
+/* Entfernt den Standard-Browser-Pfeil (falls dieser ebenfalls stört) */
+.md-typeset details summary::-webkit-details-marker {
+    display: none !important;
+}
+.md-typeset details summary {
+    list-style: none !important;
+}
+
+/* Korrigiert den Abstand nach links, da das Icon nun fehlt. 
+   Ohne dies wäre links eine unschöne, leere Lücke. */
+.md-typeset details summary {
+    padding-left: 0.8rem !important;
+}
+
+/* ==========================================================================
+   Custom Styling for HTML <details> Elements
+   Color Scheme: Bitcoin Orange (#FF8000)
+   ========================================================================== */
+
+/* Remove the automatically injected Material Theme icon (blue symbol) */
+.md-typeset details summary::before {
+    display: none !important;
+}
+
+/* Remove the default browser arrow/marker for cross-browser consistency */
+.md-typeset details summary::-webkit-details-marker {
+    display: none !important;
+}
+.md-typeset details summary {
+    list-style: none !important;
+}
+
+/* Fix left padding: Since the icon was removed, reduce the left gap.
+   Adjust the 0.8rem value to match your preferred indentation. */
+.md-typeset details summary {
+    padding-left: 0.8rem !important;
+}
+
+/* Set the border color of the entire details block to primary color */
+.md-typeset details {
+    border-color: var(--md-primary-fg-color) !important;
+}
+
+/* Set a subtle semi-transparent orange background for the summary header */
+.md-typeset details summary {
+    background-color: rgba(255, 128, 0, 0.1) !important;
+}
+
+/* Hover state: Darker background and orange text color for interaction feedback */
+.md-typeset details summary:hover {
+    background-color: rgba(255, 128, 0, 0.2) !important;
+    color: var(--md-primary-fg-color) !important;
+}
+
+/* Focus state: Visible outline for accessibility and keyboard navigation */
+.md-typeset details summary:focus {
+    outline: 0px solid var(--md-primary-fg-color) !important;
+    outline-offset: -2px;
+}

@@ -327,14 +327,19 @@ nav:
   # -------------------------------------------------------------------------
   # JoininBox
   # -------------------------------------------------------------------------
-  # JoininBox is a standalone GUI for JoinMarket running on RaspiBlitz
+  # JoininBox is a TUI for JoinMarket running on RaspiBlitz
   # or as a standalone installation.
-  - JoininBox:
-      - joininbox/index.md
-      - Installation: joininbox/installation.md
-#      - Menu MAIN: joininbox/menu-main.md
-      - Sub Menu START: joininbox/start.md
-      - Sub Menu WALLET: joininbox/wallet.md
-      - Sub Menu MAKER: joininbox/maker.md      
+  ########################################### erstversion
+  # - JoininBox -<br>User-Friendly Menu:
+  #    - joininbox/index.md
+  #    - Sub Menu START: joininbox/start.md
+  #    - Sub Menu WALLET: joininbox/wallet.md
+  #    - Sub Menu MAKER: joininbox/maker.md
+  #    - Installation: joininbox/installation-joininbox.md
+  #    - menu01: joininbox/menu-structure.md   
+  #    - menu02: joininbox/menu-structure3.md
+  #########################################
+  - JoininBox -<br>User-Friendly Menu: joininbox/joininbox-menu-docu.md
+             
 
 #  - Tooltip Test: tooltip-test.md    

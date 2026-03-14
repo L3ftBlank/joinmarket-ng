@@ -6,8 +6,8 @@ JoininBox runs on:
 
 | Platform | Description |
 |----------|-------------|
-| **RaspiBlitz** | Pre-installed, ready to use |
-| **Standalone** | Manual installation on any Linux system |
+| [RaspiBlitz](installation-raspiblitz.md)| Pre-installed, ready to use |
+| [Standalone](installation-manual.md)| Manual installation on any Linux system |
 
 ## RaspiBlitz
 
@@ -24,6 +24,8 @@ ssh joinmarket@<LAN_IP>
 ```
 
 Password: Use the password set during RaspiBlitz setup (typically stored in the RaspiBlitz settings).
+
+# Installation
 
 ## Standalone Installation
 

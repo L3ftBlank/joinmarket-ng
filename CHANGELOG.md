@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-03-15
+
 ### Changed
 - **Removed default `mempool.space` public API dependency**: The `MempoolBackend` and `MempoolAPI` no longer default to the public `mempool.space` API. Users must now explicitly configure a `mempool_api_url` in `config.toml` or environment variables to use a self-hosted mempool instance for fidelity bond verification and wallet synchronization. Affected modules include `jmwallet`, `orderbook_watcher`, `cold_wallet.py`, and `fidelity_bond_tool.py`.
 - **`MempoolBackend` in `jmwallet` is opt-in only**: `jmwallet/backends/mempool.py` (`MempoolBackend`) remains available as an explicit opt-in wallet backend but is never instantiated by default. Wallet operations default to a local Bitcoin node via `BitcoinCoreBackend`, `DescriptorWalletBackend`, or `NeutrinoBackend`. The `orderbook_watcher` retains its optional mempool API fallback for fidelity bond observation only.
@@ -1069,7 +1071,8 @@ Releases prior to these changes (including 0.13.5, 0.13.6, and 0.13.7) cannot be
 - Pre-built image support for directory server compose.
 - Tor configuration instructions.
 
-[Unreleased]: ../../compare/0.20.0...HEAD
+[Unreleased]: ../../compare/0.21.0...HEAD
+[0.21.0]: ../../compare/0.20.0...0.21.0
 [0.20.0]: ../../compare/0.19.3...0.20.0
 [0.19.3]: ../../compare/0.19.2...0.19.3
 [0.19.2]: ../../compare/0.19.1...0.19.2

@@ -288,6 +288,20 @@ pytest tumbler/tests
 │                                                       the configured count   │
 │                                                       is unavailable on the  │
 │                                                       chosen network.        │
+│ --resume                                              Resume a plan that     │
+│                                                       ended in a terminal    │
+│                                                       state (FAILED,         │
+│                                                       CANCELLED, or          │
+│                                                       stuck-RUNNING).        │
+│                                                       Completed phases are   │
+│                                                       kept; all other phases │
+│                                                       are reset to PENDING   │
+│                                                       and the runner picks   │
+│                                                       up at the first        │
+│                                                       non-completed phase.   │
+│                                                       Has no effect on a     │
+│                                                       plan that is already   │
+│                                                       PENDING.               │
 │ --data-dir                      PATH                  Data directory         │
 │                                                       (default:              │
 │                                                       ~/.joinmarket-ng or    │

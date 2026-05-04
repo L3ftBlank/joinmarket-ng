@@ -74,6 +74,21 @@ randomization.
 
 For all option details, use auto-generated command help below (`jm-taker coinjoin --help`, `jm-taker tumble --help`).
 
+## Ignored makers
+
+The taker keeps a persisted list of makers that previously misbehaved (rejected
+PoDLE commitments, returned an invalid signature, etc.) at
+`<data-dir>/ignored_makers.txt`. This list is treated as a **soft preference**:
+the maker selector tries to avoid these nicks, but if the resulting eligible
+pool is too small to fill the requested counterparty count the selector tops
+the pick up from the ignored list rather than failing the whole CoinJoin. Use
+`jm-taker clear-ignored-makers` to reset the list.
+
+In contrast, makers that explicitly reject the *current* CoinJoin attempt
+(e.g. a fresh blacklist response in this fill phase) are hard-excluded from
+that attempt only — they will be retried in future runs unless they also end
+up on the persisted ignored list.
+
 ## Docker Deployment
 
 This component ships with `docker-compose.yml` for containerized operation.

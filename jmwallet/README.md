@@ -436,8 +436,8 @@ For full documentation, see [jmwallet Documentation](https://joinmarket-ng.githu
 
  REQUIREMENTS:
  - The bond must exist in the registry (created with 'create-bond-address')
- - The bond must be funded (use 'jm-wallet list-bonds --mnemonic-file <wallet>' to update UTXO info),
-   unless using --test-unfunded for a dry-run signer test
+ - The bond must be funded (use 'jm-wallet list-bonds --mnemonic-file <wallet>'
+   to update UTXO info), unless using --test-unfunded for a dry-run signer test
  - The locktime must have expired (or be close enough for your use case)
 
  SIGNING:

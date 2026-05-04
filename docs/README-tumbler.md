@@ -67,6 +67,18 @@ The runner executes phases in order, persists progress after every transition,
 and exits cleanly on `SIGINT`/`SIGTERM` (progress is kept; resume by calling
 `run` again).
 
+### Resume a failed plan
+
+```bash
+jm-tumbler run --mnemonic-file ~/.joinmarket-ng/wallets/default.mnemonic --resume
+```
+
+`--resume` rewinds any `failed`, `cancelled`, or stuck-`running` phases back to
+`pending` so they will be retried on the next run; phases already marked
+`completed` are preserved (their `attempt_count` is kept too). Without
+`--resume`, the runner refuses to start a plan that is in a terminal `failed`
+state — create a new plan with `jm-tumbler plan` instead.
+
 ### Cancel or restart
 
 ```bash
@@ -466,6 +478,20 @@ architecture, persistence, retry behavior, and other implementation details.
 │                                                       the configured count   │
 │                                                       is unavailable on the  │
 │                                                       chosen network.        │
+│ --resume                                              Resume a plan that     │
+│                                                       ended in a terminal    │
+│                                                       state (FAILED,         │
+│                                                       CANCELLED, or          │
+│                                                       stuck-RUNNING).        │
+│                                                       Completed phases are   │
+│                                                       kept; all other phases │
+│                                                       are reset to PENDING   │
+│                                                       and the runner picks   │
+│                                                       up at the first        │
+│                                                       non-completed phase.   │
+│                                                       Has no effect on a     │
+│                                                       plan that is already   │
+│                                                       PENDING.               │
 │ --data-dir                      PATH                  Data directory         │
 │                                                       (default:              │
 │                                                       ~/.joinmarket-ng or    │

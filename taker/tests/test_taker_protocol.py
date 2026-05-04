@@ -1588,3 +1588,147 @@ class TestTakerHistoryHardening:
 
             for call in taker.directory_client.send_privmsg.call_args_list:
                 assert call.args[1] != "tx"
+
+
+@pytest.mark.asyncio
+async def test_phase_fill_promotes_silent_makers_to_blacklist(
+    mock_wallet, mock_backend, mock_config, tmp_path
+):
+    """Reference makers stay silent on blacklisted commitments.
+
+    When at least one maker explicitly returns a "blacklist" error from
+    !fill, the timed-out makers in the same attempt must be promoted to
+    presumed-blacklist so that ``do_coinjoin``'s majority/minority threshold
+    sees the real rejection rate. Without this promotion, a 1-explicit /
+    2-silent split is mis-classified as 1/3 (minority) and the taker burns
+    retries with the same dead commitment instead of rotating it.
+    """
+    mock_config.data_dir = tmp_path
+    taker = Taker(mock_wallet, mock_backend, mock_config)
+
+    # Avoid touching real network or blockchain calls.
+    mock_backend.requires_neutrino_metadata = Mock(return_value=False)
+
+    # Three makers in this attempt: one explicit blacklist response, two
+    # timeouts (no response at all).
+    def _offer(nick: str) -> Offer:
+        return Offer(
+            counterparty=nick,
+            oid=0,
+            ordertype=OfferType.SW0_RELATIVE.value,
+            minsize=10_000,
+            maxsize=100_000_000,
+            txfee=500,
+            cjfee="0.001",
+        )
+
+    taker.maker_sessions = {
+        "J5Explicit": MakerSession(nick="J5Explicit", offer=_offer("J5Explicit")),
+        "J5Silent1": MakerSession(nick="J5Silent1", offer=_offer("J5Silent1")),
+        "J5Silent2": MakerSession(nick="J5Silent2", offer=_offer("J5Silent2")),
+    }
+    taker.cj_amount = 100_000
+    taker.podle_commitment = Mock()
+    taker.podle_commitment.to_commitment_str = Mock(return_value="bb" * 32)
+
+    # Stub the directory client: no direct-connect attempts, send_privmsg
+    # returns the channel name we ask it to use, and wait_for_responses
+    # returns one explicit blacklist error and nothing for the other two.
+    taker.directory_client = AsyncMock()
+    taker.directory_client.prefer_direct_connections = False
+    taker.directory_client._pending_connect_tasks = {}
+    taker.directory_client._active_nicks = {}
+    _dir_client = Mock()
+    _dir_client._active_peers = {}
+    taker.directory_client.clients = {"dir1": _dir_client}
+    taker.directory_client._get_peer_location = Mock(return_value=None)
+    taker.directory_client._get_connected_peer = Mock(return_value=None)
+
+    async def _send_privmsg(nick, command, data, log_routing=False, force_channel=None):
+        return force_channel
+
+    taker.directory_client.send_privmsg = AsyncMock(side_effect=_send_privmsg)
+    taker.directory_client.wait_for_responses = AsyncMock(
+        return_value={
+            "J5Explicit": {
+                "error": True,
+                "data": "Your commitment is on our blacklist; rejected.",
+            },
+            # J5Silent1 and J5Silent2 deliberately absent -- they timed out.
+        }
+    )
+
+    # Lower minimum_makers so the result still surfaces both lists rather
+    # than failing immediately for "not enough makers".
+    taker.config.minimum_makers = 1
+
+    result = await taker._phase_fill()
+
+    # All three failed in this attempt.
+    assert set(result.failed_makers) == {"J5Explicit", "J5Silent1", "J5Silent2"}
+    # The explicit one stays in blacklist_makers, AND the two silent ones
+    # are promoted because at least one explicit blacklist hit was seen.
+    assert result.blacklist_error is True
+    assert set(result.blacklist_makers) == {"J5Explicit", "J5Silent1", "J5Silent2"}
+
+
+@pytest.mark.asyncio
+async def test_phase_fill_does_not_promote_silent_makers_without_blacklist_hit(
+    mock_wallet, mock_backend, mock_config, tmp_path
+):
+    """Silent timeouts alone must NOT be classified as blacklist rejections.
+
+    Promotion only applies when there is at least one explicit blacklist
+    error in the same attempt. A pure timeout (network flake, slow maker)
+    should remain a regular failure so the existing maker-replacement path
+    handles it -- otherwise we'd rotate the commitment for unrelated reasons
+    and waste PoDLE indices.
+    """
+    mock_config.data_dir = tmp_path
+    taker = Taker(mock_wallet, mock_backend, mock_config)
+    mock_backend.requires_neutrino_metadata = Mock(return_value=False)
+
+    def _offer(nick: str) -> Offer:
+        return Offer(
+            counterparty=nick,
+            oid=0,
+            ordertype=OfferType.SW0_RELATIVE.value,
+            minsize=10_000,
+            maxsize=100_000_000,
+            txfee=500,
+            cjfee="0.001",
+        )
+
+    taker.maker_sessions = {
+        "J5Silent1": MakerSession(nick="J5Silent1", offer=_offer("J5Silent1")),
+        "J5Silent2": MakerSession(nick="J5Silent2", offer=_offer("J5Silent2")),
+    }
+    taker.cj_amount = 100_000
+    taker.podle_commitment = Mock()
+    taker.podle_commitment.to_commitment_str = Mock(return_value="bb" * 32)
+
+    taker.directory_client = AsyncMock()
+    taker.directory_client.prefer_direct_connections = False
+    taker.directory_client._pending_connect_tasks = {}
+    taker.directory_client._active_nicks = {}
+    _dir_client2 = Mock()
+    _dir_client2._active_peers = {}
+    taker.directory_client.clients = {"dir1": _dir_client2}
+    taker.directory_client._get_peer_location = Mock(return_value=None)
+    taker.directory_client._get_connected_peer = Mock(return_value=None)
+
+    async def _send_privmsg(nick, command, data, log_routing=False, force_channel=None):
+        return force_channel
+
+    taker.directory_client.send_privmsg = AsyncMock(side_effect=_send_privmsg)
+    # Both makers timed out, no explicit blacklist hit anywhere.
+    taker.directory_client.wait_for_responses = AsyncMock(return_value={})
+
+    taker.config.minimum_makers = 1
+
+    result = await taker._phase_fill()
+
+    assert set(result.failed_makers) == {"J5Silent1", "J5Silent2"}
+    # No explicit blacklist hit -> blacklist_error stays False, no promotion.
+    assert result.blacklist_error is False
+    assert result.blacklist_makers == []

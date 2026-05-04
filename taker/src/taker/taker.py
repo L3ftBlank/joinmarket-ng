@@ -1045,13 +1045,20 @@ class Taker(TakerMonitoringMixin):
                         f"{max_replacement_attempts}): need {needed} more makers"
                     )
 
-                    # Select replacement makers from orderbook
-                    # Exclude makers already in current session to avoid reusing them
+                    # Select replacement makers from orderbook.
+                    # Hard-exclude makers already in the current session (can't
+                    # have the same nick twice) and makers that just rejected
+                    # us in this very attempt (they would just fail again).
+                    # The orderbook's persistent ignore list and the tumbler's
+                    # exclude_nicks are soft preferences -- if there aren't
+                    # enough fresh makers we'd rather pick a previously-used
+                    # one than fail the whole CoinJoin.
                     current_session_nicks = set(self.maker_sessions.keys())
+                    hard_excludes = current_session_nicks | set(fill_result.failed_makers)
                     replacement_offers, _ = self.orderbook_manager.select_makers(
                         cj_amount=self.cj_amount,
                         n=needed,
-                        exclude_nicks=current_session_nicks,
+                        hard_exclude_nicks=hard_excludes,
                         required_features=required_features,
                     )
 
@@ -1111,13 +1118,17 @@ class Taker(TakerMonitoringMixin):
                         f"need {needed} more makers"
                     )
 
-                    # Select replacement makers
-                    # Exclude makers already in current session to avoid reusing them
+                    # Select replacement makers.
+                    # Hard-exclude the current session's nicks (no duplicates)
+                    # and the makers that just failed auth in this attempt.
+                    # Soft-excluded makers are best-effort -- see select_makers
+                    # docstring for the fallback semantics.
                     current_session_nicks = set(self.maker_sessions.keys())
+                    hard_excludes = current_session_nicks | set(auth_result.failed_makers)
                     replacement_offers, _ = self.orderbook_manager.select_makers(
                         cj_amount=self.cj_amount,
                         n=needed,
-                        exclude_nicks=current_session_nicks,
+                        hard_exclude_nicks=hard_excludes,
                         required_features=required_features,
                     )
 
@@ -1638,6 +1649,13 @@ class Taker(TakerMonitoringMixin):
         # Track failed makers and blacklist errors
         failed_makers: list[str] = []
         blacklist_makers: list[str] = []
+        # Subset of failed_makers that did not respond at all -- they may have
+        # silently dropped our !fill because they consider our commitment
+        # blacklisted (the reference maker implementation never replies in
+        # that case). When *any* maker explicitly returns a blacklist error,
+        # we promote these silent timeouts to "presumed blacklist" so the
+        # majority/minority threshold in do_coinjoin reflects reality.
+        silent_makers: list[str] = []
         blacklist_error = False
 
         # Process responses
@@ -1705,7 +1723,26 @@ class Taker(TakerMonitoringMixin):
             else:
                 logger.warning(f"No !pubkey response from {nick}")
                 failed_makers.append(nick)
+                silent_makers.append(nick)
                 del self.maker_sessions[nick]
+
+        # If at least one maker explicitly rejected the commitment as
+        # blacklisted, treat the silent makers (timeouts) as also-blacklisted.
+        # Reference-implementation makers do not send any reply when they see
+        # a blacklisted commitment, so without this promotion the
+        # majority/minority split in do_coinjoin under-counts the rejection
+        # and we'd keep retrying with the same dead commitment instead of
+        # rotating it.
+        if blacklist_error and silent_makers:
+            logger.warning(
+                f"Promoting {len(silent_makers)} silent maker(s) "
+                f"({silent_makers}) to presumed-blacklist after explicit "
+                f"blacklist rejection from {blacklist_makers}: reference "
+                "makers stay silent on blacklisted commitments."
+            )
+            for nick in silent_makers:
+                if nick not in blacklist_makers:
+                    blacklist_makers.append(nick)
 
         if len(self.maker_sessions) < self.config.minimum_makers:
             logger.error(f"Not enough makers responded: {len(self.maker_sessions)}")

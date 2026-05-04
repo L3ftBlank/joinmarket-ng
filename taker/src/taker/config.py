@@ -229,6 +229,20 @@ class TakerConfig(WalletConfig):
         description="Interval in seconds for periodic wallet rescans (default: 10 minutes)",
     )
 
+    # Pending transaction monitoring
+    pending_tx_abandon_hours: int = Field(
+        default=24,
+        ge=1,
+        le=336,
+        description=(
+            "Hours after which a broadcast but unconfirmed CoinJoin transaction is marked as "
+            "abandoned and removed from the pending-monitoring list. Makers can double-spend "
+            "their inputs at any time, so a CoinJoin not confirmed within a few hours is "
+            "unlikely to ever confirm. Default 24 h; Bitcoin's default mempool expiry is "
+            "336 h (14 days)."
+        ),
+    )
+
     @model_validator(mode="after")
     def set_bitcoin_network_default(self) -> TakerConfig:
         """If bitcoin_network is not set, default to the protocol network."""

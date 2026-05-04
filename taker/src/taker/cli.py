@@ -249,6 +249,7 @@ def build_taker_config(
         broadcast_peer_count=settings.taker.broadcast_peer_count,
         minimum_makers=effective_minimum_makers,
         rescan_interval_sec=settings.taker.rescan_interval_sec,
+        pending_tx_abandon_hours=settings.taker.pending_tx_abandon_hours,
         select_utxos=select_utxos,
     )
 

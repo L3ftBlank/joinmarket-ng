@@ -744,6 +744,44 @@ def update_transaction_confirmation(
     return _write_history_entries_atomic(entries, history_path)
 
 
+def abandon_transaction(
+    txid: str,
+    reason: str,
+    data_dir: Path | None = None,
+    wallet_fingerprint: str | None = None,
+) -> bool:
+    """Mark a pending transaction as abandoned so the monitor stops checking it.
+
+    Sets ``completed_at`` and ``failure_reason`` so ``get_pending_transactions``
+    will no longer return the entry.  ``success`` is left ``False`` and
+    ``confirmations`` stays ``0``.
+
+    Args:
+        txid: Transaction ID to abandon
+        reason: Human-readable reason (stored in ``failure_reason``)
+        data_dir: Optional data directory
+        wallet_fingerprint: If provided, only match entries belonging to this
+            wallet.
+
+    Returns:
+        True if transaction was found and updated, False otherwise
+    """
+    history_path = _get_history_path(data_dir)
+    if not history_path.exists():
+        return False
+
+    entries = read_history(data_dir)
+    target = _select_entry_for_confirmation_update(entries, txid, wallet_fingerprint)
+    if target is None:
+        return False
+
+    now = datetime.now().isoformat()
+    target.completed_at = now
+    target.failure_reason = reason
+    logger.warning(f"Transaction {txid[:16]}... abandoned: {reason}")
+    return _write_history_entries_atomic(entries, history_path)
+
+
 async def update_transaction_confirmation_with_detection(
     txid: str,
     confirmations: int,

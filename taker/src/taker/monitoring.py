@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from jmwallet.history import (
     TransactionHistoryEntry,
+    abandon_transaction,
     get_pending_transactions,
     update_transaction_confirmation,
 )
@@ -116,8 +117,20 @@ class TakerMonitoringMixin:
 
             timestamp = datetime.fromisoformat(entry.timestamp)
             age_hours = (datetime.now() - timestamp).total_seconds() / 3600
+            abandon_hours: float = getattr(self.config, "pending_tx_abandon_hours", 72)
 
-            if age_hours > 24:
+            if age_hours >= abandon_hours:
+                abandon_transaction(
+                    txid=entry.txid,
+                    reason=(
+                        f"not found in mempool after {age_hours:.1f} hours "
+                        f"(threshold: {abandon_hours:.0f} h); "
+                        "likely rejected or replaced"
+                    ),
+                    data_dir=self.config.data_dir,
+                    wallet_fingerprint=self.wallet.wallet_fingerprint,
+                )
+            elif age_hours > 24:
                 logger.warning(
                     f"Transaction {entry.txid[:16]}... not found after "
                     f"{age_hours:.1f} hours, may have been rejected"
@@ -197,15 +210,29 @@ class TakerMonitoringMixin:
             timestamp = datetime.fromisoformat(entry.timestamp)
             age_hours = (datetime.now() - timestamp).total_seconds() / 3600
 
+            abandon_hours: float = getattr(self.config, "pending_tx_abandon_hours", 72)
+            if age_hours >= abandon_hours:
+                abandon_transaction(
+                    txid=entry.txid,
+                    reason=(
+                        f"not confirmed after {age_hours:.1f} hours "
+                        f"(threshold: {abandon_hours:.0f} h); "
+                        "likely dropped from all mempools"
+                    ),
+                    data_dir=self.config.data_dir,
+                    wallet_fingerprint=self.wallet.wallet_fingerprint,
+                )
+                return
+
             # For Neutrino, be more patient before warning since we can't see mempool
             # Only log at WARNING level if it's been a long time, otherwise DEBUG to reduce noise
-            if age_hours > 10:  # 10 hour timeout for Neutrino
+            if age_hours > 2:  # 2 hour threshold for Neutrino
                 logger.warning(
                     f"Transaction {entry.txid[:16]}... not confirmed after "
                     f"{age_hours:.1f} hours. May still be in mempool (not visible to Neutrino) "
                     "or may have been rejected/never broadcast."
                 )
-            elif age_hours > 1:  # Log at debug for txs older than 1 hour
+            elif age_hours > 0.5:  # Log at debug for txs older than 30 min
                 logger.debug(
                     f"Transaction {entry.txid[:16]}... not confirmed after "
                     f"{age_hours:.1f} hours (may be in mempool, waiting for confirmation)"

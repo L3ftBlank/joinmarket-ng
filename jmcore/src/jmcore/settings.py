@@ -602,6 +602,17 @@ class MakerSettings(BaseModel):
         le=1440,
         description="Minutes before marking unbroadcast CoinJoins as failed",
     )
+    pending_tx_abandon_hours: int = Field(
+        default=72,
+        ge=1,
+        le=8760,
+        description=(
+            "Hours after which a broadcast but unconfirmed transaction is "
+            "marked as abandoned and removed from the pending-monitoring list. "
+            "Bitcoin transactions not confirmed within ~3 days are typically "
+            "dropped from mempools."
+        ),
+    )
     rescan_interval_sec: int = Field(
         default=600,
         ge=60,
@@ -785,6 +796,18 @@ class TakerSettings(BaseModel):
         default=600,
         ge=60,
         description="Interval for periodic wallet rescans",
+    )
+    pending_tx_abandon_hours: int = Field(
+        default=24,
+        ge=1,
+        le=336,
+        description=(
+            "Hours after which a broadcast but unconfirmed CoinJoin transaction is "
+            "marked as abandoned and removed from the pending-monitoring list. "
+            "Makers can double-spend their inputs at any time, so a CoinJoin that "
+            "is not confirmed within a few hours is unlikely to ever confirm. "
+            "Default 24 h; Bitcoin's default mempool expiry is 336 h (14 days)."
+        ),
     )
 
 

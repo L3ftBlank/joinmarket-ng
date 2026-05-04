@@ -812,6 +812,7 @@ class OrderbookManager:
         honest_only: bool = False,
         min_nick_version: int | None = None,
         exclude_nicks: set[str] | None = None,
+        hard_exclude_nicks: set[str] | None = None,
         required_features: set[str] | None = None,
     ) -> tuple[dict[str, Offer], int]:
         """
@@ -822,34 +823,102 @@ class OrderbookManager:
             n: Number of makers
             honest_only: Only select from honest makers
             min_nick_version: Minimum required nick version (e.g., 6 for neutrino takers)
-            exclude_nicks: Additional nicks to exclude (e.g., current session makers)
+            exclude_nicks: Soft exclusion nicks. Preferred to be excluded (used by
+                tumbler to avoid repeating makers across phases), but if not enough
+                eligible makers remain after applying both hard and soft exclusions,
+                we relax this set rather than fail. ``ignored_makers`` is treated
+                the same way (best-effort avoidance).
+            hard_exclude_nicks: Strict exclusion nicks. Never relaxed. Use this for
+                makers that just rejected/failed inside the *current* CoinJoin
+                attempt (re-asking them would just fail again) and for any caller
+                that genuinely cannot include the nick.
             required_features: Feature names that makers must support
 
         Returns:
             (selected offers dict, total fee)
         """
-        available_offers = self.offers
+        return self._select_with_soft_fallback(
+            cj_amount=cj_amount,
+            n=n,
+            honest_only=honest_only,
+            min_nick_version=min_nick_version,
+            exclude_nicks=exclude_nicks,
+            hard_exclude_nicks=hard_exclude_nicks,
+            required_features=required_features,
+        )
 
-        if honest_only:
-            available_offers = [o for o in self.offers if o.counterparty in self.honest_makers]
+    def _select_with_soft_fallback(
+        self,
+        cj_amount: int,
+        n: int,
+        honest_only: bool,
+        min_nick_version: int | None,
+        exclude_nicks: set[str] | None,
+        hard_exclude_nicks: set[str] | None,
+        required_features: set[str] | None,
+    ) -> tuple[dict[str, Offer], int]:
+        """Select makers, falling back to soft-excluded ones if needed.
 
-        # Combine ignored_makers, own_wallet_nicks, and any additional excluded nicks
-        combined_ignored = self.ignored_makers.copy()
-        combined_ignored.update(self.own_wallet_nicks)
+        First pass uses the union of hard and soft exclusions. If that yields
+        fewer than ``n`` makers, we retry without the soft exclusions so the
+        CoinJoin can still proceed (best-effort avoidance, see issue
+        ``coinjoin must not fail because of soft blacklist``).
+        """
+        available_offers = (
+            [o for o in self.offers if o.counterparty in self.honest_makers]
+            if honest_only
+            else self.offers
+        )
+
+        hard = self.own_wallet_nicks.copy()
+        if hard_exclude_nicks:
+            hard.update(hard_exclude_nicks)
+
+        soft = self.ignored_makers.copy()
         if exclude_nicks:
-            combined_ignored.update(exclude_nicks)
+            soft.update(exclude_nicks)
+        # Never let a hard-excluded nick sneak back in through the soft set.
+        soft.difference_update(hard)
 
-        return choose_orders(
+        result, fee = choose_orders(
             offers=available_offers,
             cj_amount=cj_amount,
             n=n,
             max_cj_fee=self.max_cj_fee,
-            ignored_makers=combined_ignored,
+            ignored_makers=hard | soft,
             min_nick_version=min_nick_version,
             bondless_makers_allowance=self.bondless_makers_allowance,
             bondless_require_zero_fee=self.bondless_require_zero_fee,
             required_features=required_features,
         )
+        if len(result) >= n or not soft:
+            return result, fee
+
+        logger.warning(
+            f"Only {len(result)}/{n} makers available with soft exclusions "
+            f"(ignored / previously-used: {len(soft)} nicks). Topping up from "
+            "soft-excluded pool to avoid failing the CoinJoin."
+        )
+        # Top-up: keep the strict pick (so we don't accidentally drop the
+        # soft-clean makers) and only ask choose_orders for the missing slots
+        # from the soft-excluded pool. Already-selected nicks are added to
+        # ``ignored_makers`` for the second call so the same maker isn't
+        # picked twice.
+        missing = n - len(result)
+        already_picked = set(result.keys())
+        topup_result, topup_fee = choose_orders(
+            offers=available_offers,
+            cj_amount=cj_amount,
+            n=missing,
+            max_cj_fee=self.max_cj_fee,
+            ignored_makers=hard | already_picked,
+            min_nick_version=min_nick_version,
+            bondless_makers_allowance=self.bondless_makers_allowance,
+            bondless_require_zero_fee=self.bondless_require_zero_fee,
+            required_features=required_features,
+        )
+        result.update(topup_result)
+        return result, fee + topup_fee
 
     def select_makers_for_sweep(
         self,
@@ -859,6 +928,7 @@ class OrderbookManager:
         honest_only: bool = False,
         min_nick_version: int | None = None,
         exclude_nicks: set[str] | None = None,
+        hard_exclude_nicks: set[str] | None = None,
         required_features: set[str] | None = None,
     ) -> tuple[dict[str, Offer], int, int]:
         """
@@ -870,30 +940,56 @@ class OrderbookManager:
             n: Number of makers
             honest_only: Only select from honest makers
             min_nick_version: Minimum required nick version (e.g., 6 for neutrino takers)
-            exclude_nicks: Additional nicks to exclude (e.g., current session makers)
+            exclude_nicks: Soft exclusion nicks (best-effort; relaxed if not enough
+                makers remain). See :meth:`select_makers` for full semantics.
+            hard_exclude_nicks: Strict exclusion nicks (never relaxed).
             required_features: Feature names that makers must support
 
         Returns:
             (selected offers dict, cj_amount, total fee)
         """
-        available_offers = self.offers
+        available_offers = (
+            [o for o in self.offers if o.counterparty in self.honest_makers]
+            if honest_only
+            else self.offers
+        )
 
-        if honest_only:
-            available_offers = [o for o in self.offers if o.counterparty in self.honest_makers]
+        hard = self.own_wallet_nicks.copy()
+        if hard_exclude_nicks:
+            hard.update(hard_exclude_nicks)
 
-        # Combine ignored_makers, own_wallet_nicks, and any additional excluded nicks
-        combined_ignored = self.ignored_makers.copy()
-        combined_ignored.update(self.own_wallet_nicks)
+        soft = self.ignored_makers.copy()
         if exclude_nicks:
-            combined_ignored.update(exclude_nicks)
+            soft.update(exclude_nicks)
+        soft.difference_update(hard)
 
+        result = choose_sweep_orders(
+            offers=available_offers,
+            total_input_value=total_input_value,
+            my_txfee=my_txfee,
+            n=n,
+            max_cj_fee=self.max_cj_fee,
+            ignored_makers=hard | soft,
+            min_nick_version=min_nick_version,
+            bondless_makers_allowance=self.bondless_makers_allowance,
+            bondless_require_zero_fee=self.bondless_require_zero_fee,
+            required_features=required_features,
+        )
+        if len(result[0]) >= n or not soft:
+            return result
+
+        logger.warning(
+            f"Sweep: only {len(result[0])}/{n} makers available with soft exclusions "
+            f"({len(soft)} nicks). Retrying without soft exclusions to avoid "
+            "failing the sweep."
+        )
         return choose_sweep_orders(
             offers=available_offers,
             total_input_value=total_input_value,
             my_txfee=my_txfee,
             n=n,
             max_cj_fee=self.max_cj_fee,
-            ignored_makers=combined_ignored,
+            ignored_makers=hard,
             min_nick_version=min_nick_version,
             bondless_makers_allowance=self.bondless_makers_allowance,
             bondless_require_zero_fee=self.bondless_require_zero_fee,

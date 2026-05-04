@@ -720,7 +720,15 @@ class TestOrderbookManager:
     def test_select_makers_own_wallet_nicks_combined_with_excluded(
         self, sample_offers: list[Offer], max_cj_fee: MaxCjFee, tmp_path: Path
     ) -> None:
-        """Test own_wallet_nicks combined with exclude_nicks and ignored_makers."""
+        """Test own_wallet_nicks combined with exclude_nicks and ignored_makers.
+
+        With soft fallback: ``own_wallet_nicks`` is hard (always excluded),
+        but ``ignored_makers`` and ``exclude_nicks`` are soft and may be
+        relaxed when too few makers remain. Here we ask for n=1 from a pool
+        of 4 with maker1 hard-excluded and maker2/maker3 soft-excluded; the
+        strict pass returns maker4 only and that's enough to satisfy n=1
+        without falling back.
+        """
         # Initialize with own wallet nick
         own_wallet_nicks = {"maker1"}
         manager = OrderbookManager(max_cj_fee, data_dir=tmp_path, own_wallet_nicks=own_wallet_nicks)
@@ -732,13 +740,125 @@ class TestOrderbookManager:
         # Exclude maker3 via parameter
         exclude = {"maker3"}
 
-        # Select makers
-        orders, _ = manager.select_makers(cj_amount=100_000, n=2, exclude_nicks=exclude)
+        # Select one maker. Strict pass yields maker4 -> no soft fallback.
+        orders, _ = manager.select_makers(cj_amount=100_000, n=1, exclude_nicks=exclude)
 
-        # Verify all three are excluded
-        assert "maker1" not in orders  # own wallet nick
-        assert "maker2" not in orders  # ignored
-        assert "maker3" not in orders  # excluded via parameter
+        # All three are excluded in this case (no fallback needed).
+        assert "maker1" not in orders  # own wallet nick (hard)
+        assert "maker2" not in orders  # ignored (soft, but enough makers without it)
+        assert "maker3" not in orders  # excluded via parameter (soft, ditto)
+        assert "maker4" in orders
+
+    def test_soft_fallback_relaxes_ignored_when_pool_too_small(
+        self, sample_offers: list[Offer], max_cj_fee: MaxCjFee, tmp_path: Path
+    ) -> None:
+        """``ignored_makers`` is best-effort: relaxed when not enough makers remain.
+
+        Bug: a CoinJoin must not fail just because every remaining maker is on
+        the persisted ignore list. Falling back to a previously-ignored maker
+        is strictly preferable to failing the whole tumble phase.
+        """
+        manager = OrderbookManager(max_cj_fee, data_dir=tmp_path)
+        manager.update_offers(sample_offers)
+
+        # Persistently ignore three of the four makers, leaving only maker1.
+        manager.add_ignored_maker("maker2")
+        manager.add_ignored_maker("maker3")
+        manager.add_ignored_maker("maker4")
+
+        # Ask for two: strict pass would only return maker1, so the soft
+        # fallback must kick in and relax the ignored set.
+        orders, _ = manager.select_makers(cj_amount=100_000, n=2)
+
+        assert len(orders) == 2, "Soft fallback should refill from ignored makers"
+        assert "maker1" in orders
+
+    def test_soft_fallback_relaxes_exclude_nicks(
+        self, sample_offers: list[Offer], max_cj_fee: MaxCjFee, tmp_path: Path
+    ) -> None:
+        """The tumbler's cross-phase ``exclude_nicks`` is also best-effort.
+
+        Repeating a maker across tumble phases hurts privacy a little, but
+        failing the phase outright is worse: the user has to manually resume
+        and the in-flight CoinJoin amount is locked in maker funds.
+        """
+        manager = OrderbookManager(max_cj_fee, data_dir=tmp_path)
+        manager.update_offers(sample_offers)
+
+        # Soft-exclude three of four makers via the per-call parameter.
+        orders, _ = manager.select_makers(
+            cj_amount=100_000,
+            n=3,
+            exclude_nicks={"maker2", "maker3", "maker4"},
+        )
+
+        assert len(orders) == 3, "Soft exclude_nicks must be relaxed when pool is too small"
+
+    def test_hard_exclude_nicks_never_relaxed(
+        self, sample_offers: list[Offer], max_cj_fee: MaxCjFee, tmp_path: Path
+    ) -> None:
+        """``hard_exclude_nicks`` are strict even when the pool is too small.
+
+        Used by the taker for makers that *just* failed in the current
+        attempt (re-asking them would fail again) and for own-wallet nicks.
+        Returning fewer makers is the correct outcome -- the caller decides
+        whether to fail or proceed below ``minimum_makers``.
+        """
+        manager = OrderbookManager(max_cj_fee, data_dir=tmp_path)
+        manager.update_offers(sample_offers)
+
+        # Hard-exclude three of four; even when n=3 we must not return them.
+        orders, _ = manager.select_makers(
+            cj_amount=100_000,
+            n=3,
+            hard_exclude_nicks={"maker2", "maker3", "maker4"},
+        )
+
+        assert "maker2" not in orders
+        assert "maker3" not in orders
+        assert "maker4" not in orders
+        assert len(orders) <= 1
+
+    def test_own_wallet_nicks_never_relaxed_via_soft_fallback(
+        self, sample_offers: list[Offer], max_cj_fee: MaxCjFee, tmp_path: Path
+    ) -> None:
+        """Own-wallet nicks must never be re-introduced by the soft fallback.
+
+        Selecting one's own maker as counterparty would link wallet identities,
+        defeating the privacy of the CoinJoin. This invariant is non-negotiable
+        regardless of how starved the pool gets.
+        """
+        own_wallet_nicks = {"maker1"}
+        manager = OrderbookManager(max_cj_fee, data_dir=tmp_path, own_wallet_nicks=own_wallet_nicks)
+        manager.update_offers(sample_offers)
+
+        # Ignore (soft) every other maker. Even with the soft fallback, the
+        # own-wallet nick must stay excluded.
+        for nick in ("maker2", "maker3", "maker4"):
+            manager.add_ignored_maker(nick)
+
+        orders, _ = manager.select_makers(cj_amount=100_000, n=2)
+
+        assert "maker1" not in orders, "Own wallet nick must never be selected"
+
+    def test_sweep_soft_fallback_relaxes_ignored(
+        self, sample_offers: list[Offer], max_cj_fee: MaxCjFee, tmp_path: Path
+    ) -> None:
+        """``select_makers_for_sweep`` honors the same soft-exclusion fallback."""
+        manager = OrderbookManager(max_cj_fee, data_dir=tmp_path)
+        manager.update_offers(sample_offers)
+
+        manager.add_ignored_maker("maker2")
+        manager.add_ignored_maker("maker3")
+        manager.add_ignored_maker("maker4")
+
+        orders, _cj_amount, _fee = manager.select_makers_for_sweep(
+            total_input_value=1_000_000,
+            my_txfee=2000,
+            n=2,
+        )
+
+        assert len(orders) == 2, "Sweep soft fallback should refill from ignored makers"
 
 
 class TestMixedBondedBondlessSelection:

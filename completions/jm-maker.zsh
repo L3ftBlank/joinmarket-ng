@@ -61,6 +61,7 @@ _jm_maker() {
             '--network=[Protocol network]:choice:(mainnet testnet signet regtest)' \
             '--bitcoin-network=[Bitcoin network for address generation (defaults to --network)]:choice:(mainnet testnet signet regtest)' \
             '--backend-type=[Backend type]: :' \
+            '--data-dir=[Data directory (default\: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR)]:file:_files' \
             '--log-level=[Log level]: :' \
             '--help[Show this message and exit]'
           ;;

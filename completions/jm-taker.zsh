@@ -47,6 +47,7 @@ _jm_taker() {
             '--bondless-zero-fee[For bondless spots, require zero absolute fee]' \
             '--select-utxos[Interactively select UTXOs (fzf-like TUI)]' \
             '--yes[Skip confirmation prompt]' \
+            '--data-dir=[Data directory (default\: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR)]:file:_files' \
             '--log-level=[Log level]: :' \
             '--help[Show this message and exit]'
           ;;
@@ -61,6 +62,7 @@ _jm_taker() {
             '--directory=[Directory servers (comma-separated)]: :' \
             '--tor-socks-host=[Tor SOCKS proxy host (overrides TOR__SOCKS_HOST)]: :' \
             '--tor-socks-port=[Tor SOCKS proxy port (overrides TOR__SOCKS_PORT)]: :' \
+            '--data-dir=[Data directory (default\: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR)]:file:_files' \
             '--log-level=[Log level]: :' \
             '--help[Show this message and exit]'
           ;;

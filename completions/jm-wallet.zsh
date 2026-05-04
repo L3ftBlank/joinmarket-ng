@@ -8,6 +8,7 @@ _jm_wallet() {
   commands=(
     'list-bonds:List all fidelity bonds in the wallet.'
     'generate-bond-address:Generate a fidelity bond (timelocked P2WSH) address.'
+    'import-bond:Manually import a fidelity bond into the registry.'
     'recover-bonds:Recover fidelity bonds by scanning all 960 possible timelocks.'
     'create-bond-address:Create a fidelity bond address from a public key (cold wallet workflow).'
     'generate-hot-keypair:Generate a hot wallet keypair for fidelity bond certificates.'
@@ -22,7 +23,9 @@ _jm_wallet() {
     'import:Import an existing BIP39 mnemonic phrase to create/recover a wallet.'
     'generate:Generate a new BIP39 mnemonic phrase with secure entropy.'
     'info:Display wallet information and balances by mixdepth.'
+    'verify-password:Verify that a password can decrypt an encrypted mnemonic file.'
     'validate:Validate a mnemonic phrase.'
+    'showseed:Display the BIP39 seed words (mnemonic) of an existing wallet.'
   )
 
   _arguments -C \
@@ -56,10 +59,22 @@ _jm_wallet() {
             '--prompt-bip39-passphrase[Prompt for BIP39 passphrase]' \
             '--locktime=[Locktime as Unix timestamp]: :' \
             '--locktime-date=[Locktime as YYYY-MM (must be 1st of month)]: :' \
-            '--index=[Address index]: :' \
             '--network=[]: :' \
             '--data-dir=[Data directory (default\: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR)]:file:_files' \
             '--no-save[Do not save the bond to the registry]' \
+            '--log-level=[Log level]: :' \
+            '--help[Show this message and exit]'
+          ;;
+        import-bond)
+          _arguments \
+            '--mnemonic-file=[]:file:_files' \
+            '--prompt-bip39-passphrase[Prompt for BIP39 passphrase]' \
+            '--locktime=[Locktime as Unix timestamp]: :' \
+            '--locktime-date=[Locktime as YYYY-MM (must be 1st of month)]: :' \
+            '--timenumber=[Timenumber (0-959). Auto-derived if omitted.]: :' \
+            '--path=[Full derivation path with locktime, e.g. m/84'\''/0'\''/0'\''/2/73\:1740787200]: :' \
+            '--network=[]: :' \
+            '--data-dir=[Data directory (default\: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR)]:file:_files' \
             '--log-level=[Log level]: :' \
             '--help[Show this message and exit]'
           ;;
@@ -71,7 +86,6 @@ _jm_wallet() {
             '--backend=[Backend\: scantxoutset | descriptor_wallet | neutrino]: :' \
             '--rpc-url=[]: :' \
             '--neutrino-url=[]: :' \
-            '--max-index=[Max address index per locktime to scan (default 1)]: :' \
             '--data-dir=[Data directory (default\: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR)]:file:_files' \
             '--log-level=[Log level]: :' \
             '--help[Show this message and exit]'
@@ -140,6 +154,7 @@ _jm_wallet() {
             '--network=[Bitcoin network]: :' \
             '--backend=[Backend\: scantxoutset | descriptor_wallet | neutrino]: :' \
             '--neutrino-url=[]: :' \
+            '--data-dir=[Data directory (default\: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR)]:file:_files' \
             '--log-level=[Log level]: :' \
             '--help[Show this message and exit]'
           ;;
@@ -163,6 +178,9 @@ _jm_wallet() {
             '--stats[Show statistics only]' \
             '--csv[Output as CSV]' \
             '--data-dir=[Data directory (default\: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR)]:file:_files' \
+            '--mnemonic-file=[Path to mnemonic file. When provided, the history is filtered to entries belonging to this wallet (matched by BIP32 master fingerprint). Required when multiple wallets share the same data directory (issue #473).]:file:_files' \
+            '--all-wallets[Show entries from all wallets that have ever written to this data directory (default when no --mnemonic-file is given).]' \
+            '--log-level=[Log level]: :' \
             '--help[Show this message and exit]'
           ;;
         registry-show)
@@ -197,6 +215,7 @@ _jm_wallet() {
             '--output=[Output file path]:file:_files' \
             '--prompt-password[Prompt for password interactively (default\: prompt)]' \
             '--force[Overwrite existing file without confirmation]' \
+            '--data-dir=[Data directory (default\: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR). When --output is not given, the wallet is saved under <data-dir>/wallets/default.mnemonic.]:file:_files' \
             '--help[Show this message and exit]'
           ;;
         generate)
@@ -205,6 +224,7 @@ _jm_wallet() {
             '--save[Save to file (default\: save)]' \
             '--output=[Output file path]:file:_files' \
             '--prompt-password[Prompt for password interactively (default\: prompt)]' \
+            '--data-dir=[Data directory (default\: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR). When --output is not given, the wallet is saved under <data-dir>/wallets/default.mnemonic.]:file:_files' \
             '--help[Show this message and exit]'
           ;;
         info)
@@ -217,13 +237,29 @@ _jm_wallet() {
             '--neutrino-url=[]: :' \
             '--extended[Show detailed address view with derivations]' \
             '--gap=[Max address gap to show in extended view]: :' \
+            '--show-empty[In --extended view, show addresses with zero balance. When disabled (default), empty addresses are hidden except for the first unused one per branch so you still have a fresh receive address.]' \
             '--data-dir=[Data directory (default\: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR)]:file:_files' \
             '--log-level=[Log level]: :' \
+            '--help[Show this message and exit]'
+          ;;
+        verify-password)
+          _arguments \
+            '--mnemonic-file=[Path to encrypted mnemonic file]:file:_files' \
+            '--password=[Password to verify. If not provided, read from MNEMONIC_PASSWORD env or prompt.]: :' \
+            '--prompt[Prompt for password if not provided via flag/env.]' \
             '--help[Show this message and exit]'
           ;;
         validate)
           _arguments \
             '--mnemonic-file=[Path to mnemonic file]:file:_files' \
+            '--help[Show this message and exit]'
+          ;;
+        showseed)
+          _arguments \
+            '--mnemonic-file=[Path to the mnemonic file]:file:_files' \
+            '--password=[Password for an encrypted mnemonic file. If not given, the MNEMONIC_PASSWORD env var is used, otherwise an interactive prompt is shown.]: :' \
+            '--numbered[Print each seed word on its own line, prefixed with its index.]' \
+            '--yes[Skip the interactive '\''Are you sure?'\'' confirmation. Use with care.]' \
             '--help[Show this message and exit]'
           ;;
       esac

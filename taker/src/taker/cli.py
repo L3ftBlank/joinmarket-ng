@@ -27,7 +27,14 @@ from jmcore.settings import (
 from jmwallet.wallet.service import WalletService
 from loguru import logger
 
-from taker.config import BroadcastPolicy, MaxCjFee, Schedule, ScheduleEntry, TakerConfig
+from taker.config import (
+    DEFAULT_COUNTERPARTY_COUNT_MAX,
+    BroadcastPolicy,
+    MaxCjFee,
+    Schedule,
+    ScheduleEntry,
+    TakerConfig,
+)
 
 app = typer.Typer(
     name="jm-taker",
@@ -150,7 +157,15 @@ def build_taker_config(
     # threshold consistent with that request. Otherwise sweep mode can select a
     # valid 1-maker CoinJoin and then reject it against a stale higher
     # ``minimum_makers`` from config.
-    effective_minimum_makers = min(settings.taker.minimum_makers, effective_counterparties)
+    # When effective_counterparties is None the per-CoinJoin count is drawn
+    # randomly at runtime; cap minimum_makers against the configured default max
+    # so we never block a valid selection.
+    _counterparties_for_min = (
+        effective_counterparties
+        if effective_counterparties is not None
+        else DEFAULT_COUNTERPARTY_COUNT_MAX
+    )
+    effective_minimum_makers = min(settings.taker.minimum_makers, _counterparties_for_min)
     effective_max_abs_fee = (
         max_abs_fee if max_abs_fee is not None else settings.taker.max_cj_fee_abs
     )

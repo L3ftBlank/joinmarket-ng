@@ -281,6 +281,16 @@
 #   cj_fee_absolute = 500
 #
 # To run BOTH offer types simultaneously, use the CLI flag --dual-offers
+# In dual-offer mode the maker advertises one relative and one absolute
+# offer.  Their size ranges are split automatically at the fee
+# intersection x = cj_fee_absolute / cj_fee_relative:
+#   - absolute offer covers small CJs in [min_size, x]
+#     (guarantees a flat minimum profit per join)
+#   - relative offer covers large CJs in [x, max_balance]
+#     (scales fees with size, stays competitive on big mixes)
+# This produces a piecewise fee curve roughly equivalent to a linear
+# offer (min flat fee + proportional component) without breaking the
+# protocol.
 # offer_type = "sw0reloffer"
 
 # Fee settings (only one is used based on offer_type above)

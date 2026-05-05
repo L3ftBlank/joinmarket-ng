@@ -781,3 +781,403 @@ class TestOfferRandomization:
         assert first is not None
         assert first[0] == "0.001"
         assert first[1] == 1000
+
+
+class TestDualOfferAutoSplit:
+    """Tests for the dual-offer rel/abs intersection auto-split (issue #88).
+
+    When the maker advertises exactly one relative offer and one absolute
+    offer, ``OfferManager`` carves the available size range into two
+    contiguous, non-overlapping segments at the fee intersection
+    ``x = cj_fee_absolute / cj_fee_relative``.  The absolute offer covers
+    ``[cfg.min_size, intersection]``; the relative offer covers
+    ``[intersection, max_available]``.
+    """
+
+    @pytest.fixture
+    def wallet_10m(self):
+        wallet = MagicMock()
+        wallet.mixdepth_count = 5
+        wallet.utxo_cache = {}
+        wallet.get_balance = AsyncMock(return_value=10_000_000)
+        wallet.get_balance_for_offers = AsyncMock(return_value=10_000_000)
+        return wallet
+
+    @staticmethod
+    def _dual_config(
+        rel_fee: str = "0.001",
+        abs_fee: int = 1000,
+        rel_min: int = 100_000,
+        abs_min: int = 50_000,
+    ) -> MakerConfig:
+        return MakerConfig(
+            mnemonic="test " * 12,
+            directory_servers=["localhost:5222"],
+            network=NetworkType.REGTEST,
+            offer_configs=[
+                OfferConfig(
+                    offer_type=OfferType.SW0_RELATIVE,
+                    min_size=rel_min,
+                    cj_fee_relative=rel_fee,
+                    cjfee_factor=0.0,
+                    txfee_contribution_factor=0.0,
+                    size_factor=0.0,
+                ),
+                OfferConfig(
+                    offer_type=OfferType.SW0_ABSOLUTE,
+                    min_size=abs_min,
+                    cj_fee_absolute=abs_fee,
+                    cjfee_factor=0.0,
+                    txfee_contribution_factor=0.0,
+                    size_factor=0.0,
+                ),
+            ],
+        )
+
+    @pytest.mark.asyncio
+    async def test_auto_split_at_intersection(self, wallet_10m):
+        """abs offer is capped at the intersection, rel offer floored at it."""
+        # intersection = abs_fee / rel_fee = 1000 / 0.001 = 1_000_000 sats
+        cfg = self._dual_config(rel_fee="0.001", abs_fee=1000)
+        manager = OfferManager(wallet_10m, cfg, "J5TestMaker")
+
+        with patch("maker.offers.get_best_fidelity_bond", new=AsyncMock(return_value=None)):
+            offers = await manager.create_offers()
+
+        assert len(offers) == 2
+        rel = next(o for o in offers if o.ordertype == OfferType.SW0_RELATIVE)
+        abs_ = next(o for o in offers if o.ordertype == OfferType.SW0_ABSOLUTE)
+
+        intersection = 1_000_000
+        # abs offer covers small CJs, capped at intersection
+        assert abs_.minsize == 50_000
+        assert abs_.maxsize == intersection
+        # rel offer takes over above intersection
+        assert rel.minsize == intersection
+        assert rel.maxsize > intersection
+        # Contiguous, non-overlapping coverage
+        assert abs_.maxsize == rel.minsize
+
+    @pytest.mark.asyncio
+    async def test_auto_split_with_different_fee_ratio(self, wallet_10m):
+        """Intersection scales with the ratio of the two fees."""
+        # 2000 / 0.0005 = 4_000_000
+        cfg = self._dual_config(rel_fee="0.0005", abs_fee=2000)
+        manager = OfferManager(wallet_10m, cfg, "J5TestMaker")
+
+        with patch("maker.offers.get_best_fidelity_bond", new=AsyncMock(return_value=None)):
+            offers = await manager.create_offers()
+
+        assert len(offers) == 2
+        abs_ = next(o for o in offers if o.ordertype == OfferType.SW0_ABSOLUTE)
+        rel = next(o for o in offers if o.ordertype == OfferType.SW0_RELATIVE)
+        assert abs_.maxsize == 4_000_000
+        assert rel.minsize == 4_000_000
+
+    @pytest.mark.asyncio
+    async def test_intersection_below_abs_min_drops_abs_offer(self, wallet_10m):
+        """When abs_fee/rel_fee is below abs.min_size the abs offer is dropped.
+
+        The absolute offer would only be cheaper for CJ amounts below the
+        intersection.  If that point sits below the configured abs.min_size
+        the offer cannot ever undercut the relative one and is suppressed.
+        """
+        # intersection = 100 / 0.01 = 10_000, but abs.min_size = 50_000
+        cfg = self._dual_config(rel_fee="0.01", abs_fee=100, rel_min=100_000, abs_min=50_000)
+        manager = OfferManager(wallet_10m, cfg, "J5TestMaker")
+
+        with patch("maker.offers.get_best_fidelity_bond", new=AsyncMock(return_value=None)):
+            offers = await manager.create_offers()
+
+        assert len(offers) == 1
+        assert offers[0].ordertype == OfferType.SW0_RELATIVE
+
+    @pytest.mark.asyncio
+    async def test_intersection_above_balance_drops_rel_offer(self, wallet_10m):
+        """When abs_fee/rel_fee is above max balance the rel offer is dropped."""
+        # intersection = 1_000_000 / 0.00002 = 50_000_000_000 (way above 10M balance)
+        cfg = self._dual_config(rel_fee="0.00002", abs_fee=1_000_000)
+        manager = OfferManager(wallet_10m, cfg, "J5TestMaker")
+
+        with patch("maker.offers.get_best_fidelity_bond", new=AsyncMock(return_value=None)):
+            offers = await manager.create_offers()
+
+        assert len(offers) == 1
+        assert offers[0].ordertype == OfferType.SW0_ABSOLUTE
+
+    @pytest.mark.asyncio
+    async def test_no_split_when_both_offers_relative(self, wallet_10m):
+        """Two relative offers must not trigger the rel/abs auto-split."""
+        cfg = MakerConfig(
+            mnemonic="test " * 12,
+            directory_servers=["localhost:5222"],
+            network=NetworkType.REGTEST,
+            offer_configs=[
+                OfferConfig(
+                    offer_type=OfferType.SW0_RELATIVE,
+                    min_size=100_000,
+                    cj_fee_relative="0.001",
+                    cjfee_factor=0.0,
+                    txfee_contribution_factor=0.0,
+                    size_factor=0.0,
+                ),
+                OfferConfig(
+                    offer_type=OfferType.SW0_RELATIVE,
+                    min_size=200_000,
+                    cj_fee_relative="0.002",
+                    cjfee_factor=0.0,
+                    txfee_contribution_factor=0.0,
+                    size_factor=0.0,
+                ),
+            ],
+        )
+        manager = OfferManager(wallet_10m, cfg, "J5TestMaker")
+
+        with patch("maker.offers.get_best_fidelity_bond", new=AsyncMock(return_value=None)):
+            offers = await manager.create_offers()
+
+        # Both offers retain their configured min/max ranges; no split.
+        assert len(offers) == 2
+        assert offers[0].minsize == 100_000
+        assert offers[1].minsize == 200_000
+        # Both reach up to (close to) max_available, i.e. they overlap as
+        # before -- the split logic only fires for rel + abs pairs.
+        assert offers[0].maxsize == offers[1].maxsize
+
+    @pytest.mark.asyncio
+    async def test_single_offer_unaffected(self, wallet_10m):
+        """Single-offer configs must not be affected by the split."""
+        cfg = MakerConfig(
+            mnemonic="test " * 12,
+            directory_servers=["localhost:5222"],
+            network=NetworkType.REGTEST,
+            offer_type=OfferType.SW0_ABSOLUTE,
+            min_size=50_000,
+            cj_fee_absolute=500,
+            cjfee_factor=0.0,
+            txfee_contribution_factor=0.0,
+            size_factor=0.0,
+        )
+        manager = OfferManager(wallet_10m, cfg, "J5TestMaker")
+
+        with patch("maker.offers.get_best_fidelity_bond", new=AsyncMock(return_value=None)):
+            offers = await manager.create_offers()
+
+        assert len(offers) == 1
+        assert offers[0].ordertype == OfferType.SW0_ABSOLUTE
+        assert offers[0].minsize == 50_000
+        # max reaches the wallet's max_available (no override).
+        assert offers[0].maxsize > 1_000_000
+
+    @pytest.mark.asyncio
+    async def test_auto_split_seam_is_exact_under_randomization(self, wallet_10m):
+        """The boundary at the intersection is preserved even with size_factor>0.
+
+        The auto-split must pin the abs.maxsize and rel.minsize to the exact
+        intersection so the two offers stay seamless; randomization is still
+        applied to the *outer* (un-pinned) edges.
+        """
+        cfg = MakerConfig(
+            mnemonic="test " * 12,
+            directory_servers=["localhost:5222"],
+            network=NetworkType.REGTEST,
+            offer_configs=[
+                OfferConfig(
+                    offer_type=OfferType.SW0_RELATIVE,
+                    min_size=100_000,
+                    cj_fee_relative="0.001",
+                    cjfee_factor=0.0,
+                    txfee_contribution_factor=0.0,
+                    size_factor=0.2,  # randomize outer edges
+                ),
+                OfferConfig(
+                    offer_type=OfferType.SW0_ABSOLUTE,
+                    min_size=50_000,
+                    cj_fee_absolute=1000,
+                    cjfee_factor=0.0,
+                    txfee_contribution_factor=0.0,
+                    size_factor=0.2,
+                ),
+            ],
+        )
+        for _ in range(20):
+            manager = OfferManager(wallet_10m, cfg, "J5TestMaker")
+            with patch("maker.offers.get_best_fidelity_bond", new=AsyncMock(return_value=None)):
+                offers = await manager.create_offers()
+            assert len(offers) == 2
+            abs_ = next(o for o in offers if o.ordertype == OfferType.SW0_ABSOLUTE)
+            rel = next(o for o in offers if o.ordertype == OfferType.SW0_RELATIVE)
+            # Seam stays exact regardless of randomization
+            assert abs_.maxsize == 1_000_000
+            assert rel.minsize == 1_000_000
+
+    def test_compute_overrides_helper_three_offers(self, wallet_10m):
+        """Helper returns no overrides when there are not exactly two offers."""
+        cfg = self._dual_config()
+        manager = OfferManager(wallet_10m, cfg, "J5TestMaker")
+        configs = [
+            OfferConfig(offer_type=OfferType.SW0_RELATIVE, cj_fee_relative="0.001"),
+            OfferConfig(offer_type=OfferType.SW0_ABSOLUTE, cj_fee_absolute=500),
+            OfferConfig(offer_type=OfferType.SW0_RELATIVE, cj_fee_relative="0.002"),
+        ]
+        fees = [("0.001", 0, 0.001), ("500", 0, 500.0), ("0.002", 0, 0.002)]
+        assert manager._compute_dual_offer_size_overrides(configs, fees, 10_000_000) == {}
+
+    def test_compute_overrides_helper_zero_abs_fee(self, wallet_10m):
+        """Zero randomized abs fee disables the auto-split (intersection at 0)."""
+        cfg = self._dual_config()
+        manager = OfferManager(wallet_10m, cfg, "J5TestMaker")
+        configs = [
+            OfferConfig(offer_type=OfferType.SW0_RELATIVE, cj_fee_relative="0.001"),
+            OfferConfig(offer_type=OfferType.SW0_ABSOLUTE, cj_fee_absolute=1000),
+        ]
+        # Simulate randomization that produced zero abs fee (e.g. heavy factor)
+        fees = [("0.001", 0, 0.001), ("0", 0, 0.0)]
+        assert manager._compute_dual_offer_size_overrides(configs, fees, 10_000_000) == {}
+
+    @pytest.mark.asyncio
+    async def test_seam_exact_with_txfee_deduction(self, wallet_10m):
+        """abs.maxsize stays at (or just below) the intersection with txfee_contribution > 0.
+
+        When ``tx_fee_contribution`` is non-zero the effective ``max_available``
+        inside ``_create_single_offer`` is ``max_balance - txfee``, which is
+        strictly less than ``max_size_override`` (= intersection).  The old
+        guard ``max_available == max_size_override`` would silently miss the
+        pin and let size_factor randomization scatter the seam.  The corrected
+        guard ``max_size_override is not None`` must fire regardless.
+        """
+        cfg = MakerConfig(
+            mnemonic="test " * 12,
+            directory_servers=["localhost:5222"],
+            network=NetworkType.REGTEST,
+            offer_configs=[
+                OfferConfig(
+                    offer_type=OfferType.SW0_RELATIVE,
+                    min_size=100_000,
+                    cj_fee_relative="0.001",
+                    cjfee_factor=0.0,
+                    tx_fee_contribution=5000,
+                    txfee_contribution_factor=0.3,  # introduces randomized deduction
+                    size_factor=0.2,
+                ),
+                OfferConfig(
+                    offer_type=OfferType.SW0_ABSOLUTE,
+                    min_size=50_000,
+                    cj_fee_absolute=1000,
+                    cjfee_factor=0.0,
+                    tx_fee_contribution=5000,
+                    txfee_contribution_factor=0.3,
+                    size_factor=0.2,
+                ),
+            ],
+        )
+        intersection = 1_000_000  # unrandomized value, used only as upper bound
+        for _ in range(30):
+            manager = OfferManager(wallet_10m, cfg, "J5TestMaker")
+            with patch("maker.offers.get_best_fidelity_bond", new=AsyncMock(return_value=None)):
+                offers = await manager.create_offers()
+            assert len(offers) == 2
+            abs_ = next(o for o in offers if o.ordertype == OfferType.SW0_ABSOLUTE)
+            rel = next(o for o in offers if o.ordertype == OfferType.SW0_RELATIVE)
+            # Seam must be contiguous (both sides pinned to the same value).
+            assert abs_.maxsize == rel.minsize
+            # With txfee deduction the seam is at or below the nominal intersection.
+            assert abs_.maxsize <= intersection
+
+    @pytest.mark.asyncio
+    async def test_outer_edges_are_randomized(self, wallet_10m):
+        """Outer edges (rel.maxsize, cjfee) are still randomized.
+
+        The seam boundary varies with randomized fees (tested separately in
+        test_intersection_uses_randomized_fees_not_configured), and the
+        outer bounds (rel.maxsize) vary with size_factor.
+        """
+        cfg = MakerConfig(
+            mnemonic="test " * 12,
+            directory_servers=["localhost:5222"],
+            network=NetworkType.REGTEST,
+            offer_configs=[
+                OfferConfig(
+                    offer_type=OfferType.SW0_RELATIVE,
+                    min_size=100_000,
+                    cj_fee_relative="0.001",
+                    cjfee_factor=0.0,  # keep fees fixed so only size varies
+                    txfee_contribution_factor=0.0,
+                    size_factor=0.3,
+                ),
+                OfferConfig(
+                    offer_type=OfferType.SW0_ABSOLUTE,
+                    min_size=50_000,
+                    cj_fee_absolute=1000,
+                    cjfee_factor=0.0,
+                    txfee_contribution_factor=0.0,
+                    size_factor=0.0,  # abs outer edge (minsize) is at dust threshold, not varied
+                ),
+            ],
+        )
+        rel_maxsizes: set[int] = set()
+        for _ in range(40):
+            manager = OfferManager(wallet_10m, cfg, "J5TestMaker")
+            with patch("maker.offers.get_best_fidelity_bond", new=AsyncMock(return_value=None)):
+                offers = await manager.create_offers()
+            assert len(offers) == 2
+            abs_ = next(o for o in offers if o.ordertype == OfferType.SW0_ABSOLUTE)
+            rel = next(o for o in offers if o.ordertype == OfferType.SW0_RELATIVE)
+            # Seam must stay consistent between the two offers
+            assert abs_.maxsize == rel.minsize
+            rel_maxsizes.add(rel.maxsize)
+        # With size_factor=0.3 over 40 trials rel.maxsize should vary
+        assert len(rel_maxsizes) > 1, "rel.maxsize should be randomized across announcements"
+
+    @pytest.mark.asyncio
+    async def test_intersection_uses_randomized_fees_not_configured(self, wallet_10m):
+        """The size boundary must be derived from randomized fees, not config values.
+
+        If the intersection were computed from the unrandomized config values
+        (abs=1000, rel=0.001 -> always 1_000_000), the boundary would be a
+        fixed constant across all announcements, leaking the true fee
+        configuration.  With fee randomization applied first the boundary
+        varies announcement-to-announcement, hiding the underlying config.
+        """
+        cfg = MakerConfig(
+            mnemonic="test " * 12,
+            directory_servers=["localhost:5222"],
+            network=NetworkType.REGTEST,
+            offer_configs=[
+                OfferConfig(
+                    offer_type=OfferType.SW0_RELATIVE,
+                    min_size=100_000,
+                    cj_fee_relative="0.001",
+                    cjfee_factor=0.3,  # large factor -> significant fee spread
+                    txfee_contribution_factor=0.0,
+                    size_factor=0.0,
+                ),
+                OfferConfig(
+                    offer_type=OfferType.SW0_ABSOLUTE,
+                    min_size=50_000,
+                    cj_fee_absolute=1000,
+                    cjfee_factor=0.3,
+                    txfee_contribution_factor=0.0,
+                    size_factor=0.0,
+                ),
+            ],
+        )
+        # Collect the seam (abs.maxsize == rel.minsize) across many runs
+        seam_values: set[int] = set()
+        for _ in range(50):
+            manager = OfferManager(wallet_10m, cfg, "J5TestMaker")
+            with patch("maker.offers.get_best_fidelity_bond", new=AsyncMock(return_value=None)):
+                offers = await manager.create_offers()
+            if len(offers) == 2:
+                abs_ = next(o for o in offers if o.ordertype == OfferType.SW0_ABSOLUTE)
+                rel = next(o for o in offers if o.ordertype == OfferType.SW0_RELATIVE)
+                assert abs_.maxsize == rel.minsize, "seam must be contiguous"
+                seam_values.add(abs_.maxsize)
+
+        # If intersection were computed from unrandomized fees there would be
+        # only one seam value (1_000_000).  With randomized fees the seam
+        # varies across announcements.
+        assert len(seam_values) > 1, (
+            "seam should vary across announcements when cjfee_factor > 0; "
+            f"got constant seam at {seam_values}"
+        )

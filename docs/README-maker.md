@@ -66,6 +66,26 @@ jm-maker start --cj-fee-relative 0.002 --min-size 200000
 
 Use exactly one fee model: `--cj-fee-relative` or `--cj-fee-absolute`.
 
+### 5) Optional: dual offers (relative + absolute)
+
+Pass `--dual-offers` (or set `dual_offers = true` under `[maker]` in
+`config.toml`) to advertise one relative and one absolute offer
+simultaneously.  Their size ranges are split automatically at the fee
+intersection `x = cj_fee_absolute / cj_fee_relative`:
+
+- absolute offer covers `[min_size, x]` -- guarantees a flat minimum
+  profit on small CoinJoins where percentage fees would be negligible.
+- relative offer covers `[x, max_balance]` -- stays competitive on large
+  mixes where absolute fees would be wastefully cheap.
+
+Example: `cj_fee_absolute = 1000` sats, `cj_fee_relative = 0.001` -> the
+abs offer is announced for CJs up to 1 000 000 sats, the rel offer for
+larger CJs.  This produces a piecewise fee curve roughly equivalent to a
+linear `min flat fee + proportional component` model without breaking
+the protocol.  If the intersection falls below the configured min_size
+or above the wallet balance, the dominated offer is suppressed
+automatically.
+
 ## Fidelity Bonds
 
 Makers automatically discover bonds from the local registry at startup.

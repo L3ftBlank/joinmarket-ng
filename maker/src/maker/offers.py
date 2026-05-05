@@ -65,9 +65,13 @@ class OfferManager:
 
         Logic:
         1. Find mixdepth with maximum balance available for offers (excludes fidelity bonds)
-        2. Calculate available amount (balance - dust - max_txfee)
-        3. Create offer(s) with configured fee structure(s)
-        4. Attach fidelity bond value if available
+        2. Randomize fees for each offer independently
+        3. When exactly one relative and one absolute offer are configured,
+           compute the fee intersection from the *randomized* fees and split
+           size ranges there so the two offers cover disjoint, contiguous
+           ranges without leaking the unrandomized fee values (issue #88)
+        4. Assign and randomize size ranges, create Offer objects
+        5. Attach fidelity bond value if available
 
         Returns:
             List of offers. Each offer gets a unique oid (0, 1, 2, ...).
@@ -98,6 +102,28 @@ class OfferManager:
             # Get effective offer configurations
             offer_configs = self.config.get_effective_offer_configs()
 
+            # Step 1: randomize fees for every offer before touching sizes.
+            # Storing (cjfee_str, randomized_txfee, numeric_cjfee) where
+            # numeric_cjfee is a float for relative offers and an int for
+            # absolute offers -- used only for the intersection calculation.
+            randomized_fees: list[tuple[str, int, float]] = []
+            for cfg in offer_configs:
+                fees = self._randomize_offer_fees(cfg)
+                if fees is None:
+                    # Invalid config (e.g. non-positive relative fee) -- will
+                    # be caught again in _create_single_offer; record a sentinel
+                    # so indices stay aligned.
+                    randomized_fees.append(("", 0, 0.0))
+                else:
+                    randomized_fees.append(fees)
+
+            # Step 2: compute size-range overrides from the *randomized* fees.
+            # This means the advertised size boundary reveals nothing about the
+            # unrandomized fee configuration.
+            size_overrides = self._compute_dual_offer_size_overrides(
+                offer_configs, randomized_fees, max_balance
+            )
+
             # Get fidelity bond value if available (shared across all offers)
             fidelity_bond_value = 0
             bond = await get_best_fidelity_bond(self.wallet)
@@ -108,14 +134,22 @@ class OfferManager:
                     f"value={bond.value} sats, bond_value={bond.bond_value}"
                 )
 
-            # Create an offer for each configuration
+            # Step 3: create Offer objects with pre-randomized fees and
+            # intersection-derived size bounds.
             offers: list[Offer] = []
             for offer_id, offer_cfg in enumerate(offer_configs):
+                cjfee_str, rand_txfee, numeric_cjfee = randomized_fees[offer_id]
+                min_override, max_override = size_overrides.get(offer_id, (None, None))
                 offer = self._create_single_offer(
                     offer_id=offer_id,
                     offer_cfg=offer_cfg,
                     max_balance=max_balance,
                     fidelity_bond_value=fidelity_bond_value,
+                    cjfee_str=cjfee_str,
+                    randomized_txfee=rand_txfee,
+                    numeric_cjfee=numeric_cjfee,
+                    min_size_override=min_override,
+                    max_size_override=max_override,
                 )
                 if offer:
                     offers.append(offer)
@@ -131,92 +165,230 @@ class OfferManager:
             logger.error(f"Failed to create offers: {e}")
             return []
 
+    def _randomize_offer_fees(
+        self,
+        offer_cfg: OfferConfig,
+    ) -> tuple[str, int, float] | None:
+        """Randomize the fees for a single offer configuration.
+
+        Returns ``(cjfee_str, randomized_txfee, numeric_cjfee)`` where:
+
+        - ``cjfee_str`` is the wire-format CJ fee string.
+        - ``randomized_txfee`` is the randomized tx-fee contribution in sats.
+        - ``numeric_cjfee`` is a float representation of the CJ fee used for
+          the intersection calculation: the randomized relative fee (as a
+          fraction) for relative offers, or the randomized absolute fee (in
+          sats, *without* the txfee component) for absolute offers.
+
+        Returns ``None`` if the config is invalid (e.g. non-positive relative
+        fee).
+        """
+        randomized_txfee = int(
+            _randomize(offer_cfg.tx_fee_contribution, offer_cfg.txfee_contribution_factor, low=0)
+        )
+
+        if offer_cfg.offer_type in (OfferType.SW0_RELATIVE, OfferType.SWA_RELATIVE):
+            cj_fee_float = float(offer_cfg.cj_fee_relative)
+            if cj_fee_float <= 0:
+                logger.error(f"Invalid cj_fee_relative: {offer_cfg.cj_fee_relative}. Must be > 0.")
+                return None
+            randomized_cj_fee_float = _randomize(cj_fee_float, offer_cfg.cjfee_factor)
+            if randomized_cj_fee_float <= 0:
+                randomized_cj_fee_float = cj_fee_float
+            cjfee_str = _format_relative_cjfee(randomized_cj_fee_float)
+            return cjfee_str, randomized_txfee, randomized_cj_fee_float
+        else:
+            # Absolute offer: randomize the CJ fee and add the txfee
+            # contribution for the wire value, but keep them separate so the
+            # intersection math can use the pure CJ fee.
+            randomized_cj_fee_int = int(
+                _randomize(offer_cfg.cj_fee_absolute, offer_cfg.cjfee_factor)
+            )
+            if randomized_cj_fee_int < 0:
+                randomized_cj_fee_int = 0
+            cjfee_str = str(randomized_cj_fee_int + randomized_txfee)
+            return cjfee_str, randomized_txfee, float(randomized_cj_fee_int)
+
+    def _compute_dual_offer_size_overrides(
+        self,
+        offer_configs: list[OfferConfig],
+        randomized_fees: list[tuple[str, int, float]],
+        max_balance: int,
+    ) -> dict[int, tuple[int | None, int | None]]:
+        """Compute per-offer size-range overrides for dual rel+abs offers.
+
+        The intersection is computed from the *randomized* fees so that the
+        advertised size boundary does not leak information about the
+        unrandomized fee configuration.
+
+        Returns a mapping from offer index to ``(min_size_override,
+        max_size_override)``.  When the maker advertises exactly one
+        relative offer and one absolute offer, the absolute offer is
+        capped at the fee intersection ``x = randomized_abs_fee / randomized_rel_fee``
+        and the relative offer is floored at the same point so the two
+        offers cover disjoint, contiguous size ranges:
+
+        - abs offer: ``[cfg.min_size, intersection]``
+        - rel offer: ``[intersection, max_available]``
+
+        Returns an empty dict for any non-dual configuration (single
+        offer, two same-type offers, three or more offers, etc.) so
+        existing behaviour is preserved.
+        """
+        if len(offer_configs) != 2:
+            return {}
+
+        # Find which offer is relative and which is absolute.
+        rel_idx: int | None = None
+        abs_idx: int | None = None
+        for idx, cfg in enumerate(offer_configs):
+            if cfg.offer_type in (OfferType.SW0_RELATIVE, OfferType.SWA_RELATIVE):
+                if rel_idx is not None:
+                    return {}  # two relative offers -> not a dual rel+abs pair
+                rel_idx = idx
+            elif cfg.offer_type in (OfferType.SW0_ABSOLUTE, OfferType.SWA_ABSOLUTE):
+                if abs_idx is not None:
+                    return {}  # two absolute offers
+                abs_idx = idx
+            else:  # pragma: no cover - guarded by OfferType enum
+                return {}
+
+        if rel_idx is None or abs_idx is None:
+            return {}
+
+        rel_cfg = offer_configs[rel_idx]
+        abs_cfg = offer_configs[abs_idx]
+
+        # Use the already-randomized numeric fees for the intersection so the
+        # boundary does not reveal the unrandomized configuration.
+        randomized_rel_fee: float = randomized_fees[rel_idx][2]
+        randomized_abs_fee: float = randomized_fees[abs_idx][2]
+
+        if randomized_rel_fee <= 0 or randomized_abs_fee <= 0:
+            # Pathological values (randomized into non-positive territory or
+            # configured as zero); skip the auto-split.
+            return {}
+
+        intersection = int(randomized_abs_fee / randomized_rel_fee)
+
+        # Lower floor for the abs offer is its own configured min_size.
+        abs_min = abs_cfg.min_size
+        # Upper ceiling for the rel offer is the wallet-derived max balance.
+        rel_max_ceiling = max_balance
+
+        overrides: dict[int, tuple[int | None, int | None]] = {}
+
+        if intersection <= abs_min:
+            # The relative offer is cheaper everywhere above ``abs_min``;
+            # the absolute offer would never undercut it.  Drop the abs
+            # offer entirely by collapsing its range -- _create_single_offer
+            # will skip it.
+            overrides[abs_idx] = (abs_min, abs_min)
+            overrides[rel_idx] = (max(rel_cfg.min_size, abs_min), None)
+            return overrides
+
+        if intersection >= rel_max_ceiling:
+            # The absolute offer is cheaper across the entire usable range;
+            # the relative offer would never beat it.  Drop the rel offer.
+            overrides[rel_idx] = (rel_max_ceiling, rel_max_ceiling)
+            overrides[abs_idx] = (abs_min, rel_max_ceiling)
+            return overrides
+
+        # Standard case: the intersection sits strictly inside the usable
+        # range, so each offer covers one side of it.
+        overrides[abs_idx] = (abs_min, intersection)
+        overrides[rel_idx] = (intersection, None)
+        logger.info(
+            f"Dual-offer auto-split at CJ amount {intersection} sats "
+            f"(randomized abs={randomized_abs_fee} sats / randomized rel={randomized_rel_fee}): "
+            f"abs offer covers [{abs_min}, {intersection}], "
+            f"rel offer covers [{intersection}, {rel_max_ceiling}]"
+        )
+        return overrides
+
     def _create_single_offer(
         self,
         offer_id: int,
         offer_cfg: OfferConfig,
         max_balance: int,
         fidelity_bond_value: int,
+        cjfee_str: str,
+        randomized_txfee: int,
+        numeric_cjfee: float,
+        min_size_override: int | None = None,
+        max_size_override: int | None = None,
     ) -> Offer | None:
         """
-        Create a single offer from configuration.
+        Create a single offer from pre-randomized fees and size bounds.
 
         Args:
             offer_id: Unique offer ID (0, 1, 2, ...)
             offer_cfg: Offer configuration
             max_balance: Maximum available balance
             fidelity_bond_value: Fidelity bond value to attach
+            cjfee_str: Pre-randomized wire-format CJ fee string.
+            randomized_txfee: Pre-randomized tx-fee contribution in sats.
+            numeric_cjfee: Numeric CJ fee (relative fraction or absolute sats)
+                used for the profitability floor calculation.
+            min_size_override: Floor for min_size from the dual-offer
+                intersection split (pins the seam; no size randomization
+                applied to this boundary).
+            max_size_override: Ceiling for max_size from the dual-offer
+                intersection split (pins the seam; no size randomization
+                applied to this boundary).
 
         Returns:
             Offer object or None if creation failed
         """
         try:
-            # Randomize tx fee contribution per offer announcement (mirrors
-            # upstream yg-privacyenhanced).  When txfee_contribution is 0 the
-            # randomized value is also 0 regardless of the factor.
-            randomized_txfee = int(
-                _randomize(
-                    offer_cfg.tx_fee_contribution, offer_cfg.txfee_contribution_factor, low=0
-                )
-            )
+            if not cjfee_str:
+                # Sentinel from an invalid config recorded in _randomize_offer_fees.
+                logger.error(f"Offer {offer_id}: invalid fee config, skipping")
+                return None
 
-            # Reserve dust threshold + (randomized) tx fee contribution
+            # Reserve dust threshold + randomized tx fee contribution.
             max_available = max_balance - max(self.config.dust_threshold, randomized_txfee)
+            # Apply dual-offer ceiling (caps the abs offer at the intersection).
+            if max_size_override is not None:
+                max_available = min(max_available, max_size_override)
 
-            if max_available <= offer_cfg.min_size:
+            effective_min_size = offer_cfg.min_size
+            if min_size_override is not None:
+                effective_min_size = max(effective_min_size, min_size_override)
+
+            if max_available <= effective_min_size:
                 logger.warning(
                     f"Offer {offer_id}: Insufficient balance: "
-                    f"max_available={max_available} <= min_size={offer_cfg.min_size} "
+                    f"max_available={max_available} <= min_size={effective_min_size} "
                     f"(max_balance={max_balance}, dust_threshold={self.config.dust_threshold})"
                 )
                 return None
 
-            # Calculate min_size based on offer type and randomize cjfee/min_size
+            # Determine base_min_size: for relative offers enforce a
+            # profitability floor using the already-randomized fee values.
             if offer_cfg.offer_type in (OfferType.SW0_RELATIVE, OfferType.SWA_RELATIVE):
-                cj_fee_float = float(offer_cfg.cj_fee_relative)
-                if cj_fee_float <= 0:
-                    logger.error(
-                        f"Offer {offer_id}: Invalid cj_fee_relative: "
-                        f"{offer_cfg.cj_fee_relative}. Must be > 0 for relative offer types."
-                    )
-                    return None
-
-                # Randomize the relative fee.  Use a string format that drops
-                # trailing zeros and avoids scientific notation so the wire
-                # value stays compact for both 0.001 and 0.00002 defaults.
-                randomized_cj_fee_float = _randomize(cj_fee_float, offer_cfg.cjfee_factor)
-                if randomized_cj_fee_float <= 0:
-                    randomized_cj_fee_float = cj_fee_float
-                cjfee = _format_relative_cjfee(randomized_cj_fee_float)
-
-                # Calculate minimum size for profitability using the
-                # *advertised* (randomized) values to avoid quoting an offer
-                # that cannot cover its own tx fee contribution.
                 min_size_for_profit = (
-                    int(1.5 * randomized_txfee / randomized_cj_fee_float)
-                    if randomized_cj_fee_float > 0
-                    else 0
+                    int(1.5 * randomized_txfee / numeric_cjfee) if numeric_cjfee > 0 else 0
                 )
-                base_min_size = max(min_size_for_profit, offer_cfg.min_size)
+                base_min_size = max(min_size_for_profit, effective_min_size)
             else:
-                # Absolute offer.  Randomize cjfee around cj_fee_absolute and
-                # add the randomized txfee contribution (matches reference).
-                randomized_cj_fee_int = int(
-                    _randomize(offer_cfg.cj_fee_absolute, offer_cfg.cjfee_factor)
+                base_min_size = effective_min_size
+
+            # Randomize min_size (clamped to dust threshold).  The dual-offer
+            # auto-split pins the boundary at the intersection; no randomization
+            # is applied to that edge so the two offers stay seamless.
+            if min_size_override is not None:
+                randomized_min_size = max(int(effective_min_size), DUST_THRESHOLD)
+            else:
+                randomized_min_size = int(
+                    _randomize(base_min_size, offer_cfg.size_factor, low=DUST_THRESHOLD)
                 )
-                if randomized_cj_fee_int < 0:
-                    randomized_cj_fee_int = 0
-                cjfee = str(randomized_cj_fee_int + randomized_txfee)
-                base_min_size = offer_cfg.min_size
 
-            # Randomize min_size (clamped to dust threshold to keep offers
-            # spendable).
-            randomized_min_size = int(
-                _randomize(base_min_size, offer_cfg.size_factor, low=DUST_THRESHOLD)
-            )
-
-            # Randomize max_size downward from available balance.
-            if offer_cfg.size_factor > 0 and max_available > 0:
+            # Randomize max_size downward from available balance.  The
+            # dual-offer auto-split pins this edge too.
+            if max_size_override is not None:
+                randomized_max_size = int(max_available)
+            elif offer_cfg.size_factor > 0 and max_available > 0:
                 randomized_max_size = int(
                     random.uniform(max_available * (1.0 - offer_cfg.size_factor), max_available)
                 )
@@ -238,7 +410,7 @@ class OfferManager:
                 minsize=randomized_min_size,
                 maxsize=randomized_max_size,
                 txfee=randomized_txfee,
-                cjfee=cjfee,
+                cjfee=cjfee_str,
                 fidelity_bond_value=fidelity_bond_value,
             )
 
@@ -246,7 +418,7 @@ class OfferManager:
                 f"Created offer {offer_id}: type={offer.ordertype.value}, "
                 f"size={randomized_min_size}-{randomized_max_size} "
                 f"(max_available={max_available}), "
-                f"cjfee={cjfee}, txfee={randomized_txfee}, "
+                f"cjfee={cjfee_str}, txfee={randomized_txfee}, "
                 f"bond_value={fidelity_bond_value}"
             )
 

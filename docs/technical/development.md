@@ -9,9 +9,7 @@ python -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 
-for d in jmcore jmwallet maker taker directory_server orderbook_watcher jmwalletd; do
-  python -m pip install -e "./${d}[dev]"
-done
+pip install -e './jmcore[dev]' -e './jmwallet[dev]' -e './maker[dev]' -e './taker[dev]' -e './directory_server[dev]' -e './orderbook_watcher[dev]' -e './jmwalletd[dev]' -e './tumbler[dev]'
 ```
 
 ## Lint / Format / Type Check
@@ -91,7 +89,7 @@ If you want to run the steps manually:
 
 ```bash
 python -m pip install -r requirements-docs.txt
-python -m pip install -e jmcore -e jmwallet -e taker -e maker -e directory_server -e orderbook_watcher
+python -m pip install -e jmcore -e jmwallet -e taker -e maker -e directory_server -e orderbook_watcher -e jmwalletd -e tumbler
 python -m properdocs build -q -f properdocs.yml
 ```
 

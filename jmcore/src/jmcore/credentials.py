@@ -33,9 +33,11 @@ from typing import Final
 # is missing instead of deferring to runtime.
 import nwabisabi as _rs
 
-# JMP-0005: 51-bit Bulletproof range, max credential value = 2^51 sat.
-# Pinned here (and not at the call site) so a rounding mistake in one
-# component cannot disagree with another.
+# JMP-0005: 51-bit bit-commitment range proof, max credential value = 2^51 sat.
+# The range proof is embedded inside the WabiSabi credential request
+# transcript (not a separate Bulletproof blob). Pinned here (and not at
+# the call site) so a rounding mistake in one component cannot disagree
+# with another.
 MAX_AMOUNT: Final[int] = (1 << 51) - 1
 RANGE_PROOF_WIDTH: Final[int] = 51
 

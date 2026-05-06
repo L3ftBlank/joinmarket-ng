@@ -584,6 +584,115 @@ class TestBuildMakerConfig:
         assert config.backend_config.get("auth_token") == "token-123"
 
 
+class TestBuildMakerConfigZkpFlags:
+    """ZKP / extension flags must round-trip from settings to MakerConfig."""
+
+    def test_zkp_settings_flow_to_maker_config(self) -> None:
+        """ZkpSettings -> MakerConfig.zkp via settings.zkp.to_config()."""
+        from jmcore.settings import JoinMarketSettings
+
+        from maker.cli import build_maker_config
+
+        settings = JoinMarketSettings()
+        settings.zkp.max_amount = 2**40 - 1
+        settings.zkp.range_proof_width = 40
+        settings.zkp.credential_number = 4
+
+        config = build_maker_config(settings=settings, mnemonic=TEST_MNEMONIC, passphrase="")
+
+        assert config.zkp.max_amount == 2**40 - 1
+        assert config.zkp.range_proof_width == 40
+        assert config.zkp.credential_number == 4
+
+    def test_tx_extension_settings_flow_to_maker_config(self) -> None:
+        """TxExtensionSettings -> MakerConfig.tx_extension."""
+        from jmcore.settings import JoinMarketSettings
+
+        from maker.cli import build_maker_config
+
+        settings = JoinMarketSettings()
+        settings.tx_extension.max_rounds = 3
+        settings.tx_extension.attestation_threshold_K = 5
+
+        config = build_maker_config(settings=settings, mnemonic=TEST_MNEMONIC, passphrase="")
+
+        assert config.tx_extension.max_rounds == 3
+        assert config.tx_extension.attestation_threshold_K == 5
+
+    def test_maker_zkp_toggles_flow_to_maker_config(self) -> None:
+        """Maker-level ZKP/extension opt-ins are wired through."""
+        from jmcore.settings import JoinMarketSettings
+
+        from maker.cli import build_maker_config
+
+        settings = JoinMarketSettings()
+        settings.maker.enable_zkp = True
+        settings.maker.enable_tx_extension = True
+        settings.maker.enable_tx_extension_late_join = True
+
+        config = build_maker_config(settings=settings, mnemonic=TEST_MNEMONIC, passphrase="")
+
+        assert config.enable_zkp is True
+        assert config.enable_tx_extension is True
+        assert config.enable_tx_extension_late_join is True
+
+    def test_maker_zkp_defaults_off(self) -> None:
+        """All ZKP/extension opt-ins default to False."""
+        from jmcore.settings import JoinMarketSettings
+
+        from maker.cli import build_maker_config
+
+        settings = JoinMarketSettings()
+        config = build_maker_config(settings=settings, mnemonic=TEST_MNEMONIC, passphrase="")
+
+        assert config.enable_zkp is False
+        assert config.enable_tx_extension is False
+        assert config.enable_tx_extension_late_join is False
+
+
+class TestZkpExtensionValidators:
+    """Validation rules linking the per-offer ZKP/extension flags."""
+
+    def test_offer_config_extension_requires_zkp(self) -> None:
+        """OfferConfig rejects enable_tx_extension without enable_zkp."""
+        import pytest
+
+        with pytest.raises(ValueError, match="requires enable_zkp"):
+            OfferConfig(enable_tx_extension=True)
+
+    def test_offer_config_late_join_requires_extension(self) -> None:
+        """OfferConfig rejects late_join without enable_tx_extension."""
+        import pytest
+
+        with pytest.raises(ValueError, match="requires enable_tx_extension"):
+            OfferConfig(enable_zkp=True, enable_tx_extension_late_join=True)
+
+    def test_maker_config_extension_requires_zkp(self) -> None:
+        """MakerConfig.enable_tx_extension requires MakerConfig.enable_zkp."""
+        import pytest
+        from pydantic import SecretStr
+
+        with pytest.raises(ValueError, match="requires enable_zkp"):
+            MakerConfig(
+                mnemonic=SecretStr(TEST_MNEMONIC),
+                passphrase=SecretStr(""),
+                enable_tx_extension=True,
+            )
+
+    def test_maker_config_late_join_requires_extension(self) -> None:
+        """MakerConfig.enable_tx_extension_late_join requires extension on."""
+        import pytest
+        from pydantic import SecretStr
+
+        with pytest.raises(ValueError, match="requires enable_tx_extension"):
+            MakerConfig(
+                mnemonic=SecretStr(TEST_MNEMONIC),
+                passphrase=SecretStr(""),
+                enable_zkp=True,
+                enable_tx_extension_late_join=True,
+            )
+
+
 class TestCreateWalletService:
     """Tests for create_wallet_service function.
 

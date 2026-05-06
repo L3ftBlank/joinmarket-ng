@@ -7,7 +7,13 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 
-from jmcore.config import TorControlConfig, WalletConfig, create_tor_control_config_from_env
+from jmcore.config import (
+    TorControlConfig,
+    TxExtensionConfig,
+    WalletConfig,
+    ZkpConfig,
+    create_tor_control_config_from_env,
+)
 from jmcore.models import OfferType
 from jmcore.tor_control import HiddenServiceDoSConfig
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -102,6 +108,28 @@ class OfferConfig(BaseModel):
             "upstream JoinMarket reference."
         ),
     )
+    enable_zkp: bool = Field(
+        default=False,
+        description=(
+            "Advertise this offer as ZKP-only (JMP-0005). Takers without "
+            "ZKP support will skip it. Off by default; flip per-offer to "
+            "split traffic between legacy and ZKP-only offers."
+        ),
+    )
+    enable_tx_extension: bool = Field(
+        default=False,
+        description=(
+            "Advertise this offer as willing to participate in multi-round "
+            "transaction extension (JMP-0006). Requires enable_zkp=true."
+        ),
+    )
+    enable_tx_extension_late_join: bool = Field(
+        default=False,
+        description=(
+            "Advertise this offer as willing to be a late-joiner in extension "
+            "rounds. Requires enable_tx_extension=true."
+        ),
+    )
 
     @field_validator("cj_fee_relative", mode="before")
     @classmethod
@@ -126,6 +154,12 @@ class OfferConfig(BaseModel):
                         f"cj_fee_relative must be a valid number, got {self.cj_fee_relative}"
                     ) from e
                 raise
+        if self.enable_tx_extension and not self.enable_zkp:
+            raise ValueError(
+                "enable_tx_extension requires enable_zkp=true (JMP-0006 builds on JMP-0005)"
+            )
+        if self.enable_tx_extension_late_join and not self.enable_tx_extension:
+            raise ValueError("enable_tx_extension_late_join requires enable_tx_extension=true")
         return self
 
     def get_cjfee(self) -> str | int:
@@ -326,6 +360,50 @@ class MakerConfig(WalletConfig):
         ),
     )
 
+    # ZKP credential protocol (JMP-0005)
+    zkp: ZkpConfig = Field(
+        default_factory=ZkpConfig,
+        description="ZKP credential protocol parameters (JMP-0005)",
+    )
+    enable_zkp: bool = Field(
+        default=False,
+        description=(
+            "Advertise support for the ZKP credential protocol. When false, "
+            "all per-offer ZKP flags are ignored. Acts as a master switch."
+        ),
+    )
+
+    # Multi-round transaction extension (JMP-0006)
+    tx_extension: TxExtensionConfig = Field(
+        default_factory=TxExtensionConfig,
+        description="Transaction-extension protocol parameters (JMP-0006)",
+    )
+    enable_tx_extension: bool = Field(
+        default=False,
+        description=("Advertise support for transaction extension. Requires enable_zkp=true."),
+    )
+    enable_tx_extension_late_join: bool = Field(
+        default=False,
+        description=(
+            "Advertise willingness to late-join extension rounds. Requires "
+            "enable_tx_extension=true."
+        ),
+    )
+
+    # Legacy single-offer ZKP flags (used when offer_configs is empty)
+    offer_enable_zkp: bool = Field(
+        default=False,
+        description="Per-offer ZKP flag in legacy single-offer mode.",
+    )
+    offer_enable_tx_extension: bool = Field(
+        default=False,
+        description="Per-offer tx-extension flag in legacy single-offer mode.",
+    )
+    offer_enable_tx_extension_late_join: bool = Field(
+        default=False,
+        description="Per-offer tx-extension late-join flag in legacy single-offer mode.",
+    )
+
     # Mixdepth 0 privacy restriction
     allow_mixdepth_zero_merge: bool = Field(
         default=False,
@@ -445,6 +523,12 @@ class MakerConfig(WalletConfig):
                         ) from e
                     raise
 
+        if self.enable_tx_extension and not self.enable_zkp:
+            raise ValueError(
+                "enable_tx_extension requires enable_zkp=true (JMP-0006 builds on JMP-0005)"
+            )
+        if self.enable_tx_extension_late_join and not self.enable_tx_extension:
+            raise ValueError("enable_tx_extension_late_join requires enable_tx_extension=true")
         return self
 
     def get_effective_offer_configs(self) -> list[OfferConfig]:
@@ -473,5 +557,8 @@ class MakerConfig(WalletConfig):
                 cjfee_factor=self.cjfee_factor,
                 txfee_contribution_factor=self.txfee_contribution_factor,
                 size_factor=self.size_factor,
+                enable_zkp=self.offer_enable_zkp,
+                enable_tx_extension=self.offer_enable_tx_extension,
+                enable_tx_extension_late_join=self.offer_enable_tx_extension_late_join,
             )
         ]

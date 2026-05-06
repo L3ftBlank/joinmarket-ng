@@ -364,6 +364,11 @@ def build_maker_config(
         merge_algorithm=parsed_merge_algorithm,
         offer_configs=offer_configs,
         allow_mixdepth_zero_merge=settings.maker.allow_mixdepth_zero_merge,
+        zkp=settings.zkp.to_config(),
+        enable_zkp=settings.maker.enable_zkp,
+        tx_extension=settings.tx_extension.to_config(),
+        enable_tx_extension=settings.maker.enable_tx_extension,
+        enable_tx_extension_late_join=settings.maker.enable_tx_extension_late_join,
     )
 
 

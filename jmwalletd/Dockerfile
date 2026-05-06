@@ -33,12 +33,15 @@ FROM python:${PYTHON_VERSION}-slim@${PYTHON_SLIM_DIGEST} AS builder
 WORKDIR /build
 
 # build-essential + cmake + pkg-config needed to compile coincurve (no wheels for 3.14 yet)
+# rustc + cargo needed to compile the nwabisabi extension module (source-only, ships no wheel)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential=12.12 \
+    cargo=1.85.0+dfsg3-1 \
     cmake=3.31.6-2 \
     pkg-config=1.8.1-4 \
     libffi-dev=3.4.8-2 \
     libsodium-dev=1.0.18-1+deb13u1 \
+    rustc=1.85.0+dfsg3-1 \
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf /var/log/dpkg.log /var/log/apt/*
 

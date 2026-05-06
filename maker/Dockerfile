@@ -20,10 +20,12 @@ WORKDIR /build
 # Update versions with: ./scripts/update-base-images.sh
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential=12.12 \
+    cargo=1.85.0+dfsg3-1 \
     git=1:2.47.3-0+deb13u1 \
     libffi-dev=3.4.8-2 \
     libsodium-dev=1.0.18-1+deb13u1 \
     pkg-config=1.8.1-4 \
+    rustc=1.85.0+dfsg3-1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Reproducible builds: SOURCE_DATE_EPOCH must be set via --build-arg for reproducible builds

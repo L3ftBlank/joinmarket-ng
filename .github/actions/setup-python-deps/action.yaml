@@ -26,6 +26,28 @@ runs:
           **/requirements*.txt
           **/pyproject.toml
 
+    # jmcore depends on the Rust-backed `nwabisabi` crate (built via
+    # maturin's PEP 517 backend during pip install). Without a Rust
+    # toolchain on the runner the install would fall over with
+    # "maturin failed; cargo not found". Pinning to stable; nwabisabi
+    # has no nightly-only features.
+    - name: Setup Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    # Cache the cargo registry + git index + the per-job target dir so
+    # repeat CI runs do not redownload crates.io for every job. Keying
+    # off the lockfile of the consuming pyproject.toml is enough; the
+    # nwabisabi crate ships its own Cargo.lock that is fetched via the
+    # git+ URL and does not appear in this repo.
+    - name: Cache cargo
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+        key: cargo-${{ runner.os }}-${{ hashFiles('**/pyproject.toml') }}
+        restore-keys: cargo-${{ runner.os }}-
+
     - name: Install dependencies
       shell: bash
       run: |

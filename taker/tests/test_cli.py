@@ -81,6 +81,15 @@ class TestBuildTakerConfig:
         settings.wallet.scan_lookback_blocks = 1000
         settings.wallet.default_fee_block_target = 3  # Has a default value
 
+        # ZKP credential / extension protocol settings (JMP-0005 / JMP-0006).
+        # Use real settings models so to_config() returns valid pydantic instances.
+        from jmcore.settings import TxExtensionSettings, ZkpSettings
+
+        settings.zkp = ZkpSettings()
+        settings.tx_extension = TxExtensionSettings()
+        settings.taker.enable_zkp = False
+        settings.taker.enable_tx_extension = False
+
         return settings
 
     def test_fee_rate_without_block_target(
@@ -353,3 +362,95 @@ class TestBuildTakerConfig:
         )
 
         assert config.data_dir == Path("/tmp/jm-test-data")
+
+
+class TestBuildTakerConfigZkpFlags(TestBuildTakerConfig):
+    """ZKP / extension flags must round-trip from settings to TakerConfig.
+
+    Inherits the ``mock_settings`` fixture from ``TestBuildTakerConfig`` so
+    we get the same baseline test settings without duplication.
+    """
+
+    def test_zkp_settings_flow_to_taker_config(
+        self, sample_mnemonic: str, mock_settings: MagicMock
+    ) -> None:
+        """ZkpSettings -> TakerConfig.zkp via settings.zkp.to_config()."""
+        from jmcore.settings import ZkpSettings
+
+        mock_settings.zkp = ZkpSettings(
+            max_amount=2**40 - 1, range_proof_width=40, credential_number=4
+        )
+
+        from taker.cli import build_taker_config
+
+        config = build_taker_config(
+            settings=mock_settings,
+            mnemonic=sample_mnemonic,
+            passphrase="",
+            destination="bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
+            amount=100000,
+            mixdepth=0,
+        )
+
+        assert config.zkp.max_amount == 2**40 - 1
+        assert config.zkp.range_proof_width == 40
+        assert config.zkp.credential_number == 4
+
+    def test_tx_extension_settings_flow_to_taker_config(
+        self, sample_mnemonic: str, mock_settings: MagicMock
+    ) -> None:
+        """TxExtensionSettings -> TakerConfig.tx_extension."""
+        from jmcore.settings import TxExtensionSettings
+
+        mock_settings.tx_extension = TxExtensionSettings(max_rounds=3, attestation_threshold_K=5)
+
+        from taker.cli import build_taker_config
+
+        config = build_taker_config(
+            settings=mock_settings,
+            mnemonic=sample_mnemonic,
+            passphrase="",
+            destination="bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
+            amount=100000,
+            mixdepth=0,
+        )
+
+        assert config.tx_extension.max_rounds == 3
+        assert config.tx_extension.attestation_threshold_K == 5
+
+    def test_taker_zkp_toggles_flow_to_taker_config(
+        self, sample_mnemonic: str, mock_settings: MagicMock
+    ) -> None:
+        """Taker-level ZKP/extension opt-ins are wired through."""
+        mock_settings.taker.enable_zkp = True
+        mock_settings.taker.enable_tx_extension = True
+
+        from taker.cli import build_taker_config
+
+        config = build_taker_config(
+            settings=mock_settings,
+            mnemonic=sample_mnemonic,
+            passphrase="",
+            destination="bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
+            amount=100000,
+            mixdepth=0,
+        )
+
+        assert config.enable_zkp is True
+        assert config.enable_tx_extension is True
+
+    def test_taker_zkp_defaults_off(self, sample_mnemonic: str, mock_settings: MagicMock) -> None:
+        """ZKP/extension opt-ins default to False."""
+        from taker.cli import build_taker_config
+
+        config = build_taker_config(
+            settings=mock_settings,
+            mnemonic=sample_mnemonic,
+            passphrase="",
+            destination="bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
+            amount=100000,
+            mixdepth=0,
+        )
+
+        assert config.enable_zkp is False
+        assert config.enable_tx_extension is False

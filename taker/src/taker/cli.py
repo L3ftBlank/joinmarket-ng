@@ -251,6 +251,10 @@ def build_taker_config(
         rescan_interval_sec=settings.taker.rescan_interval_sec,
         pending_tx_abandon_hours=settings.taker.pending_tx_abandon_hours,
         select_utxos=select_utxos,
+        zkp=settings.zkp.to_config(),
+        enable_zkp=settings.taker.enable_zkp,
+        tx_extension=settings.tx_extension.to_config(),
+        enable_tx_extension=settings.taker.enable_tx_extension,
     )
 
 

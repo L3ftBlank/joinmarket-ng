@@ -8,7 +8,7 @@ import random
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 
-from jmcore.config import WalletConfig
+from jmcore.config import TxExtensionConfig, WalletConfig, ZkpConfig
 from jmcore.models import OfferType
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 
@@ -243,6 +243,32 @@ class TakerConfig(WalletConfig):
         ),
     )
 
+    # ZKP credential protocol (JMP-0005)
+    zkp: ZkpConfig = Field(
+        default_factory=ZkpConfig,
+        description="ZKP credential protocol parameters (JMP-0005).",
+    )
+    enable_zkp: bool = Field(
+        default=False,
+        description=(
+            "Use ZKP credentials when all selected makers advertise the "
+            "feature. Off by default while the feature is rolling out."
+        ),
+    )
+
+    # Multi-round transaction extension (JMP-0006)
+    tx_extension: TxExtensionConfig = Field(
+        default_factory=TxExtensionConfig,
+        description="Transaction-extension protocol parameters (JMP-0006).",
+    )
+    enable_tx_extension: bool = Field(
+        default=False,
+        description=(
+            "Drive multi-round transaction extension when enough selected "
+            "makers advertise the feature. Requires enable_zkp=true."
+        ),
+    )
+
     @model_validator(mode="after")
     def set_bitcoin_network_default(self) -> TakerConfig:
         """If bitcoin_network is not set, default to the protocol network."""
@@ -257,6 +283,15 @@ class TakerConfig(WalletConfig):
             raise ValueError(
                 "Cannot specify both fee_rate and fee_block_target. "
                 "Use fee_rate for manual rate, or fee_block_target for estimation."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_extension_requires_zkp(self) -> TakerConfig:
+        """Transaction extension (JMP-0006) builds on ZKP credentials."""
+        if self.enable_tx_extension and not self.enable_zkp:
+            raise ValueError(
+                "enable_tx_extension requires enable_zkp=true (JMP-0006 builds on JMP-0005)"
             )
         return self
 

@@ -925,26 +925,26 @@ CHOICE=$(whiptail --title " JoinMarket-NG Menu " \
                           echo "=== Wallet Info (Basic) ==="
                           echo ""
                           echo "Active wallet: $(basename "$CURRENT_WALLET")"
+                          echo "Preparing wallet..."
                           echo ""
                           (
                               ensure_wallet_password "$CURRENT_WALLET" || exit 1
                               jm-wallet info
+                              pause
                           )
-                          pause
                           ;;
                       EXT)
                           clear
                           echo "=== Wallet Info (Extended) ==="
                           echo ""
                           echo "Active wallet: $(basename "$CURRENT_WALLET")"
+                          echo "Preparing wallet..."
                           echo ""
                           (
                               ensure_wallet_password "$CURRENT_WALLET" || exit 1
                               jm-wallet info --extended
+                              pause
                           )
-                          pause
-                          ;;
-                      BACK|"")
                           break
                           ;;
                   esac
@@ -1010,11 +1010,17 @@ CHOICE=$(whiptail --title " JoinMarket-NG Menu " \
                   [ -n "$HIST_ROLE" ]  && HIST_ARGS+=(-r "$HIST_ROLE")
                   [ -n "$HIST_LIMIT" ] && HIST_ARGS+=(-n "$HIST_LIMIT")
                   [ $HIST_SHOW_STATS -eq 0 ] && HIST_ARGS+=(-s)
+                  clear
+                  echo "=== CoinJoin History ==="
+                  echo ""
+                  echo "Active wallet: $(basename "$CURRENT_WALLET")"
+                  echo "Preparing wallet..."
+                  echo ""
                   (
                       ensure_wallet_password "$CURRENT_WALLET" || exit 1
                       jm-wallet history "${HIST_ARGS[@]}"
+                      pause
                   )
-                  pause
               fi
               ;;
 
@@ -1022,22 +1028,24 @@ CHOICE=$(whiptail --title " JoinMarket-NG Menu " \
           # FREEZE - Freeze/Unfreeze UTXOs
           # --------------------------------------------------------------
           FREEZE)
-              clear
-              echo "=== Freeze / Unfreeze UTXOs ==="
-              echo ""
               if [ -z "$CURRENT_WALLET" ]; then
-                  echo "No wallet configured in config.toml (mnemonic_file is empty)."
+                  whiptail --title " Error " --msgbox "No wallet configured.\nSet up a wallet first (W -> NEW or SEL)." 9 50
               else
+                  clear
+                  echo "=== Freeze / Unfreeze UTXOs ==="
+                  echo ""
                   echo "Active wallet: $(basename "$CURRENT_WALLET")"
-                  echo "Opening interactive UTXO selector. Use arrow keys to navigate,"
-                  echo "Space to toggle freeze state, Enter to confirm, q to quit."
+                  echo "Preparing wallet..."
                   echo ""
                   (
                       ensure_wallet_password "$CURRENT_WALLET" || exit 1
+                      echo "Opening interactive UTXO selector. Use arrow keys to navigate,"
+                      echo "Space to toggle freeze state, Enter to confirm, q to quit."
+                      echo ""
                       jm-wallet freeze
+                      pause
                   )
               fi
-              pause
               ;;
 
           # --------------------------------------------------------------
@@ -1215,7 +1223,7 @@ CHOICE=$(whiptail --title " JoinMarket-NG Menu " \
               pause
               ;;
 
-# --------------------------------------------------------------
+          # --------------------------------------------------------------
           # SEED - Show Seed Words
           # --------------------------------------------------------------
           SEED)

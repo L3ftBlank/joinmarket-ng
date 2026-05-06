@@ -76,10 +76,16 @@ def test_zero_amount_round_trip_returns_two_credentials() -> None:
     assert all(c.value == 0 for c in credentials)
 
 
+@pytest.mark.timeout(180)
 def test_real_amount_round_trip_preserves_value() -> None:
     """Reissue zero credentials against a real-value vector. The issuer
     balance increase exactly equals the sum of the requested amounts,
     proving the balance proof and range proof both verified end-to-end.
+
+    Generating two 51-bit range proofs and verifying them against a
+    debug-mode build of the Rust extension takes ~60s on commodity
+    hardware; override the suite-wide 60s timeout for this single test
+    rather than loosening the default for the whole jmcore suite.
     """
     issuer = Issuer.generate(initial_balance=0)
     client = Client(issuer.parameters())

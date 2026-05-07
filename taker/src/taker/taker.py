@@ -22,6 +22,7 @@ from typing import Any
 from jmcore.bitcoin import calculate_tx_vsize, get_txid, parse_transaction
 from jmcore.bond_calc import calculate_timelocked_fidelity_bond_value
 from jmcore.btc_script import derive_bond_address
+from jmcore.clsag_attestation import Attestation, pack_attestation
 from jmcore.commitment_blacklist import set_blacklist_path
 from jmcore.crypto import NickIdentity
 from jmcore.encryption import CryptoSession
@@ -2245,6 +2246,74 @@ class Taker(TakerMonitoringMixin):
             f"failed={len(merged.failed_makers)}"
         )
         return merged, ring_assembly
+
+    async def _phase_attest(self, round_no: int) -> Attestation | None:
+        """Collect a K-of-N CLSAG bond attestation for a single extension round.
+
+        Wraps :meth:`_phase_attest_round`: runs one wave of ``!attestreq``
+        across the current maker set and assembles the canonical
+        :class:`Attestation` blob (the wire payload carried inside
+        ``!cjext`` as ``bond_attestation_b64``) when at least
+        ``attestation_threshold_K`` valid signatures arrive.
+
+        Failed makers (no reply, decode error, run_id mismatch, missing
+        session state) are dropped from ``self.maker_sessions`` so that
+        downstream phases (``!txext`` / ``!sigext``) skip them. The
+        round is aborted (returns ``None``) when:
+
+        * ring assembly fails (orderbook can't supply a viable ring)
+        * fewer than K makers produced a valid attestation; per
+          JMP-0006 the taker MUST then fall back to a freeze over the
+          round-0 participant set.
+
+        We pick the K signatures deterministically by signer index so
+        late joiners that re-verify the blob can match each ring
+        signature back to a ring member without further metadata.
+        """
+        outcome = await self._phase_attest_round(round_no)
+        if outcome is None:
+            return None
+        round_result, ring_assembly = outcome
+
+        # Drop unresponsive makers from the live session set so the rest
+        # of the run doesn't try to address them again.
+        for nick in round_result.failed_makers:
+            if nick in self.maker_sessions:
+                logger.info(f"_phase_attest[{round_no}]: dropping unresponsive maker {nick}")
+                del self.maker_sessions[nick]
+
+        K = self.config.tx_extension.attestation_threshold_K  # noqa: N806
+        if len(round_result.decoded) < K:
+            logger.warning(
+                f"_phase_attest[{round_no}]: collected {len(round_result.decoded)} "
+                f"attestation(s), need K={K}; aborting extension round"
+            )
+            return None
+
+        # Pick signatures deterministically by signer index so the
+        # resulting blob has a canonical order independent of network
+        # response timing.
+        signer_idx = ring_assembly.signer_idx_by_nick
+        ranked = sorted(
+            round_result.decoded.items(),
+            key=lambda item: signer_idx.get(item[0], 1 << 30),
+        )
+        chosen = ranked[:K]
+        ring_signatures = [payload.signature for _nick, payload in chosen]
+
+        attestation = Attestation(
+            ring=list(ring_assembly.ring),
+            ring_signatures=ring_signatures,
+        )
+        # Pre-validate the wire shape now so any structural surprise
+        # surfaces here rather than at !cjext broadcast time.
+        pack_attestation(attestation)
+        logger.info(
+            f"_phase_attest[{round_no}]: assembled attestation "
+            f"(set_size={attestation.set_size}, K={attestation.k}, "
+            f"signers={[nick for nick, _ in chosen]})"
+        )
+        return attestation
 
     async def _phase_build_tx(self, destination: str, mixdepth: int) -> bool:
         """Build the unsigned CoinJoin transaction."""

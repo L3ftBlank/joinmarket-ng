@@ -11,7 +11,20 @@ import io
 from contextlib import redirect_stdout
 
 from jmwallet.cli.wallet import _print_branch_addresses
-from jmwallet.wallet.models import AddressInfo
+from jmwallet.wallet.models import AddressInfo, UTXOInfo
+
+
+def _mk_utxo(address: str, confirmations: int, value: int = 100_000) -> UTXOInfo:
+    return UTXOInfo(
+        txid="a" * 64,
+        vout=0,
+        value=value,
+        address=address,
+        confirmations=confirmations,
+        scriptpubkey="0014" + "b" * 40,
+        path="m/84'/0'/0'/0/0",
+        mixdepth=0,
+    )
 
 
 def _mk(index: int, status: str, balance: int, branch: int = 0) -> AddressInfo:
@@ -155,3 +168,69 @@ class TestPrintBranchAddressesFiltering:
         assert "bc1qaddr0001" in output
         assert "bc1qaddr0002" in output
         assert hidden == 0
+
+
+class TestPrintBranchAddressesConfirmations:
+    """Confirmation count is shown for funded addresses."""
+
+    def test_exact_conf_count_shown_below_5(self) -> None:
+        addr = "bc1qtest0001"
+        utxo = _mk_utxo(addr, confirmations=3)
+        ai = AddressInfo(
+            address=addr,
+            index=0,
+            balance=100_000,
+            status="deposit",
+            path="m/84'/0'/0'/0/0",
+            is_external=True,
+            utxos=[utxo],
+        )
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            _print_branch_addresses([ai], pending_addresses=set(), frozen_addresses=set())
+        assert "3 conf" in buf.getvalue()
+
+    def test_capped_at_5_plus(self) -> None:
+        addr = "bc1qtest0002"
+        utxo = _mk_utxo(addr, confirmations=10)
+        ai = AddressInfo(
+            address=addr,
+            index=0,
+            balance=100_000,
+            status="deposit",
+            path="m/84'/0'/0'/0/0",
+            is_external=True,
+            utxos=[utxo],
+        )
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            _print_branch_addresses([ai], pending_addresses=set(), frozen_addresses=set())
+        assert "5+ conf" in buf.getvalue()
+        assert "10 conf" not in buf.getvalue()
+
+    def test_min_conf_shown_for_multiple_utxos(self) -> None:
+        """When an address has multiple UTXOs, the minimum confirmation count is shown."""
+        addr = "bc1qtest0003"
+        utxos = [_mk_utxo(addr, confirmations=2), _mk_utxo(addr, confirmations=7)]
+        ai = AddressInfo(
+            address=addr,
+            index=0,
+            balance=200_000,
+            status="deposit",
+            path="m/84'/0'/0'/0/0",
+            is_external=True,
+            utxos=utxos,
+        )
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            _print_branch_addresses([ai], pending_addresses=set(), frozen_addresses=set())
+        assert "2 conf" in buf.getvalue()
+
+    def test_no_conf_shown_for_empty_address(self) -> None:
+        ai = _mk(0, "new", 0)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            _print_branch_addresses(
+                [ai], pending_addresses=set(), frozen_addresses=set(), show_empty=True
+            )
+        assert "conf" not in buf.getvalue()

@@ -4,6 +4,7 @@ Wallet data models.
 
 from __future__ import annotations
 
+from dataclasses import field
 from typing import Literal
 
 from pydantic.dataclasses import dataclass
@@ -20,29 +21,6 @@ AddressStatus = Literal[
     "bond",  # Fidelity bond address
     "flagged",  # Address flagged/shared but tx failed (should not reuse)
 ]
-
-
-@dataclass
-class AddressInfo:
-    """Information about a wallet address for display."""
-
-    address: str
-    index: int
-    balance: int  # satoshis
-    status: AddressStatus
-    path: str
-    is_external: bool  # True for receive (external), False for change (internal)
-    is_bond: bool = False
-    locktime: int | None = None  # For fidelity bond addresses
-    has_unconfirmed: bool = False  # True if any UTXOs at this address are unconfirmed
-
-    @property
-    def short_path(self) -> str:
-        """Get shortened path for display (e.g., m/84'/0'/0'/0/5 -> 0/5)."""
-        parts = self.path.split("/")
-        if len(parts) >= 2:
-            return f"{parts[-2]}/{parts[-1]}"
-        return self.path
 
 
 @dataclass
@@ -107,6 +85,30 @@ class UTXOInfo:
         if len(self.scriptpubkey) != 44:
             return False
         return self.scriptpubkey.startswith("0014")
+
+
+@dataclass
+class AddressInfo:
+    """Information about a wallet address for display."""
+
+    address: str
+    index: int
+    balance: int  # satoshis
+    status: AddressStatus
+    path: str
+    is_external: bool  # True for receive (external), False for change (internal)
+    is_bond: bool = False
+    locktime: int | None = None  # For fidelity bond addresses
+    has_unconfirmed: bool = False  # True if any UTXOs at this address are unconfirmed
+    utxos: list[UTXOInfo] = field(default_factory=list)  # UTXOs at this address
+
+    @property
+    def short_path(self) -> str:
+        """Get shortened path for display (e.g., m/84'/0'/0'/0/5 -> 0/5)."""
+        parts = self.path.split("/")
+        if len(parts) >= 2:
+            return f"{parts[-2]}/{parts[-1]}"
+        return self.path
 
 
 @dataclass

@@ -75,14 +75,17 @@ class WalletDisplayMixin:
         # Get UTXOs for this mixdepth
         utxos = self.utxo_cache.get(mixdepth, [])
 
-        # Build maps of address -> balance and address -> has_unconfirmed
+        # Build maps of address -> balance, address -> has_unconfirmed, address -> utxos
         address_balances: dict[str, int] = {}
         address_unconfirmed: dict[str, bool] = {}
+        address_utxos: dict[str, list] = {}
         for utxo in utxos:
             if utxo.address not in address_balances:
                 address_balances[utxo.address] = 0
                 address_unconfirmed[utxo.address] = False
+                address_utxos[utxo.address] = []
             address_balances[utxo.address] += utxo.value
+            address_utxos[utxo.address].append(utxo)
             # Track if any UTXO at this address is unconfirmed (0 confirmations)
             if utxo.confirmations == 0:
                 address_unconfirmed[utxo.address] = True
@@ -131,6 +134,7 @@ class WalletDisplayMixin:
                     path=path,
                     is_external=is_external,
                     has_unconfirmed=address_unconfirmed.get(address, False),
+                    utxos=address_utxos.get(address, []),
                 )
             )
 
@@ -337,14 +341,17 @@ class WalletDisplayMixin:
         utxos = self.utxo_cache.get(0, [])
         bond_utxos = [u for u in utxos if u.is_timelocked]
 
-        # Build address -> balance map and address -> has_unconfirmed map for bonds
+        # Build address -> balance map, address -> has_unconfirmed, address -> utxos for bonds
         address_balances: dict[str, int] = {}
         address_unconfirmed: dict[str, bool] = {}
+        address_utxos: dict[str, list] = {}
         for utxo in bond_utxos:
             if utxo.address not in address_balances:
                 address_balances[utxo.address] = 0
                 address_unconfirmed[utxo.address] = False
+                address_utxos[utxo.address] = []
             address_balances[utxo.address] += utxo.value
+            address_utxos[utxo.address].append(utxo)
             if utxo.confirmations == 0:
                 address_unconfirmed[utxo.address] = True
 
@@ -365,6 +372,7 @@ class WalletDisplayMixin:
                         is_bond=True,
                         locktime=locktime,
                         has_unconfirmed=address_unconfirmed.get(address, False),
+                        utxos=address_utxos.get(address, []),
                     )
                 )
 

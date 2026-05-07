@@ -650,6 +650,16 @@ def _print_branch_addresses(
             status_display += " (unconfirmed)"
         if addr_info.address in frozen_addresses:
             status_display += " [FROZEN]"
+
+        # Append confirmation count for funded addresses (capped at 5+).
+        if addr_info.utxos:
+            min_confs = min(u.confirmations for u in addr_info.utxos)
+            if min_confs >= 5:
+                confs_display = "5+ conf"
+            else:
+                confs_display = f"{min_confs} conf"
+            status_display += f" ({confs_display})"
+
         print(f"{addr_info.path:<24}{addr_info.address}\t{btc_balance:.8f}\t{status_display}")
 
     return total_balance, hidden

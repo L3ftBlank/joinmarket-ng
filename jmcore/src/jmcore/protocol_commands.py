@@ -59,6 +59,8 @@ class Command(StrEnum):
     ZKPREG = "zkpreg"
 
     # -- JMP-0006 multi-round tx-extension --
+    ATTESTREQ = "attestreq"
+    ATTEST = "attest"
     CJEXT = "cjext"
     TXEXT = "txext"
     SIGEXT = "sigext"
@@ -143,9 +145,17 @@ COMMAND_SPECS: Final[dict[Command, CommandSpec]] = {
         direction=Direction.PUBLIC, broadcast=True, feature=FeatureGate.ZKP
     ),
     # JMP-0006 tx-extension. All taker<->maker, encrypted, gated on
-    # ``tx_extension``.
-    Command.CJEXT: CommandSpec(
+    # ``tx_extension``. ``attestreq`` / ``attest`` are the Phase EXT-1A
+    # CLSAG ring-signature collection pair the taker uses to assemble
+    # the bond attestation before broadcasting ``!cjext``.
+    Command.ATTESTREQ: CommandSpec(
         direction=Direction.TAKER_TO_MAKER, encrypted=True, feature=FeatureGate.TX_EXTENSION
+    ),
+    Command.ATTEST: CommandSpec(
+        direction=Direction.MAKER_TO_TAKER, encrypted=True, feature=FeatureGate.TX_EXTENSION
+    ),
+    Command.CJEXT: CommandSpec(
+        direction=Direction.PUBLIC, broadcast=True, feature=FeatureGate.TX_EXTENSION
     ),
     Command.TXEXT: CommandSpec(
         direction=Direction.TAKER_TO_MAKER, encrypted=True, feature=FeatureGate.TX_EXTENSION

@@ -48,9 +48,11 @@ class TestSubsets:
         assert Command.ZKPREQ in ZKP_COMMANDS
         assert Command.ZKPREG in ZKP_COMMANDS
 
-    def test_tx_extension_subset_has_five_commands(self) -> None:
-        # JMP-0006: cjext, txext, sigext, txfreeze, sigfinal
-        assert len(TX_EXTENSION_COMMANDS) == 5
+    def test_tx_extension_subset_has_seven_commands(self) -> None:
+        # JMP-0006: attestreq, attest, cjext, txext, sigext, txfreeze, sigfinal
+        assert len(TX_EXTENSION_COMMANDS) == 7
+        assert Command.ATTESTREQ in TX_EXTENSION_COMMANDS
+        assert Command.ATTEST in TX_EXTENSION_COMMANDS
         assert Command.CJEXT in TX_EXTENSION_COMMANDS
         assert Command.SIGFINAL in TX_EXTENSION_COMMANDS
 

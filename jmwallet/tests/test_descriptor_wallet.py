@@ -2205,6 +2205,103 @@ class TestDescriptorRangeUpgrade:
         assert imported[1]["range"] == [0, 4999]
 
     @pytest.mark.asyncio
+    async def test_import_descriptors_never_shrinks_existing_range(self) -> None:
+        """Re-importing must include any existing range to avoid Core's
+        "new range must include current range" rejection.
+
+        Reproduces the deep-wallet regression where a previous partial-failure
+        import left descriptors at divergent ranges (e.g. [0,2802], [0,1500],
+        [0,1100]) and a subsequent setup at the default scan_range=1000 would
+        request range [0,999], which Bitcoin Core rejects.
+        """
+        backend = DescriptorWalletBackend(wallet_name="test_no_shrink")
+        backend._wallet_loaded = True
+
+        # Existing per-descriptor ranges in Core (divergent due to prior
+        # partial-failure history).
+        existing = {
+            "wpkh(xpub.../0/*)": [0, 2802],
+            "wpkh(xpub.../1/*)": [0, 1500],
+            "wpkh(xpub.../2/*)": [0, 1100],
+            "wpkh(xpub.../3/*)": [0, 999],
+        }
+
+        import_calls: list[dict] = []
+
+        async def mock_rpc_call(
+            method: str,
+            params: list | None = None,
+            client: Any = None,
+            use_wallet: bool = True,
+        ) -> Any:
+            if method == "getdescriptorinfo":
+                desc = params[0] if params else ""
+                return {"descriptor": f"{desc}#mockchecksum"}
+            if method == "listdescriptors":
+                return {
+                    "descriptors": [
+                        {"desc": f"{d}#mockchecksum", "range": r} for d, r in existing.items()
+                    ]
+                }
+            if method == "importdescriptors":
+                import_calls.append({"method": method, "params": params})
+                assert params is not None
+                return [{"success": True} for _ in params[0]]
+            raise ValueError(f"Unexpected RPC: {method}")
+
+        backend._rpc_call = mock_rpc_call  # type: ignore[method-assign]
+
+        # Caller asks for the small default range [0, 999] for every descriptor.
+        descriptors = [{"desc": d, "range": [0, 999], "internal": False} for d in existing]
+
+        result = await backend.import_descriptors(descriptors, rescan=False)
+
+        assert result["error_count"] == 0
+        assert len(import_calls) == 1
+        sent = import_calls[0]["params"][0]
+        # Each request range must be expanded to include the existing range.
+        assert sent[0]["range"] == [0, 2802]
+        assert sent[1]["range"] == [0, 1500]
+        assert sent[2]["range"] == [0, 1100]
+        # Descriptors with no larger existing range keep the requested range.
+        assert sent[3]["range"] == [0, 999]
+
+    @pytest.mark.asyncio
+    async def test_import_descriptors_extends_when_requested_is_larger(self) -> None:
+        """When requested range exceeds existing, the larger one wins."""
+        backend = DescriptorWalletBackend(wallet_name="test_extend")
+        backend._wallet_loaded = True
+
+        import_calls: list[dict] = []
+
+        async def mock_rpc_call(
+            method: str,
+            params: list | None = None,
+            client: Any = None,
+            use_wallet: bool = True,
+        ) -> Any:
+            if method == "getdescriptorinfo":
+                desc = params[0] if params else ""
+                return {"descriptor": f"{desc}#mockchecksum"}
+            if method == "listdescriptors":
+                return {
+                    "descriptors": [{"desc": "wpkh(xpub.../0/*)#mockchecksum", "range": [0, 500]}]
+                }
+            if method == "importdescriptors":
+                import_calls.append({"method": method, "params": params})
+                assert params is not None
+                return [{"success": True} for _ in params[0]]
+            raise ValueError(f"Unexpected RPC: {method}")
+
+        backend._rpc_call = mock_rpc_call  # type: ignore[method-assign]
+
+        descriptors = [{"desc": "wpkh(xpub.../0/*)", "range": [0, 4999], "internal": False}]
+        result = await backend.import_descriptors(descriptors, rescan=False)
+
+        assert result["error_count"] == 0
+        assert import_calls[0]["params"][0][0]["range"] == [0, 4999]
+
+    @pytest.mark.asyncio
     async def test_check_and_upgrade_descriptor_range_no_upgrade_needed(self) -> None:
         """Test that no upgrade happens when range is sufficient."""
         from jmwallet.wallet.service import WalletService

@@ -557,6 +557,46 @@ class DescriptorWalletBackend(BlockchainBackend):
                 # Full rescan from genesis
                 timestamp = 0
 
+        # Look up existing per-descriptor ranges so that re-imports never
+        # shrink a descriptor's tracked range. Bitcoin Core's
+        # ``importdescriptors`` rejects requests whose ``range`` does not
+        # include the descriptor's current range with an error like
+        # ``new range must include current range = [0,2802]`` (issue: deep
+        # wallets retried with a smaller default scan range after a previous
+        # partial-failure left some descriptors with divergent ranges).
+        existing_ranges: dict[str, tuple[int, int]] = {}
+        if any(
+            isinstance(d, dict) and "range" in d or (isinstance(d, str) and "*" in d)
+            for d in descriptors
+        ):
+            try:
+                existing_ranges = await self.get_descriptor_ranges()
+            except Exception as e:
+                logger.debug(f"Could not pre-fetch existing descriptor ranges: {e}")
+
+        def _expanded_range(
+            desc_with_checksum: str, requested: list[int] | tuple[int, int]
+        ) -> list[int]:
+            """Return a range that includes both the requested and any existing range."""
+            req_start, req_end = int(requested[0]), int(requested[1])
+            desc_base = desc_with_checksum.split("#", 1)[0]
+            current = existing_ranges.get(desc_base)
+            if current is None:
+                # Fallback: try matching with checksum included
+                current = existing_ranges.get(desc_with_checksum)
+            if current is None:
+                return [req_start, req_end]
+            cur_start, cur_end = current
+            new_start = min(req_start, cur_start)
+            new_end = max(req_end, cur_end)
+            if new_end != req_end or new_start != req_start:
+                logger.info(
+                    f"Expanding import range for '{desc_base}' from "
+                    f"[{req_start}, {req_end}] to [{new_start}, {new_end}] to "
+                    f"include current range [{cur_start}, {cur_end}]"
+                )
+            return [new_start, new_end]
+
         # Format descriptors for importdescriptors RPC
         import_requests = []
         for desc in descriptors:
@@ -578,13 +618,13 @@ class DescriptorWalletBackend(BlockchainBackend):
                 desc_with_checksum = await self._add_descriptor_checksum(desc_str)
                 # Determine if descriptor is ranged (has * wildcard or explicit range)
                 is_ranged = "*" in desc_str or "range" in desc
-                request = {
+                request: dict[str, Any] = {
                     "desc": desc_with_checksum,
                     "timestamp": timestamp,
                     "active": is_ranged,  # Only ranged descriptors can be active
                 }
                 if "range" in desc:
-                    request["range"] = desc["range"]
+                    request["range"] = _expanded_range(desc_with_checksum, desc["range"])
                 if "internal" in desc:
                     request["internal"] = desc["internal"]
                 import_requests.append(request)

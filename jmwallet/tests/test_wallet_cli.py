@@ -615,6 +615,51 @@ def test_history_command_status_display():
         assert failed_line and "[FAILED]" in failed_line, "Failed tx should have [FAILED]"
 
 
+def test_history_command_renders_in_chronological_order():
+    """The rendered history table must show entries oldest-first.
+
+    Users scroll downward and expect the latest transaction to appear at the
+    bottom of the table -- matching how a log file reads. The on-disk CSV is
+    already chronological (append-only); the CLI used to reverse rows and
+    print newest-first, which made tailing the recent activity awkward.
+    """
+    from jmwallet.history import TransactionHistoryEntry, append_history_entry
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        data_dir = Path(tmpdir)
+
+        # Append three entries with strictly increasing timestamps.
+        for i, ts in enumerate(
+            ["2024-01-01T00:00:00", "2024-01-02T00:00:00", "2024-01-03T00:00:00"]
+        ):
+            append_history_entry(
+                TransactionHistoryEntry(
+                    timestamp=ts,
+                    txid=f"{chr(ord('a') + i)}" * 64,
+                    cj_amount=(i + 1) * 100_000,
+                    role="taker",
+                ),
+                data_dir,
+            )
+
+        result = runner.invoke(app, ["history", "--data-dir", str(data_dir)])
+        assert result.exit_code == 0, f"history command failed: {result.stdout}"
+
+        # Locate each timestamp in the rendered output. The most recent
+        # timestamp must appear AFTER the oldest one (i.e. further down the
+        # screen), confirming chronological / oldest-first ordering.
+        out = result.stdout
+        idx_oldest = out.find("2024-01-01")
+        idx_middle = out.find("2024-01-02")
+        idx_newest = out.find("2024-01-03")
+        assert idx_oldest != -1 and idx_middle != -1 and idx_newest != -1
+        assert idx_oldest < idx_middle < idx_newest, (
+            "history table should render oldest-first / newest-last;"
+            f" got positions oldest={idx_oldest}, middle={idx_middle},"
+            f" newest={idx_newest}"
+        )
+
+
 def test_generate_with_output_auto_saves():
     """Test that --output automatically saves the file."""
     with tempfile.TemporaryDirectory() as tmpdir:

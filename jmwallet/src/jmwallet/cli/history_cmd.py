@@ -156,7 +156,12 @@ def history(
         print(header)
         print("-" * 140)
 
-        for entry in entries:
+        # Display in chronological order (oldest at top, most recent at
+        # bottom) so a terminal scrolling downward shows the latest entry
+        # last -- matching the natural reading order for a log. ``entries``
+        # comes from ``read_history`` sorted newest-first (and already
+        # truncated by ``--limit`` to the most recent N), so reverse here.
+        for entry in reversed(entries):
             # Distinguish between pending, failed, and successful transactions
             if entry.success:
                 status = ""

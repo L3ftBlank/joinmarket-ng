@@ -94,7 +94,6 @@ declare -A PORT_OFFSETS=(
     [e2e]=0
     [playwright]=1001
     [jmwallet]=2002
-    [maker]=3003
     [directory]=4004
     [reference-interop]=5005
     [reference-legacy]=6006
@@ -879,57 +878,6 @@ run_suite_jmwallet() {
     return $rc
 }
 
-run_suite_maker() {
-    local suite="maker"
-    local log="${PARALLEL_DIR}/${suite}.log"
-    local offset=${PORT_OFFSETS[$suite]}
-    local btc_rpc=$((18443 + offset))
-    local dir_port=$((5222 + offset))
-    local prefix="jm-${suite}"
-
-    log_suite "Starting: Maker Docker Tests ($suite)"
-    local rc=0
-    {
-        generate_override "$suite"
-        cleanup_suite "$suite"
-        compose_cmd "$suite" up -d bitcoin
-
-        if ! wait_for_bitcoin_rpc "$suite" "$btc_rpc"; then
-            log_error "Bitcoin RPC not ready on host port $btc_rpc for suite $suite"
-            return 1
-        fi
-
-        BITCOIN_RPC_URL="http://127.0.0.1:${btc_rpc}" \
-        BITCOIN_RPC_USER=test \
-        BITCOIN_RPC_PASSWORD=test \
-        DIRECTORY_PORT="${dir_port}" \
-        JM_CONTAINER_PREFIX="${prefix}" \
-        COMPOSE_PROJECT_NAME="jmpt-${suite}" \
-        COVERAGE_FILE=".coverage.${suite}" \
-        pytest -c pytest.ini -m docker --fail-on-skip \
-            -lv --timeout=300 \
-            --cov=maker --cov-report=term-missing \
-            maker/tests/
-    } > "$log" 2>&1 || rc=$?
-    cleanup_suite "$suite"
-    return $rc
-}
-
-run_suite_directory() {
-    local suite="directory"
-    local log="${PARALLEL_DIR}/${suite}.log"
-
-    log_suite "Starting: Directory Server Docker Tests ($suite)"
-    {
-        # directory_server docker tests don't need compose services
-        COVERAGE_FILE=".coverage.${suite}" \
-        pytest -c pytest.ini -m docker --fail-on-skip \
-            -lv --timeout=300 \
-            --cov=directory_server --cov-report=term-missing \
-            directory_server/tests/
-    } > "$log" 2>&1
-}
-
 run_suite_reference_interop() {
     local suite="reference-interop"
     local log="${PARALLEL_DIR}/${suite}.log"
@@ -1353,7 +1301,6 @@ main() {
     # Docker test suites (each with isolated compose project)
     launch_suite "e2e" run_suite_e2e
     launch_suite "jmwallet" run_suite_jmwallet
-    launch_suite "maker" run_suite_maker
     launch_suite "reference-interop" run_suite_reference_interop
     launch_suite "reference-legacy" run_suite_reference_legacy
     launch_suite "neutrino-functional" run_suite_neutrino_functional
@@ -1449,7 +1396,6 @@ case "${1:-}" in
             e2e)                   run_suite_e2e ;;
             playwright)            run_suite_playwright ;;
             jmwallet)              run_suite_jmwallet ;;
-            maker)                 run_suite_maker ;;
             directory)             run_suite_directory ;;
             reference-interop)     run_suite_reference_interop ;;
             reference-legacy)      run_suite_reference_legacy ;;
@@ -1492,7 +1438,6 @@ Available suites:
   e2e                   E2E + Docker integration tests
   playwright            Playwright browser tests
   jmwallet              jmwallet Docker tests
-  maker                 Maker Docker tests
   reference-interop     Reference interop tests (our maker + JAM taker)
   reference-legacy      Reference legacy tests (JAM coinjoin + bond import)
   neutrino-functional   Neutrino functional tests

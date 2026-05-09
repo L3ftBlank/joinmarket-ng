@@ -576,9 +576,18 @@ class MakerSettings(BaseModel):
         ),
     )
     min_confirmations: int = Field(
-        default=1,
+        default=0,
         ge=0,
-        description="Minimum confirmations for UTXOs",
+        description=(
+            "Minimum confirmations for maker UTXOs offered into coinjoins. "
+            "Default 0 lets makers offer unconfirmed (mempool) UTXOs, which "
+            "increases liquidity and is safe in practice: takers still "
+            "enforce taker_utxo_age (default 5) on the separate PoDLE "
+            "commitment UTXO, so a maker cannot grief by rotating identity "
+            "via 0-conf coins. Set to >=1 to require chain confirmation; "
+            "be aware this trades RBF/reorg/eviction safety against "
+            "liquidity."
+        ),
     )
     allow_mixdepth_zero_merge: bool = Field(
         default=False,

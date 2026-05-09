@@ -280,8 +280,11 @@
 # cj_fee_absolute = 500      # Absolute fee in satoshis (for sw0absoffer)
 # tx_fee_contribution = 0    # Mining fee contribution in satoshis
 
-# Minimum confirmations for UTXOs
-# min_confirmations = 1
+# Minimum confirmations for UTXOs offered into coinjoins.
+# Default 0 lets the maker offer unconfirmed (mempool) UTXOs, which
+# improves liquidity. The PoDLE commitment lives on a separate UTXO
+# and is still gated by taker_utxo_age (taker side, default 5).
+# min_confirmations = 0
 
 # UTXO merge algorithm: "default", "gradual", "greedy", "random"
 # merge_algorithm = "default"

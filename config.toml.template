@@ -307,8 +307,12 @@
 # txfee_contribution_factor = 0.3
 # size_factor = 0.1
 
-# Minimum confirmations for UTXOs
-# min_confirmations = 1
+# Minimum confirmations for UTXOs offered into coinjoins.
+# Default 0 lets the maker offer unconfirmed (mempool) UTXOs, which
+# improves liquidity. The PoDLE commitment lives on a separate UTXO and
+# is still gated by taker_utxo_age (taker side, default 5). Raise this
+# to 1+ if you want to trade liquidity for RBF/eviction/reorg safety.
+# min_confirmations = 0
 
 # UTXO merge algorithm: "default", "gradual", "greedy", "random"
 # merge_algorithm = "default"

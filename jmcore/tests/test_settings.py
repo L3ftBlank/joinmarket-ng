@@ -164,6 +164,10 @@ class TestSettingsDefaults:
         assert settings.maker.cjfee_factor == 0.1
         assert settings.maker.txfee_contribution_factor == 0.3
         assert settings.maker.size_factor == 0.1
+        # min_confirmations defaults to 0: makers offer unconfirmed UTXOs by
+        # default to maximize liquidity. PoDLE commitments live on a separate
+        # UTXO and are still gated by taker_utxo_age (see issue #491).
+        assert settings.maker.min_confirmations == 0
 
     def test_default_taker_settings(self) -> None:
         """Test default taker settings."""

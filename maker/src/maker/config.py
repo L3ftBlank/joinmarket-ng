@@ -259,8 +259,10 @@ class MakerConfig(WalletConfig):
         ),
     )
 
-    # Minimum confirmations for UTXOs
-    min_confirmations: int = Field(default=1, ge=0, description="Minimum confirmations for UTXOs")
+    # Minimum confirmations for UTXOs offered into coinjoins. Default 0
+    # lets makers offer unconfirmed UTXOs; PoDLE commitments still require
+    # taker_utxo_age confirmations on a separate UTXO.
+    min_confirmations: int = Field(default=0, ge=0, description="Minimum confirmations for UTXOs")
 
     # Fidelity bond configuration
     # List of locktimes (Unix timestamps) to scan for fidelity bonds

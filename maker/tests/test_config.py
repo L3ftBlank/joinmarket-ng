@@ -150,6 +150,16 @@ class TestMergeAlgorithm:
         config = MakerConfig(mnemonic=TEST_MNEMONIC)
         assert config.merge_algorithm == MergeAlgorithm.DEFAULT
 
+    def test_default_min_confirmations_is_zero(self) -> None:
+        """Default min_confirmations is 0 (issue #491).
+
+        Makers offer unconfirmed UTXOs out of the box to maximize liquidity.
+        Operators who prefer to trade liquidity for RBF/eviction/reorg safety
+        can opt back in via [maker] min_confirmations >= 1.
+        """
+        config = MakerConfig(mnemonic=TEST_MNEMONIC)
+        assert config.min_confirmations == 0
+
     def test_set_merge_algorithm_gradual(self) -> None:
         """Test setting merge algorithm to gradual."""
         config = MakerConfig(

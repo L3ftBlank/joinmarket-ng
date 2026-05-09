@@ -397,6 +397,22 @@ class WalletSyncMixin:
         """
         logger.info("Syncing all mixdepths...")
 
+        # Lazy-init: ensure descriptor wallet is loaded and seeded with our
+        # descriptors before scanning. Production paths call
+        # ``setup_descriptor_wallet`` explicitly (jmwalletd.wallet_ops); this
+        # guard makes ``WalletService(...).sync()`` work directly in tests and
+        # ad-hoc usage without each caller having to remember the setup step.
+        if isinstance(self.backend, DescriptorWalletBackend):
+            expected_count = self.mixdepth_count * 2
+            if fidelity_bond_addresses:
+                expected_count += len(fidelity_bond_addresses)
+            if not await self.backend.is_wallet_setup(expected_descriptor_count=expected_count):
+                logger.info("Descriptor wallet not initialised; running setup before sync")
+                await self.setup_descriptor_wallet(
+                    fidelity_bond_addresses=fidelity_bond_addresses,
+                    rescan=False,
+                )
+
         # Try efficient descriptor-based sync if backend supports it
         if self.backend.supports_descriptor_scan:
             result = await self._sync_all_with_descriptors(fidelity_bond_addresses)

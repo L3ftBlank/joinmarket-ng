@@ -3140,3 +3140,76 @@ def _make_mock_http_client(post_fn: Any) -> Any:
     client = AsyncMock(spec=httpx.AsyncClient)
     client.post = post_fn
     return client
+
+
+class TestSyncAllLazyInit:
+    """``WalletService.sync_all`` should auto-run ``setup_descriptor_wallet``
+    when the descriptor wallet has not been initialised yet.
+
+    Production paths (jmwalletd.wallet_ops) call ``setup_descriptor_wallet``
+    explicitly, but ad-hoc ``WalletService(...).sync()`` callers (tests,
+    scripts) used to silently fall back to address scans against an unloaded
+    wallet, which returned zero UTXOs. The lazy-init guard keeps the explicit
+    path a no-op and rescues the implicit one.
+    """
+
+    @pytest.mark.asyncio
+    async def test_sync_all_calls_setup_when_not_setup(self) -> None:
+        from jmwallet.wallet.service import WalletService
+
+        backend = DescriptorWalletBackend(
+            rpc_url=TEST_RPC_URL,
+            rpc_user=TEST_RPC_USER,
+            rpc_password=TEST_RPC_PASSWORD,
+            wallet_name="test_lazy_init",
+        )
+        wallet = WalletService(
+            mnemonic=TEST_MNEMONIC,
+            backend=backend,
+            network="regtest",
+            mixdepth_count=2,
+            passphrase="",
+        )
+
+        backend.is_wallet_setup = AsyncMock(return_value=False)
+        # Stub setup_descriptor_wallet on the WalletService to avoid driving
+        # real Bitcoin Core RPC; we only assert it's invoked.
+        setup_mock = AsyncMock(return_value=True)
+        wallet.setup_descriptor_wallet = setup_mock  # type: ignore[method-assign]
+        # Short-circuit the descriptor scan path so the test stays focused on
+        # the lazy-init guard.
+        wallet._sync_all_with_descriptors = AsyncMock(return_value={0: [], 1: []})  # type: ignore[method-assign]
+
+        await wallet.sync_all()
+
+        setup_mock.assert_awaited_once()
+        await_args = setup_mock.await_args
+        assert await_args is not None
+        assert await_args.kwargs.get("rescan") is False
+
+    @pytest.mark.asyncio
+    async def test_sync_all_skips_setup_when_already_setup(self) -> None:
+        from jmwallet.wallet.service import WalletService
+
+        backend = DescriptorWalletBackend(
+            rpc_url=TEST_RPC_URL,
+            rpc_user=TEST_RPC_USER,
+            rpc_password=TEST_RPC_PASSWORD,
+            wallet_name="test_lazy_init_skip",
+        )
+        wallet = WalletService(
+            mnemonic=TEST_MNEMONIC,
+            backend=backend,
+            network="regtest",
+            mixdepth_count=2,
+            passphrase="",
+        )
+
+        backend.is_wallet_setup = AsyncMock(return_value=True)
+        setup_mock = AsyncMock(return_value=True)
+        wallet.setup_descriptor_wallet = setup_mock  # type: ignore[method-assign]
+        wallet._sync_all_with_descriptors = AsyncMock(return_value={0: [], 1: []})  # type: ignore[method-assign]
+
+        await wallet.sync_all()
+
+        setup_mock.assert_not_awaited()

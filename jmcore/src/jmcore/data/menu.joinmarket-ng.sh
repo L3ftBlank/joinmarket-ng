@@ -30,6 +30,83 @@ else
     VENV_BIN="${HOME_JM}/.joinmarket-ng/venv/bin"
 fi
 
+# =============================================================================
+# ---- Exit Handler (Environment-aware) ---------------------------------------
+# =============================================================================
+#
+# This function handles the exit behavior of the JoinMarket-NG TUI based on
+# the detected environment. The behavior differs between Raspiblitz and
+# standalone installations to provide the best user experience on each
+# platform.
+#
+# On Raspiblitz:
+#   - Instead of exiting directly to the Raspiblitz menu (which would lose
+#     the activated virtual environment), we drop to an interactive shell
+#     with the JoinMarket venv activated.
+#   - This allows users to continue using JoinMarket CLI tools directly
+#     without reactivating the environment manually.
+#   - From this shell, users can:
+#     * Run 'jm-ng' to restart the TUI
+#     * Run 'exit' to return to the Raspiblitz menu
+#     * Run any JoinMarket CLI commands directly
+#   - Shell nesting is prevented via JM_NG_SHELL_ACTIVE environment variable:
+#     When the user exits jm-ng while already inside the JM-NG shell
+#     (e.g. ESC from a restarted TUI), the variable is already set and we
+#     exit directly to the Raspiblitz menu instead of starting another shell.
+#
+# On Standalone:
+#   - We exit normally to the shell, as the user typically launches jm-ng
+#     from an already configured environment.
+#   - The virtual environment is usually managed by the user directly
+#     in standalone setups.
+#
+# The RASPIBLITZ variable is set during environment detection at startup:
+#   - RASPIBLITZ=1 if /home/admin/config.scripts/bonus.joinmarket-ng.sh exists
+#   - RASPIBLITZ=0 otherwise
+#
+# Technical notes:
+#   - Uses bash --init-file with process substitution instead of exec --rcfile:
+#     * No temp file to manage (process substitution cleans up automatically)
+#     * No exec (avoids unreliable exit behavior in some environments)
+#     * exit 0 after bash ensures jm-ng terminates when the shell exits
+#   - JM_NG_SHELL_ACTIVE=1 is exported in the subshell to prevent nesting
+#
+# Usage:
+#   Called from multiple places in the script:
+#   - When user selects 'X' (Exit) from the main menu
+#   - When user cancels (ESC) from any menu
+#   - After the main loop ends (as a safety net)
+
+exit_jm_ng() {
+    clear
+    if [ "${RASPIBLITZ}" -eq 1 ]; then
+        # Check if we're already in JM-NG shell (avoid nesting)
+        if [ "${JM_NG_SHELL_ACTIVE}" = "1" ]; then
+            # Already in shell - exit to Raspiblitz menu
+            exit 0
+        fi
+
+        # Raspiblitz: Drop to JoinMarket shell instead of exiting
+        echo "========================================"
+        echo "  JoinMarket-NG Shell"
+        echo "========================================"
+        echo "  jm-ng       → JoinMarket-NG TUI"
+        echo "  exit        → Exit to RaspiBlitz menu"
+        echo "========================================"
+
+        # Start a new bash shell with venv activated and marker set
+        # Using --init-file with process substitution:
+        #   - No temp file to manage
+        #   - No exec (avoids unreliable exit behavior)
+        #   - JM_NG_SHELL_ACTIVE=1 prevents nesting
+        bash --init-file <(echo "export JM_NG_SHELL_ACTIVE=1; source /home/joinmarketng/venv/bin/activate; export PS1=\"(jmshell) \u@\h:\w\$ \"")
+        exit 0
+    else
+        # Standalone: normal exit
+        exit 0
+    fi
+}
+
 # ---- Paths ------------------------------------------------------------------
 DATA_DIR="${HOME_JM}/.joinmarket-ng"
 CONFIG_FILE="${DATA_DIR}/config.toml"
@@ -729,8 +806,7 @@ CHOICE=$(whiptail --title " JoinMarket-NG Menu " \
 
   exitstatus=$?
   if [ $exitstatus != 0 ]; then
-    clear
-    exit 0
+    exit_jm_ng
   fi
 
   case $CHOICE in
@@ -1489,7 +1565,7 @@ CHOICE=$(whiptail --title " JoinMarket-NG Menu " \
                                     whiptail --title " Date Error " --msgbox "Invalid lockdate.\nMaximum lockdate is 2099-12." 8 50
                                     continue
                                 fi
-                                
+
                                 # Final confirmation with explicit lock warning
                                 if [[ "$LOCKDATE" < "$CURRENT_YM" ]]; then
                                     # Past date - coins are already spendable
@@ -1765,9 +1841,11 @@ Maker service (as admin):
       ;;
 
     X)
-      clear
-      exit 0
+      exit_jm_ng
       ;;
   esac
 
 done
+
+# Cancel pressed or loop ended
+exit_jm_ng

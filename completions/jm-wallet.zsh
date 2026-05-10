@@ -116,7 +116,6 @@ _jm_wallet() {
             '--backend=[Backend\: descriptor_wallet | neutrino]: :' \
             '--rpc-url=[]: :' \
             '--neutrino-url=[]: :' \
-            '--mempool-api=[Mempool API URL for fetching block height. Only used when no Bitcoin node backend is configured. Example\: http\://localhost\:8999/api]: :' \
             '--current-block=[Current block height override for offline/air-gapped workflows. Skips all network block-height lookups.]: :' \
             '--log-level=[]: :' \
             '--help[Show this message and exit]'
@@ -132,7 +131,6 @@ _jm_wallet() {
             '--backend=[Backend\: descriptor_wallet | neutrino]: :' \
             '--rpc-url=[]: :' \
             '--neutrino-url=[]: :' \
-            '--mempool-api=[Mempool API URL for validating cert expiry. Only used when no Bitcoin node backend is configured. Example\: http\://localhost\:8999/api]: :' \
             '--current-block=[Current block height override for offline/air-gapped workflows. Skips all network block-height lookups.]: :' \
             '--log-level=[]: :' \
             '--help[Show this message and exit]'

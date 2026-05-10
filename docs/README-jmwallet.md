@@ -390,10 +390,6 @@ The full CLI reference below is auto-generated from command `--help` output.
 │ --backend           -b      TEXT     Backend: descriptor_wallet | neutrino   │
 │ --rpc-url                   TEXT     [env var: BITCOIN_RPC_URL]              │
 │ --neutrino-url              TEXT     [env var: NEUTRINO_URL]                 │
-│ --mempool-api               TEXT     Mempool API URL for fetching block      │
-│                                      height. Only used when no Bitcoin node  │
-│                                      backend is configured. Example:         │
-│                                      http://localhost:8999/api               │
 │ --current-block             INTEGER  Current block height override for       │
 │                                      offline/air-gapped workflows. Skips all │
 │                                      network block-height lookups.           │
@@ -448,10 +444,6 @@ The full CLI reference below is auto-generated from command `--help` output.
 │ --backend            -b      TEXT     Backend: descriptor_wallet | neutrino  │
 │ --rpc-url                    TEXT     [env var: BITCOIN_RPC_URL]             │
 │ --neutrino-url               TEXT     [env var: NEUTRINO_URL]                │
-│ --mempool-api                TEXT     Mempool API URL for validating cert    │
-│                                       expiry. Only used when no Bitcoin node │
-│                                       backend is configured. Example:        │
-│                                       http://localhost:8999/api              │
 │ --current-block              INTEGER  Current block height override for      │
 │                                       offline/air-gapped workflows. Skips    │
 │                                       all network block-height lookups.      │

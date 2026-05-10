@@ -33,10 +33,10 @@ _jm_wallet_completion() {
         COMPREPLY=( $(compgen -W "--help --bond-address --data-dir --log-level" -- "$cur") )
         ;;
       prepare-certificate-message)
-        COMPREPLY=( $(compgen -W "--help --cert-pubkey --validity-periods --data-dir --network -n --backend -b --rpc-url --neutrino-url --mempool-api --current-block --log-level" -- "$cur") )
+        COMPREPLY=( $(compgen -W "--help --cert-pubkey --validity-periods --data-dir --network -n --backend -b --rpc-url --neutrino-url --current-block --log-level" -- "$cur") )
         ;;
       import-certificate)
-        COMPREPLY=( $(compgen -W "--help --cert-pubkey --cert-signature --cert-expiry --data-dir --skip-verification --network -n --backend -b --rpc-url --neutrino-url --mempool-api --current-block --log-level" -- "$cur") )
+        COMPREPLY=( $(compgen -W "--help --cert-pubkey --cert-signature --cert-expiry --data-dir --skip-verification --network -n --backend -b --rpc-url --neutrino-url --current-block --log-level" -- "$cur") )
         ;;
       spend-bond)
         COMPREPLY=( $(compgen -W "--help --fee-rate -f --master-fingerprint -m --derivation-path -p --output -o --test-unfunded --test-utxo-value --data-dir --log-level -l" -- "$cur") )

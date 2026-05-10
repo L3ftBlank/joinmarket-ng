@@ -94,7 +94,6 @@ declare -A PORT_OFFSETS=(
     [e2e]=0
     [playwright]=1001
     [jmwallet]=2002
-    [directory]=4004
     [reference-interop]=5005
     [reference-legacy]=6006
     [neutrino-functional]=7007
@@ -1295,9 +1294,6 @@ main() {
     # Unit tests (no Docker)
     launch_suite "unit" run_suite_unit
 
-    # Directory server docker tests (no compose services needed)
-    launch_suite "directory" run_suite_directory
-
     # Docker test suites (each with isolated compose project)
     launch_suite "e2e" run_suite_e2e
     launch_suite "jmwallet" run_suite_jmwallet
@@ -1396,7 +1392,6 @@ case "${1:-}" in
             e2e)                   run_suite_e2e ;;
             playwright)            run_suite_playwright ;;
             jmwallet)              run_suite_jmwallet ;;
-            directory)             run_suite_directory ;;
             reference-interop)     run_suite_reference_interop ;;
             reference-legacy)      run_suite_reference_legacy ;;
             neutrino-functional)   run_suite_neutrino_functional ;;
@@ -1434,7 +1429,6 @@ Environment:
 
 Available suites:
   unit                  Unit tests (no Docker)
-  directory             Directory server Docker tests
   e2e                   E2E + Docker integration tests
   playwright            Playwright browser tests
   jmwallet              jmwallet Docker tests

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections.abc import Generator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -19,6 +20,24 @@ from jmcore.notifications import (
     load_notification_config,
     reset_notifier,
 )
+
+
+@pytest.fixture(autouse=True)
+def isolate_proxy_env() -> Generator[None, None, None]:
+    """Restore proxy env vars after each test.
+
+    ``notifications.py`` writes HTTP_PROXY / HTTPS_PROXY into ``os.environ``
+    when Tor is enabled (inside ``_ensure_initialized``). Without isolation
+    those vars persist for the rest of the process and break any test that
+    later calls ``urllib.request.urlopen`` -- in particular the directory
+    CLI tests, which connect to a local mock HTTP server and fail with
+    ``unknown url type: socks5h`` when a SOCKS proxy is configured.
+
+    This fixture lives at module scope so it covers every test class
+    in this file, not just ``TestNotifier``.
+    """
+    with patch.dict(os.environ, {}, clear=False):
+        yield
 
 
 class TestNotificationConfig:

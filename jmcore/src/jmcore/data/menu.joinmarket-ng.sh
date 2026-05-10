@@ -793,7 +793,7 @@ while true; do
     WALLET_INFO="Active Wallet: (none configured)"
   fi
 
-CHOICE=$(whiptail --title " JoinMarket-NG Menu " \
+CHOICE=$(whiptail --title " JoinMarket-NG Menu" \
     --menu "\n$WALLET_INFO | Maker Bot: $MAKER_STATUS" \
     18 64 7 \
     "S" "Send Bitcoin" \
@@ -1114,15 +1114,11 @@ CHOICE=$(whiptail --title " JoinMarket-NG Menu " \
                     "Max entries|all|${LIMIT_DISPLAY}" \
                     "Show statistics|no|${STATS_DISPLAY}" || continue
 
-                  clear
-                  echo "=== CoinJoin History ==="
-                  echo ""
-                  echo "Active wallet: $(basename "$CURRENT_WALLET")"
-                  echo ""
                   HIST_ARGS=()
                   [ -n "$HIST_ROLE" ]  && HIST_ARGS+=(-r "$HIST_ROLE")
                   [ -n "$HIST_LIMIT" ] && HIST_ARGS+=(-n "$HIST_LIMIT")
                   [ $HIST_SHOW_STATS -eq 0 ] && HIST_ARGS+=(-s)
+
                   clear
                   echo "=== CoinJoin History ==="
                   echo ""
@@ -1242,7 +1238,7 @@ CHOICE=$(whiptail --title " JoinMarket-NG Menu " \
                   --menu "How many seed words does your wallet have?" 12 50 2 \
                   "24" "24 words" \
                   "12" "12 words" \
-                  3>&1 1>&2 2>&3) || break
+                  3>&1 1>&2 2>&3) || continue
               WORDS="${WORDS_CHOICE:-24}"
 
               WALLET_PATH="$DATA_DIR/wallets/${WNAME}.mnemonic"
@@ -1509,7 +1505,7 @@ CHOICE=$(whiptail --title " JoinMarket-NG Menu " \
                             whiptail --title " Fidelity Bonds -- Error " --msgbox \
                                 "Failed to list Fidelity Bonds.\n\n${BONDS_OUT:-(no output)}" \
                                 20 76
-                        elif printf '%s' "$BONDS_OUT" | grep -qi "No fidelity bonds"; then
+                        elif printf '%s' "$BONDS_OUT" | grep -qi "No Fidelity Bonds"; then
                             whiptail --title " Fidelity Bonds " --msgbox \
                                 "No Fidelity Bonds found for this wallet.\n\nUse 'CREATE' to generate a bond address, or send\ncoins to an existing one to fund it." \
                                 12 64

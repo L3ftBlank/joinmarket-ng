@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-05-12
+
+### Added
+
+- Orderbook watcher web UI now computes the protocol-feature share over bonded makers only, making it sybil-resistant ([c3fa164d](../../commit/c3fa164dcc7521ffab259f0a556fbfc44d5b6ab5))
+- Add --resume flag to jm-tumbler run to retry failed plans without losing completed progress ([898cd33d](../../commit/898cd33d1e27c1eb64844e66c14168a5bcf51670))
+- Dual offers are now split at the randomized rel/abs fee intersection so each offer covers a non-overlapping size range without leaking the unrandomized fee configuration ([1c2a17a7](../../commit/1c2a17a7f2b5d73ae34252b136dc900df8e9a3aa))
+- Show UTXO confirmation count (capped at 5+) per address in jm-wallet info --extended output ([b152d246](../../commit/b152d24647ca0425e9cdb96020274a1e0514d93c))
+- Default maker min_confirmations to 0 so makers offer unconfirmed UTXOs ([bf5d7ed7](../../commit/bf5d7ed78e67fde42320ab8c245af25a2a0a365b))
+
+### Fixed
+
+- Fix verify-release.sh --reproduce so all release images verify against CI digests ([27584fac](../../commit/27584fac79292ed2b16b2c5f132ca45755227492))
+- Fix periodic maker summary reporting zero successful coinjoins after upgrading from 0.27.x ([5a168435](../../commit/5a168435081a335137457f66cb412620a0920ac9))
+- Stop polling already-confirmed pending CoinJoin transactions ([21be6c66](../../commit/21be6c66110fa17060b03e9499d0f4633ed0c3f3))
+- Stop privacy-leaking self-broadcast fallback on Neutrino takers: broadcast !push to all session makers simultaneously when backend has no mempool access ([401bbacd](../../commit/401bbacdb641db4075a4f7c10be8e6c2185f0aaa))
+- Fix cjfee_factor, size_factor, txfee_contribution_factor, and offer_reannounce_delay_max settings being silently ignored ([2bdbdade](../../commit/2bdbdade217e564559e2d7c75c9402a6dcc90227))
+- Quieter maker logs: routine wallet rescans and healthy directory connection checks now log at DEBUG instead of INFO. ([e2347e4c](../../commit/e2347e4c83b9ec0a41c7f33235f833e78c9c635a))
+- Fixed seed words being hidden by post_wallet_create dialogs during wallet creation. ([fc7fa17e](../../commit/fc7fa17ee37742bd2a8c00f39a88040743424d50))
+- Fixed unnecessary password storage prompt for unencrypted wallets during wallet creation/import. ([e81505ea](../../commit/e81505ea0eb09acb3cd37ea1bdb8769227a62d3f))
+- Fix TypeError when counterparty_count is not set in config (randomised mode) ([05fe7b5d](../../commit/05fe7b5db5e6bf320c0a0b9693d05b56521f6b76))
+- Ignored/soft-excluded makers no longer block a CoinJoin when the eligible pool is too small ([ef7dc1c2](../../commit/ef7dc1c2cab86a02bbf0ffdd2c831dfc3534a3bc))
+- Count silent-timeout makers as blacklisted when any explicit blacklist rejection occurs in the same fill phase ([3a237977](../../commit/3a237977d81d19c9a8a5aaf966b141c6cdbe538b))
+- Fix taker proceeding to transaction build after a maker's UTXO fails Neutrino spent-check ([d7666d37](../../commit/d7666d37180f12362587305d9492abcc4465ad84))
+- Unconfirmed CoinJoin transactions are now marked as abandoned after pending_tx_abandon_hours (default 24 h) instead of being monitored indefinitely ([3acfcc71](../../commit/3acfcc714ed36614a33846ed5e65b6253c67f1be))
+- Fix maker rejecting reference-implementation peers on signet due to testnet/signet network name mismatch ([cb05727f](../../commit/cb05727fcaa13b1383de9fc761af68ccd797df79))
+- TUI coinjoin send now shows progress notes, explains automatic maker replacement, and displays a clear success or failure result ([12d8bcac](../../commit/12d8bcac3036c6129b9051ff7eddd9e9217140b5))
+- CoinJoin confirmation prompts now have distinct headers for the maker-selection estimate and the final pre-broadcast confirmation, eliminating the confusing 'second identical prompt' ([a2b9dc77](../../commit/a2b9dc7799f9738a939a380af288faf83f813b64))
+- Fixed self-CoinJoin where the taker selected its own running maker as counterparty when the maker was started after the taker (common in tumbler runs) ([e365a109](../../commit/e365a109eec588dc2d6e32fbb8523e79ad9d9278))
+- Fix coinjoin_history.csv entries being written out of chronological order after confirmation or signing updates ([829eef67](../../commit/829eef67ec8068ba5083617220573df043d3384a))
+- jmwalletd now writes and removes the maker nick state file so that jm-taker correctly excludes its own maker from CoinJoin selection ([096a9ace](../../commit/096a9ace5525dfc903b3c7c0c4dc5ba0e97521ed))
+- Fix spurious signature-verification warning caused by the same ([5187186d](../../commit/5187186d4b74b56fb1f4fce8c595fdc53ed51404))
+- fix double-enter after password failure; standardize CLI output ([a69ea862](../../commit/a69ea862e716ba8318b9deb823bbeedb0088c313))
+- Fix installer continuing silently after apt install failure, which caused a broken setup with missing activate.sh ([30914180](../../commit/309141806169167e88fb5f52cf73b473b6d13719))
+- Avoid "new range must include current range" failures when re-importing descriptors after a previous partial-failure import. ([47866e47](../../commit/47866e4723a0058c960aa52a00598c62ce5368fb))
+- Render 'jm-wallet history' table chronologically with the most recent entry at the bottom ([508ced81](../../commit/508ced81b385a722a8d0643697aac7c953f61cec))
+- Honour taker_utxo_age, taker_utxo_retries, and taker_utxo_amtpercent from config.toml ([bcf5dce9](../../commit/bcf5dce90ac80c3081b6633888a4e0f62ec9b6ac))
+- Auto-initialize descriptor wallet on first sync ([e6aa6b89](../../commit/e6aa6b8962285ab446f82fcd2efb10b413fdb82e))
+- Fix spurious 30s RPC timeouts on busy Bitcoin Core nodes that caused descriptor re-imports to fail with "new range must include current range" ([57f7a0f1](../../commit/57f7a0f15a9cb2a29fac000b7b64b4b6c0c89372))
+- Avoid multi-second descriptor wallet sync delays when listaddressgroupings returns addresses imported as non-ranged descriptors (e.g., addr() imports for fidelity bonds), unblocking MakerBot startup. ([c71977ad](../../commit/c71977ad8bedf4b97100d41dbd835faa34764855))
+- Fix MakerBot startup hang caused by BIP32 derivation scan when Bitcoin Core's getaddressinfo returns ismine without a descriptor ([6dd2ba09](../../commit/6dd2ba09cd28ce19599283dd1c61c43f11e3306f))
+
 ## [0.28.1] - 2026-05-01
 
 ### Fixed
@@ -1314,7 +1356,8 @@ Releases prior to these changes (including 0.13.5, 0.13.6, and 0.13.7) cannot be
 - Pre-built image support for directory server compose.
 - Tor configuration instructions.
 
-[Unreleased]: ../../compare/0.28.1...HEAD
+[Unreleased]: ../../compare/0.29.0...HEAD
+[0.29.0]: ../../compare/0.28.1...0.29.0
 [0.28.1]: ../../compare/0.28.0...0.28.1
 [0.28.0]: ../../compare/0.27.0...0.28.0
 [0.27.0]: ../../compare/0.26.1...0.27.0

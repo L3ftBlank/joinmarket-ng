@@ -238,7 +238,9 @@ def parse_signed_bond_psbt(psbt_b64: str) -> dict[str, bytes]:
         elif key_type == 0x02:  # PSBT_IN_PARTIAL_SIG
             pubkey = key[1:]
             if len(pubkey) != 33:
-                raise ValueError("Partial signature key does not contain a compressed pubkey")
+                raise ValueError(
+                    "Partial signature key does not contain a compressed pubkey"
+                )
             partial_sig_pubkeys.append(pubkey)
             partial_sigs.append(value)
         elif key_type == 0x05:  # PSBT_IN_WITNESS_SCRIPT
@@ -260,7 +262,9 @@ def parse_signed_bond_psbt(psbt_b64: str) -> dict[str, bytes]:
 
     signature = partial_sigs[0]
     if partial_sig_pubkeys[0] != script_pubkey:
-        raise ValueError("Partial signature pubkey does not match witness_script pubkey")
+        raise ValueError(
+            "Partial signature pubkey does not match witness_script pubkey"
+        )
     if not signature or signature[-1] != 0x01:
         raise ValueError("Partial signature is missing SIGHASH_ALL byte")
 
@@ -289,7 +293,9 @@ def finalize_bond_psbt(psbt_b64: str) -> str:
     # PSBT unsigned txs are non-witness serializations. For the single-input
     # bond spend, insert marker/flag after nVersion and one witness stack before
     # nLockTime.
-    signed_tx = unsigned_tx[:4] + b"\x00\x01" + unsigned_tx[4:-4] + witness + unsigned_tx[-4:]
+    signed_tx = (
+        unsigned_tx[:4] + b"\x00\x01" + unsigned_tx[4:-4] + witness + unsigned_tx[-4:]
+    )
     return signed_tx.hex()
 
 

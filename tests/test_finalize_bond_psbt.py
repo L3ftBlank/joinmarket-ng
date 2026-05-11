@@ -156,7 +156,10 @@ class TestParseSignedBondPSBT:
             for i in range(0, len(SIGNED_SPECTER_PSBT_B64), 64)
         )
 
-        assert parse_signed_bond_psbt(wrapped)["witness_script"].hex() == WITNESS_SCRIPT_HEX
+        assert (
+            parse_signed_bond_psbt(wrapped)["witness_script"].hex()
+            == WITNESS_SCRIPT_HEX
+        )
 
 
 class TestFinalizeBondPSBT:

@@ -1128,60 +1128,83 @@ class WalletSyncMixin:
         #                      it. UTXOs at fidelity bond addresses are still
         #                      resolved via the bond_address_to_info path
         #                      above when the caller passes the registry.
-        #   - desc missing  -> queue for the slow BIP32 fallback (older Core,
-        #                      test mocks).
-        if addresses_beyond_range:
-            get_address_info = getattr(self.backend, "get_address_info", None)
-            if get_address_info is not None:
-                resolved = 0
-                skipped_external = 0
-                skipped_non_wpkh = 0
-                unresolved: list[str] = []
-                for address in addresses_beyond_range:
-                    try:
-                        info = await get_address_info(address)
-                    except Exception as e:
-                        logger.trace(f"getaddressinfo failed for {address[:20]}...: {e}")
-                        info = None
-                    if info is None:
-                        unresolved.append(address)
-                        continue
-                    if not info.get("ismine"):
-                        skipped_external += 1
-                        continue
-                    desc = info.get("desc", "")
-                    if not desc:
-                        unresolved.append(address)
-                        continue
-                    path_info = self._resolve_descriptor_path(desc)
-                    if path_info is None:
-                        # Descriptor doesn't decode into one of our wpkh
-                        # derivations: typically an addr() import for a
-                        # fidelity bond, or some other non-ranged descriptor.
-                        # Nothing more to do here.
-                        skipped_non_wpkh += 1
-                        continue
-                    self.address_cache[address] = path_info
-                    self.addresses_with_history.add(address)
-                    resolved += 1
-                if skipped_external:
-                    logger.debug(
-                        f"Skipped {skipped_external} external address(es) beyond range "
-                        f"(not ismine - e.g., CoinJoin counterparties)"
-                    )
-                if skipped_non_wpkh:
-                    logger.debug(
-                        f"Skipped {skipped_non_wpkh} ismine address(es) with non-wpkh "
-                        f"descriptor (e.g., addr() imports for fidelity bonds)"
-                    )
-                if resolved:
-                    logger.debug(f"Resolved {resolved} address(es) beyond range via getaddressinfo")
-                addresses_beyond_range = unresolved
-
-        if addresses_beyond_range:
+        #   - desc missing  -> skip. ismine descriptor wallets always emit a
+        #                      desc; absence means it isn't one of our ranged
+        #                      wpkh derivations and the BIP32 fallback would
+        #                      not find it anyway. Avoids a multi-second stall
+        #                      on MakerBot startup. The legacy BIP32 fallback
+        #                      below only runs when the backend lacks
+        #                      getaddressinfo entirely (older Core / test
+        #                      mocks).
+        backend_has_get_address_info = getattr(self.backend, "get_address_info", None) is not None
+        if addresses_beyond_range and backend_has_get_address_info:
+            get_address_info = self.backend.get_address_info  # type: ignore[attr-defined]
+            resolved = 0
+            skipped_external = 0
+            skipped_non_wpkh = 0
+            skipped_no_desc = 0
+            for address in addresses_beyond_range:
+                try:
+                    info = await get_address_info(address)
+                except Exception as e:
+                    logger.trace(f"getaddressinfo failed for {address[:20]}...: {e}")
+                    info = None
+                if info is None:
+                    # RPC failed entirely; we can't tell if this is ours.
+                    # Skip rather than spend tens of seconds on a BIP32 scan
+                    # that would almost always come up empty for addresses
+                    # we couldn't even getaddressinfo on.
+                    skipped_no_desc += 1
+                    continue
+                if not info.get("ismine"):
+                    skipped_external += 1
+                    continue
+                desc = info.get("desc", "")
+                if not desc:
+                    # ismine=True but no descriptor returned. For descriptor
+                    # wallets Core always returns a desc for ismine addresses;
+                    # absence means this isn't one of our ranged wpkh
+                    # derivations (or Core is too old to report it). Skip the
+                    # multi-second BIP32 fallback either way: if it WERE one
+                    # of ours the desc would have been present.
+                    skipped_no_desc += 1
+                    continue
+                path_info = self._resolve_descriptor_path(desc)
+                if path_info is None:
+                    # Descriptor doesn't decode into one of our wpkh
+                    # derivations: typically an addr() import for a
+                    # fidelity bond, or some other non-ranged descriptor.
+                    # Nothing more to do here.
+                    skipped_non_wpkh += 1
+                    continue
+                self.address_cache[address] = path_info
+                self.addresses_with_history.add(address)
+                resolved += 1
+            if skipped_external:
+                logger.debug(
+                    f"Skipped {skipped_external} external address(es) beyond range "
+                    f"(not ismine - e.g., CoinJoin counterparties)"
+                )
+            if skipped_non_wpkh:
+                logger.debug(
+                    f"Skipped {skipped_non_wpkh} ismine address(es) with non-wpkh "
+                    f"descriptor (e.g., addr() imports for fidelity bonds)"
+                )
+            if skipped_no_desc:
+                logger.debug(
+                    f"Skipped {skipped_no_desc} address(es) beyond range with no "
+                    f"resolvable descriptor (would not be reachable via BIP32 scan)"
+                )
+            if resolved:
+                logger.debug(f"Resolved {resolved} address(es) beyond range via getaddressinfo")
+        elif addresses_beyond_range:
             # Fallback BIP32 derivation scan. Only reached when the backend
-            # doesn't expose get_address_info or returned no descriptor (older
-            # Core / test mocks).
+            # doesn't expose get_address_info at all (older Core / test mocks).
+            # We deliberately do NOT fall back here when get_address_info
+            # exists but returned None/empty desc: that scan is O(mixdepths *
+            # 2 * 5000) derivations per address and can stall MakerBot startup
+            # past test timeouts; if the address were one of our wpkh
+            # derivations, Core would have returned its descriptor.
             extended_addresses_found = 0
             for address in addresses_beyond_range:
                 path_info = self._find_address_path_extended(address)

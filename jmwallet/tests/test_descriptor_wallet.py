@@ -2185,6 +2185,76 @@ class TestAddressHistory:
         # External never gets added (it isn't ours).
         assert external_addr not in wallet.addresses_with_history
 
+    @pytest.mark.asyncio
+    async def test_sync_skips_extended_scan_when_desc_missing(self) -> None:
+        """ismine address with no/empty desc must NOT trigger the BIP32 fallback.
+
+        Regression test for the CI hang in ``test_maker_bot_connect_directory``:
+        when ``getaddressinfo`` returned ``ismine=True`` with an empty/missing
+        ``desc`` (or returned ``None`` outright), the sync code was queuing the
+        address for ``_find_address_path_extended``, a multi-second BIP32
+        derivation scan. That stalled ``MakerBot.start()`` past the 10s test
+        readiness window. If the address were truly one of our wpkh
+        derivations, Core would have emitted a wpkh desc, so we skip instead.
+        """
+        from unittest.mock import MagicMock
+
+        from jmwallet.backends.base import UTXO
+        from jmwallet.wallet.service import WalletService
+
+        backend = DescriptorWalletBackend(wallet_name="test_skip_no_desc")
+        backend._wallet_loaded = True
+        backend._descriptors_imported = True
+
+        own_addr = "bc1qown"
+        ismine_no_desc = "bc1qismine_but_no_desc"
+        info_none_addr = "bc1qinfo_returns_none"
+
+        async def mock_get_all_utxos() -> list[UTXO]:
+            return [
+                UTXO(
+                    txid=TEST_FAKE_TXID,
+                    vout=0,
+                    value=100000,
+                    address=own_addr,
+                    confirmations=10,
+                    scriptpubkey="0014own",
+                ),
+            ]
+
+        async def mock_get_addresses_with_history() -> set[str]:
+            return {own_addr, ismine_no_desc, info_none_addr}
+
+        async def mock_get_address_info(address: str) -> dict[str, Any] | None:
+            if address == ismine_no_desc:
+                # ismine but desc field is empty (unusual but observed).
+                return {"ismine": True, "desc": "", "address": address}
+            if address == info_none_addr:
+                # RPC failure path.
+                return None
+            return {"ismine": True, "desc": "wpkh([abcd/0/0]ff)#cs", "address": address}
+
+        backend.get_all_utxos = mock_get_all_utxos  # type: ignore[method-assign]
+        backend.get_addresses_with_history = mock_get_addresses_with_history  # type: ignore[method-assign]
+        backend.get_address_info = mock_get_address_info  # type: ignore[method-assign]
+
+        wallet = WalletService(
+            mnemonic=TEST_MNEMONIC,
+            backend=backend,
+            network="mainnet",
+            mixdepth_count=5,
+        )
+        wallet.address_cache[own_addr] = (0, 0, 0)
+
+        # Spy on the slow BIP32 fallback — it must not be invoked.
+        wallet._find_address_path_extended = MagicMock(  # type: ignore[method-assign]
+            return_value=None
+        )
+
+        await wallet.sync_with_descriptor_wallet()
+
+        wallet._find_address_path_extended.assert_not_called()
+
 
 class TestDescriptorRangeUpgrade:
     """Tests for descriptor range detection and upgrade functionality."""
@@ -2874,6 +2944,13 @@ class TestDescriptorRangeUpgrade:
         # which is beyond the default range of 1000
         very_high_index = 2000
         high_index_address = wallet.get_address(0, 0, very_high_index)
+        # Derive the matching compressed pubkey for the mocked getaddressinfo
+        # descriptor; _resolve_descriptor_path verifies pubkey equality.
+        high_index_pubkey_hex = (
+            wallet.master_key.derive(f"{wallet.root_path}/0'/0/{very_high_index}")
+            .get_public_key_bytes(compressed=True)
+            .hex()
+        )
         wallet.address_cache.clear()
 
         current_range = 1000
@@ -2926,10 +3003,24 @@ class TestDescriptorRangeUpgrade:
                 return {"blocks": 800000}
             if method == "getaddressinfo":
                 # Simulate Bitcoin Core recognizing this as ours (it WAS imported
-                # at this index in a prior wallet session, hence in history). The
-                # extended-range scan must then locate it deterministically.
+                # at this index in a prior wallet session, hence in history).
+                # Real Core returns a fully-resolved wpkh descriptor for ismine
+                # ranged derivations; the sync code uses that descriptor to
+                # locate the (mixdepth, change, index) deterministically without
+                # an O(mixdepths * 2 * range) BIP32 scan.
                 addr = params[0] if params else ""
-                return {"ismine": addr == high_index_address, "address": addr}
+                if addr == high_index_address:
+                    # Real Core returns the resolved-pubkey descriptor form
+                    # ``wpkh([fp/change/index]<pubkey>)`` for ismine ranged
+                    # derivations; the sync code parses that and verifies the
+                    # pubkey against its own master key.
+                    desc = f"wpkh([deadbeef/0/{very_high_index}]{high_index_pubkey_hex})#mockchk"
+                    return {
+                        "ismine": True,
+                        "address": addr,
+                        "desc": desc,
+                    }
+                return {"ismine": False, "address": addr}
             raise ValueError(f"Unexpected RPC: {method}")
 
         backend._rpc_call = mock_rpc_call  # type: ignore[method-assign]

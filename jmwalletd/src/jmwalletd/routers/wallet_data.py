@@ -549,6 +549,7 @@ async def sign_message(
 # ---------------------------------------------------------------------------
 @router.get("/wallet/yieldgen/report", operation_id="yieldgenreport")
 async def yieldgen_report(
+    _auth: dict[str, Any] = Depends(require_auth),
     state: DaemonState = Depends(get_daemon_state),
 ) -> YieldGenReportResponse:
     """Return the yield generator CSV report data."""

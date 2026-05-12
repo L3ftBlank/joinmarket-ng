@@ -593,18 +593,44 @@ class TestRescan:
 
 class TestYieldGenReport:
     def test_no_report_file(self, authed_client: tuple[TestClient, str]) -> None:
-        client, _ = authed_client
-        resp = client.get("/api/v1/wallet/yieldgen/report")
+        client, token = authed_client
+        resp = client.get(
+            "/api/v1/wallet/yieldgen/report",
+            headers=_auth_headers(token),
+        )
         # No report file -> 404 YieldGeneratorDataUnreadable
         assert resp.status_code == 404
 
     def test_with_report_file(self, authed_client: tuple[TestClient, str]) -> None:
+        client, token = authed_client
+        state = get_daemon_state()
+        report_file = state.data_dir / "yigen-statement.csv"
+        report_file.write_text("timestamp,cjamount,fee\n2024-01-01,100000,250\n")
+
+        resp = client.get(
+            "/api/v1/wallet/yieldgen/report",
+            headers=_auth_headers(token),
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["yigen_data"]) == 2  # header + data line
+
+    def test_requires_auth(self, authed_client: tuple[TestClient, str]) -> None:
+        # Without a bearer token the endpoint must reject the request,
+        # even when the report file exists, to avoid leaking yield-gen
+        # earnings to unauthenticated callers.
         client, _ = authed_client
         state = get_daemon_state()
         report_file = state.data_dir / "yigen-statement.csv"
         report_file.write_text("timestamp,cjamount,fee\n2024-01-01,100000,250\n")
 
         resp = client.get("/api/v1/wallet/yieldgen/report")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert len(data["yigen_data"]) == 2  # header + data line
+        assert resp.status_code == 401
+
+    def test_rejects_invalid_token(self, authed_client: tuple[TestClient, str]) -> None:
+        client, _ = authed_client
+        resp = client.get(
+            "/api/v1/wallet/yieldgen/report",
+            headers=_auth_headers("not-a-real-token"),
+        )
+        assert resp.status_code == 401

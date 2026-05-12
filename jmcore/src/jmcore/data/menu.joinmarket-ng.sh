@@ -1,4 +1,6 @@
 #!/bin/bash
+# shellcheck disable=SC2071  # Zero-padded date strings (YYYY-MM, MM) compare correctly as strings;
+                             # numeric comparison would fail on "08", "09" (octal interpretation)
 ################################################################################
 # menu.joinmarket-ng.sh
 # TUI Menu for JoinMarket-NG
@@ -27,6 +29,96 @@ else
     HOME_JM="/home/${USER_JM}"
     VENV_BIN="${HOME_JM}/.joinmarket-ng/venv/bin"
 fi
+
+# =============================================================================
+# ---- Exit Handler (Environment-aware) ---------------------------------------
+# =============================================================================
+#
+# This function handles the exit behavior of the JoinMarket-NG TUI based on
+# the detected environment. The behavior differs between Raspiblitz and
+# standalone installations to provide the best user experience on each
+# platform.
+#
+# On Raspiblitz:
+#   - Instead of exiting directly to the Raspiblitz menu (which would lose
+#     the activated virtual environment), we drop to an interactive shell
+#     with the JoinMarket venv activated.
+#   - This allows users to continue using JoinMarket CLI tools directly
+#     without reactivating the environment manually.
+#   - From this shell, users can:
+#     * Run 'jm-ng' to restart the TUI
+#     * Run 'exit' to return to the Raspiblitz menu
+#     * Run any JoinMarket CLI commands directly
+#   - Shell nesting is prevented via JM_NG_SHELL_ACTIVE environment variable:
+#     When the user exits jm-ng while already inside the JM-NG shell
+#     (e.g. ESC from a restarted TUI), the variable is already set and we
+#     exit directly to the Raspiblitz menu instead of starting another shell.
+#
+# On Standalone:
+#   - We exit normally to the shell, as the user typically launches jm-ng
+#     from an already configured environment.
+#   - The virtual environment is usually managed by the user directly
+#     in standalone setups.
+#
+# The RASPIBLITZ variable is set during environment detection at startup:
+#   - RASPIBLITZ=1 if /home/admin/config.scripts/bonus.joinmarket-ng.sh exists
+#   - RASPIBLITZ=0 otherwise
+#
+# Technical notes:
+#   - Uses bash --init-file with process substitution instead of exec --rcfile:
+#     * No temp file to manage (process substitution cleans up automatically)
+#     * No exec (avoids unreliable exit behavior in some environments)
+#     * exit 0 after bash ensures jm-ng terminates when the shell exits
+#   - JM_NG_SHELL_ACTIVE=1 is exported in the subshell to prevent nesting
+#
+# Usage:
+#   Called from multiple places in the script:
+#   - When user selects 'X' (Exit) from the main menu
+#   - When user cancels (ESC) from any menu
+#   - After the main loop ends (as a safety net)
+
+exit_jm_ng() {
+    local exit_mode="${1:-auto}"
+    clear
+    if [ "${RASPIBLITZ}" -eq 1 ]; then
+        # Auto mode: determine based on where we came from
+        if [ "${exit_mode}" = "auto" ]; then
+            if [ "${JM_NG_SHELL_ACTIVE}" = "1" ]; then
+                exit_mode="shell"
+            else
+                exit_mode="menu"
+            fi
+        fi
+
+        if [ "${exit_mode}" = "menu" ]; then
+            # Exit directly to RaspiBlitz menu
+            if [ -n "${JM_SHELL_PID:-}" ]; then
+                kill "${JM_SHELL_PID}" 2>/dev/null
+            fi
+            exit 0
+        fi
+
+        # Show JM shell message
+        echo "========================================"
+        echo "  JoinMarket-NG CLI Shell"
+        echo "========================================"
+        echo "  jm-ng       → JoinMarket-NG TUI"
+        echo "  exit        → Exit to RaspiBlitz menu"
+        echo "========================================"
+
+        # Check if we're already in JM-NG shell (avoid nesting)
+        if [ "${JM_NG_SHELL_ACTIVE}" = "1" ]; then
+            exit 0
+        fi
+
+        # Start a new bash shell with venv activated and marker set
+        bash --init-file <(echo "export JM_NG_SHELL_ACTIVE=1; export JM_SHELL_PID=\$\$; source /home/joinmarketng/venv/bin/activate; export PS1=\"(jmshell) \u@\h:\w\$ \"")
+        exit 0
+    else
+        # Standalone: normal exit
+        exit 0
+    fi
+}
 
 # ---- Paths ------------------------------------------------------------------
 DATA_DIR="${HOME_JM}/.joinmarket-ng"
@@ -87,10 +179,11 @@ export PATH="${HOME_JM}/.local/bin:$PATH"
 # =============================================================================
 # Notes for Contributors
 # =============================================================================
-# 1. Terminal Buffer: Always `clear` before calling prompt_and_store_password()
-#    or any function that opens a whiptail dialog after terminal output (echo,
-#    jm-wallet output, etc.). This prevents stale terminal buffer from flashing
-#    between whiptail dialogs.
+# 1. Terminal Buffer: `clear` before calling whiptail dialogs that follow
+#    terminal output WITHOUT a `pause` in between. When `pause` is used,
+#    the buffer is cleared automatically (see pause() function).
+#    Example: echo "Preparing..." followed by ensure_wallet_password()
+#    needs an explicit `clear` before the whiptail call.
 #
 # 2. Never use whiptail --msgbox after whiptail --passwordbox.
 #    Two passwordbox dialogs back-to-back without an external process
@@ -106,6 +199,7 @@ export PATH="${HOME_JM}/.local/bin:$PATH"
 pause() {
   echo ""
   read -p "Press [Enter] key to continue..." fakeEnterKey
+  clear
 }
 
 # Helper: Get configured mnemonic file from config.toml
@@ -602,9 +696,10 @@ maker_prepare_wallet() {
     wallets=$(list_wallets)
 
     if [ -z "$wallets" ]; then
-        whiptail --title " Error " \
-            --msgbox "No wallet files found in $DATA_DIR/wallets/\nCreate or import a wallet first (W -> NEW or IMP)." \
-            9 60
+        # whiptail --title " Error " \
+        #     --msgbox "No wallet files found in $DATA_DIR/wallets/\nCreate or import a wallet first (W -> NEW or IMP)." \
+        #     9 60
+        whiptail --title " Error " --msgbox "No wallet configured.\nSet up a wallet first (W -> NEW or SEL)." 9 50
         return 1
     fi
 
@@ -682,6 +777,7 @@ maker_status() {
 # Main Loop
 # =============================================================================
 
+clear
 while true; do
 
   # Get Maker Service Status
@@ -711,21 +807,34 @@ while true; do
     WALLET_INFO="Active Wallet: (none configured)"
   fi
 
-CHOICE=$(whiptail --title " JoinMarket-NG Menu " \
-    --menu "\n$WALLET_INFO | Maker Bot: $MAKER_STATUS" \
-    18 64 7 \
-    "S" "Send Bitcoin" \
-    "W" "Wallet Management" \
-    "M" "Maker Bot Control" \
-    "C" "Edit Configuration" \
-    "U" "Update JoinMarket-NG" \
-    "I" "Info / Documentation" \
-    "X" "Exit" 3>&1 1>&2 2>&3)
+if [ "${RASPIBLITZ}" -eq 1 ]; then
+    CHOICE=$(whiptail --title " JoinMarket-NG Menu" \
+        --menu "\n$WALLET_INFO | Maker Bot: $MAKER_STATUS" \
+        20 64 8 \
+        "S" "Send Bitcoin" \
+        "W" "Wallet Management" \
+        "M" "Maker Bot Control" \
+        "C" "Edit Configuration" \
+        "U" "Update JoinMarket-NG" \
+        "I" "Info / Documentation" \
+        "B" "Exit to RaspiBlitz Menu" \
+        "X" "Exit to JoinMarket-NG CLI Shell" 3>&1 1>&2 2>&3)
+  else
+    CHOICE=$(whiptail --title " JoinMarket-NG Menu" \
+        --menu "\n$WALLET_INFO | Maker Bot: $MAKER_STATUS" \
+        18 64 7 \
+        "S" "Send Bitcoin" \
+        "W" "Wallet Management" \
+        "M" "Maker Bot Control" \
+        "C" "Edit Configuration" \
+        "U" "Update JoinMarket-NG" \
+        "I" "Info / Documentation" \
+        "X" "Exit to JoinMarket-NG CLI Shell" 3>&1 1>&2 2>&3)
+  fi
 
   exitstatus=$?
   if [ $exitstatus != 0 ]; then
-    clear
-    exit 0
+    exit_jm_ng
   fi
 
   case $CHOICE in
@@ -854,7 +963,6 @@ CHOICE=$(whiptail --title " JoinMarket-NG Menu " \
 
           jm-taker "${TAKER_ARGS[@]}"
           TAKER_EXIT=$?
-
           echo ""
           if [ $TAKER_EXIT -eq 0 ]; then
               echo "================================================"
@@ -978,6 +1086,8 @@ CHOICE=$(whiptail --title " JoinMarket-NG Menu " \
                               jm-wallet info --extended
                               pause
                           )
+                          ;;
+                      BACK|"")
                           break
                           ;;
                   esac
@@ -1034,15 +1144,11 @@ CHOICE=$(whiptail --title " JoinMarket-NG Menu " \
                     "Max entries|all|${LIMIT_DISPLAY}" \
                     "Show statistics|no|${STATS_DISPLAY}" || continue
 
-                  clear
-                  echo "=== CoinJoin History ==="
-                  echo ""
-                  echo "Active wallet: $(basename "$CURRENT_WALLET")"
-                  echo ""
                   HIST_ARGS=()
                   [ -n "$HIST_ROLE" ]  && HIST_ARGS+=(-r "$HIST_ROLE")
                   [ -n "$HIST_LIMIT" ] && HIST_ARGS+=(-n "$HIST_LIMIT")
                   [ $HIST_SHOW_STATS -eq 0 ] && HIST_ARGS+=(-s)
+
                   clear
                   echo "=== CoinJoin History ==="
                   echo ""
@@ -1162,7 +1268,7 @@ CHOICE=$(whiptail --title " JoinMarket-NG Menu " \
                   --menu "How many seed words does your wallet have?" 12 50 2 \
                   "24" "24 words" \
                   "12" "12 words" \
-                  3>&1 1>&2 2>&3) || break
+                  3>&1 1>&2 2>&3) || continue
               WORDS="${WORDS_CHOICE:-24}"
 
               WALLET_PATH="$DATA_DIR/wallets/${WNAME}.mnemonic"
@@ -1320,13 +1426,12 @@ CHOICE=$(whiptail --title " JoinMarket-NG Menu " \
 
       MCHOICE=$(whiptail --title " Maker Bot Control " \
         --menu "\n$WALLET_INFO | Maker Bot: $MAKER_STATUS" \
-        18 64 7 \
+        18 64 6 \
         "START"   "Start Maker Bot" \
         "STOP"    "Stop Maker Bot" \
         "RESTART" "Restart Maker Bot" \
         "BONDS"   "Fidelity Bond Management" \
         "LOG"     "Follow Maker Logs (Ctrl+C to stop)" \
-        "STATUS"  "Show Service Status" \
         "BACK"    "Back to Main Menu" 3>&1 1>&2 2>&3)
 
       [ $? -ne 0 ] && break
@@ -1335,67 +1440,97 @@ CHOICE=$(whiptail --title " JoinMarket-NG Menu " \
           START)
               clear
               if ! maker_prepare_wallet; then
-                  echo "Maker start cancelled."
-              else
-                  maker_start
-                  sleep 2
-                  echo ""
-                  echo "Service status:"
-                  maker_status
+                  continue
               fi
+              echo "=== Starting Maker Bot ==="
+              echo ""
+              echo "Active wallet: $(basename "$CURRENT_WALLET")"
+              echo "Preparing wallet..."
+              echo ""
+              (
+                  ensure_wallet_password "$CURRENT_WALLET" || exit 1
+                  maker_start
+              )
+              if [ $? -ne 0 ]; then
+                  continue
+              fi
+              sleep 2
+              echo ""
+              echo "Service status:"
+              maker_status
               pause
               ;;
           STOP)
               clear
-              maker_stop
-              pause
+              if [ "$MAKER_STATUS" = "STOPPED" ]; then
+                  # Show info in TUI msgbox
+                  whiptail --title " Maker Bot " --msgbox "Maker Bot is not running." 8 40
+              else
+                  echo "=== Stopping Maker Bot ==="
+                  echo ""
+                  echo "Please wait..."
+                  echo ""
+                  STOP_OUT=$(maker_stop 2>&1)
+                  if [ $? -eq 0 ]; then
+                      # Show success in TUI msgbox
+                      whiptail --title " Maker Bot " --msgbox "Maker Bot stopped successfully." 8 40
+                  else
+                      # Show simple error in msgbox
+                      whiptail --title " Error " --msgbox "Failed to stop Maker Bot.\n\nCheck the terminal for details." 9 50
+
+                      # Show error details on terminal
+                      clear
+                      echo "=== Maker Stop Error Details ==="
+                      echo ""
+                      echo "The following error details may help diagnose the problem."
+                      echo ""
+                      printf '%s\n' "$STOP_OUT"
+                      echo ""
+                      pause
+                  fi
+              fi
               ;;
           RESTART)
               clear
               if ! maker_prepare_wallet; then
-                  echo "Maker restart cancelled."
+                  continue
+              fi
+              if [ "$MAKER_STATUS" = "RUNNING" ]; then
+                  echo "=== Restarting Maker Bot ==="
               else
-                  maker_stop
+                  echo "=== Starting Maker Bot ==="
+              fi
+              echo ""
+              echo "Active wallet: $(basename "$CURRENT_WALLET")"
+              echo "Preparing wallet..."
+              echo ""
+              (
+                  ensure_wallet_password "$CURRENT_WALLET" || exit 1
+                  if [ "$MAKER_STATUS" = "RUNNING" ]; then
+                      echo "Stopping Maker Bot..."
+                      echo "Please wait..."
+                      maker_stop 2>&1 || exit 1
+                  fi
                   maker_start
-                  sleep 2
-                  echo ""
-                  echo "Service status:"
-                  maker_status
-              fi
-              pause
-              ;;
-          LOG)
+              )
+              RESTART_RC=$?
               clear
-              echo "=== Maker Logs ==="
-              echo "Press Ctrl+C to stop following."
-              echo ""
-              LOG_FILE="$LOG_DIR/maker.log"
-              if [ -r "$LOG_FILE" ]; then
-                  tail -n 50 -f "$LOG_FILE"
-              else
-                  echo "No log file found at $LOG_FILE (maker may not have run yet)."
-                  echo "Trying journalctl..."
-                  maker_status
+              if [ $RESTART_RC -ne 0 ]; then
+                  continue
               fi
-              pause
-              ;;
-          STATUS)
-              clear
-              echo "=== Maker Service Status ==="
+              sleep 2
               echo ""
+              echo "Service status:"
               maker_status
               pause
-              ;;
-          BACK)
-              break
               ;;
           BONDS)
               # Fidelity bond submenu
               while true; do
                 BCHOICE=$(whiptail --title " Fidelity Bonds " \
-                  --menu "\n$WALLET_INFO | Maker Bot: $MAKER_STATUS\n\nFidelity bonds lock coins until a date to boost maker reputation.\nExpired bonds appear in wallet balance and are spendable." \
+                  --menu "\n$WALLET_INFO | Maker Bot: $MAKER_STATUS\n\nFidelity Bonds lock coins until a date to boost maker reputation.\nExpired bonds appear in wallet balance and are spendable." \
                   18 72 3 \
-                  "LIST"   "List existing fidelity bonds" \
+                  "LIST"   "List existing Fidelity Bonds" \
                   "CREATE" "Generate a new bond address (lock coins)" \
                   "BACK"   "Back to Maker Menu" 3>&1 1>&2 2>&3)
                 [ $? -ne 0 ] && break
@@ -1406,31 +1541,32 @@ CHOICE=$(whiptail --title " JoinMarket-NG Menu " \
                                 "No wallet configured.\n\nSet up a wallet first (W -> SEL or NEW)." 9 60
                             continue
                         fi
-                        # Capture the output so we can show a clean TUI msgbox
-                        # when there are no bonds (issue #459) instead of leaving
-                        # the user staring at CLI output. The scan touches the
-                        # network and can take several seconds; we run it in a
-                        # subshell that prints a "scanning" notice on the bare
-                        # terminal so the user has feedback during the wait.
                         BONDS_OUT_FILE=$(mktemp)
                         clear
-                        echo "Scanning for fidelity bonds (this may take a moment)..."
+                        echo "=== Fidelity Bonds ==="
+                        echo ""
+                        echo "Active wallet: $(basename "$CURRENT_WALLET")"
+                        echo "Preparing wallet..."
+                        echo ""
                         (
                             ensure_wallet_password "$CURRENT_WALLET" || exit 1
-                            jm-wallet list-bonds 2>&1
-                        ) > "$BONDS_OUT_FILE"
+                            jm-wallet list-bonds > "$BONDS_OUT_FILE" 2>&1 || exit 2
+                        )
                         BONDS_RC=$?
                         BONDS_OUT=$(cat "$BONDS_OUT_FILE")
                         rm -f "$BONDS_OUT_FILE"
-                        if [ "$BONDS_RC" -ne 0 ]; then
-                            # Surface failures as a TUI error rather than
-                            # silently leaving raw stderr behind.
+                        # Strip ANSI escape sequences from output (issue #459)
+                        BONDS_OUT=$(printf '%s' "$BONDS_OUT" | sed 's/\x1b$$[0-9;]*[mK]//g')
+                        if [ "$BONDS_RC" -eq 1 ]; then
+                            # Password failure - "Too many attempts" msgbox already shown
+                            :
+                        elif [ "$BONDS_RC" -ne 0 ]; then
                             whiptail --title " Fidelity Bonds -- Error " --msgbox \
-                                "Failed to list fidelity bonds.\n\n${BONDS_OUT:-(no output)}" \
+                                "Failed to list Fidelity Bonds.\n\n${BONDS_OUT:-(no output)}" \
                                 20 76
-                        elif printf '%s' "$BONDS_OUT" | grep -qi "No fidelity bonds"; then
+                        elif printf '%s' "$BONDS_OUT" | grep -qi "No Fidelity Bonds"; then
                             whiptail --title " Fidelity Bonds " --msgbox \
-                                "No fidelity bonds found for this wallet.\n\nUse 'CREATE' to generate a bond address, or send\ncoins to an existing one to fund it." \
+                                "No Fidelity Bonds found for this wallet.\n\nUse 'CREATE' to generate a bond address, or send\ncoins to an existing one to fund it." \
                                 12 64
                         else
                             # Normal listing: keep the tabular output on the
@@ -1448,40 +1584,98 @@ CHOICE=$(whiptail --title " JoinMarket-NG Menu " \
                             whiptail --title " Error " --msgbox "No wallet configured.\nSet up a wallet first (W -> NEW or SEL)." 9 50
                             continue
                         fi
-
-                        # Locktime month (required)
-                        LOCKDATE=$(prompt_param "Fidelity Bond Locktime" \
-                          "Enter locktime as YYYY-MM (must be a future month, e.g. 2027-06).\nCoins are NOT spendable until this date." \
-                          "") || continue
-                        if [ -z "$LOCKDATE" ]; then
-                            whiptail --title " Error " --msgbox "No locktime entered." 8 40
-                            continue
-                        fi
-
-                        # Derivation index (default 0)
-                        BOND_INDEX=$(prompt_param "Bond Index" \
-                          "Derivation index (0 for first bond, 1 for second, etc.)." \
-                          "0") || continue
-                        BOND_INDEX=$(to_int "${BOND_INDEX}" "0")
-
-                        # Confirmation summary
-                        show_summary "Confirm Fidelity Bond -- $(basename "$CURRENT_WALLET")" \
-                          "Locktime|<required>|${LOCKDATE}" \
-                          "Derivation index|0|${BOND_INDEX}" || continue
-
                         clear
                         echo "=== Generating Bond Address ==="
                         echo ""
+                        echo "Active wallet: $(basename "$CURRENT_WALLET")"
+                        echo "Preparing wallet..."
+                        echo ""
                         (
                             ensure_wallet_password "$CURRENT_WALLET" || exit 1
-                            jm-wallet generate-bond-address \
-                              --locktime-date "${LOCKDATE}" \
-                              --index "${BOND_INDEX}"
+
+                            # Lockdate (required) - validate format only
+                            CURRENT_YM=$(date +%Y-%m)
+                            while true; do
+                                clear
+                                LOCKDATE=$(prompt_param "Fidelity Bond Lockdate" \
+                                  "\n$WALLET_INFO | Maker Bot: $MAKER_STATUS\n\nEnter lockdate as YYYY-MM.\nCoins are NOT spendable until this date!" \
+                                  "") || exit 1
+                                if ! [[ "$LOCKDATE" =~ ^[0-9]{4}-[0-9]{2}$ ]]; then
+                                    whiptail --title " Date Error " --msgbox "Invalid date format.\nUse YYYY-MM (e.g. 2027-06)." 8 50
+                                    continue
+                                fi
+                                # Validate month is in 01..12
+                                LOCKDATE_MONTH="${LOCKDATE:5:2}"
+                                if [[ "$LOCKDATE_MONTH" < "01" || "$LOCKDATE_MONTH" > "12" ]]; then
+                                    whiptail --title " Date Error " --msgbox "Invalid month.\nMonth must be between 01 and 12." 8 50
+                                    continue
+                                fi
+                                # Validate date is not before epoch (2020-01)
+                                if [[ "$LOCKDATE" < "2020-01" ]]; then
+                                    whiptail --title " Date Error " --msgbox "Invalid lockdate.\nMinimum lockdate is 2020-01." 8 50
+                                    continue
+                                fi
+                                # Validate year is not after 2099 (jm-wallet maximum)
+                                if [[ "$LOCKDATE" > "2099-12" ]]; then
+                                    whiptail --title " Date Error " --msgbox "Invalid lockdate.\nMaximum lockdate is 2099-12." 8 50
+                                    continue
+                                fi
+
+                                # Final confirmation with explicit lock warning
+                                if [[ "$LOCKDATE" < "$CURRENT_YM" ]]; then
+                                    # Past date - coins are already spendable
+                                    CONFIRM_TEXT="\n$WALLET_INFO | Maker Bot: $MAKER_STATUS\n\nGenerate a Fidelity Bond address?\n\nLockdate: ${LOCKDATE} (Date is in the past)\n\nWARNING: This lockdate is in the past.\n         All coins on this address are already SPENDABLE.\n         This is only useful for recreating existing bond addresses.\n\nProceed?"
+                                else
+                                    # Future date - coins will be locked
+                                    CONFIRM_TEXT="\n$WALLET_INFO | Maker Bot: $MAKER_STATUS\n\nGenerate a Fidelity Bond address?\n\nLockdate: ${LOCKDATE}\n\nWARNING: Coins sent to this address will be LOCKED\n         and NOT spendable until ${LOCKDATE}.\n\nProceed?"
+                                fi
+
+                                if ! whiptail --title " Confirm Fidelity Bond " \
+                                    --yesno "$CONFIRM_TEXT" \
+                                    16 64 --defaultno 3>&1 1>&2 2>&3; then
+                                    continue  # Back to lockdate prompt
+                                fi
+
+                                break  # Everything confirmed
+                            done
+
+                            # Generate bond address, capture output for address extraction
+                            BONDS_CREATE_OUT=$(jm-wallet generate-bond-address \
+                              --locktime-date "${LOCKDATE}" 2>&1)
+                            BONDS_CREATE_RC=$?
+
+                            if [ $BONDS_CREATE_RC -eq 0 ]; then
+                                # Extract the address using regex
+                                BOND_ADDR=$(printf '%s' "$BONDS_CREATE_OUT" | grep -oE '(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,87}' | head -1)
+
+                                # Show address prominently in whiptail msgbox
+                                if [[ "$LOCKDATE" < "$CURRENT_YM" ]]; then
+                                    # Past date - coins are already spendable
+                                    BOND_MSG="Fidelity Bond address generated:\n\n${BOND_ADDR}\n\nFunds are ALREADY SPENDABLE (lockdate is in the past)."
+                                else
+                                    # Future date - funds will be locked
+                                    BOND_MSG="Fidelity Bond address generated:\n\n${BOND_ADDR}\n\nSend coins to this address to create the Fidelity Bond.\nFunds will be LOCKED until ${LOCKDATE}."
+                                fi
+                                whiptail --title " Fidelity Bond Address " --msgbox \
+                                    "$BOND_MSG" \
+                                    14 70
+                            else
+                                # Show simple error in msgbox
+                                whiptail --title " Error " --msgbox \
+                                    "Failed to generate Fidelity Bond address.\n\nCheck the terminal output for details." \
+                                    10 55
+
+                                # Show error details on terminal
+                                clear
+                                echo "=== Fidelity Bond Error Details ==="
+                                echo ""
+                                echo "The following error details may help diagnose the problem."
+                                echo ""
+                                printf '%s\n' "$BONDS_CREATE_OUT"
+                                echo ""
+                                pause
+                            fi
                         )
-                        echo ""
-                        echo "Send coins to the address above to create the fidelity bond."
-                        echo "Funds will be locked until the locktime expires."
-                        pause
                         ;;
                     BACK|"")
                         break
@@ -1489,8 +1683,39 @@ CHOICE=$(whiptail --title " JoinMarket-NG Menu " \
                 esac
               done
               ;;
+          LOG)
+              clear
+              LOG_FILE="$LOG_DIR/maker.log"
+              if [ -r "$LOG_FILE" ]; then
+                  echo "=== Maker Logs ==="
+                  echo "Press Ctrl+C to stop following."
+                  echo ""
+                  tail -n 50 -f "$LOG_FILE"
+                  pause
+              elif [ "$RASPIBLITZ" = "1" ]; then
+                  # Raspiblitz: try journalctl fallback (untested, needs maintainer review)
+                  echo "=== Maker Logs ==="
+                  echo "Press Ctrl+C to stop following."
+                  echo ""
+                  echo "No log file found at $LOG_FILE (maker may not have run yet)."
+                  echo "Trying journalctl..."
+                  maker_status
+                  pause
+              else
+                  # Standalone: no persistent logs
+                  whiptail --title " Maker Logs " --msgbox "No log file found.\n\nStart the Maker Bot first to generate logs." 9 50
+              fi
+              ;;
+          BACK)
+              break
+              ;;
       esac
       done
+      ;;
+
+    C)
+      nano "$CONFIG_FILE"
+      clear
       ;;
 
     U)
@@ -1666,10 +1891,6 @@ UCHOICE=$(whiptail --title " Update JoinMarket-NG (current: ${CURRENT_LABEL}) " 
       done
       ;;
 
-    C)
-      nano "$CONFIG_FILE"
-      ;;
-
     I)
       whiptail --title " JoinMarket-NG Info " --msgbox "\
 JoinMarket-NG - Next Generation CoinJoin
@@ -1689,7 +1910,7 @@ CLI tools (from venv):
   jm-wallet history                - CoinJoin history
   jm-wallet send                   - Send bitcoin
   jm-wallet freeze                 - Freeze/unfreeze UTXOs
-  jm-wallet list-bonds             - List fidelity bonds
+  jm-wallet list-bonds             - List Fidelity Bonds
   jm-wallet generate-bond-address  - Create FB address
   jm-maker start                   - Maker bot (earn fees)
   jm-taker coinjoin                - Run a CoinJoin
@@ -1700,10 +1921,17 @@ Maker service (as admin):
   sudo journalctl -u joinmarket-ng-maker -f" 24 66
       ;;
 
+    B)
+     exit_jm_ng menu
+     ;;
+
     X)
-      clear
-      exit 0
-      ;;
+     exit_jm_ng shell
+     ;;
+
   esac
 
 done
+
+# Cancel pressed or loop ended
+exit_jm_ng

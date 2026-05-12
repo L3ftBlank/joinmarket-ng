@@ -2030,14 +2030,172 @@ class TestAddressHistory:
             "bc1qmine_c": True,
         }
 
-        def addr_info(params: list[Any] | None, _use_wallet: bool) -> dict[str, Any]:
-            assert params is not None
-            return {"ismine": responses[params[0]]}
+        async def _mock_batch(
+            calls: Any,
+            client: Any = None,
+            use_wallet: bool = True,
+            chunk_size: int = 500,
+        ) -> list[Any]:
+            # Each call is ("getaddressinfo", [addr]); return ismine flag per
+            # address from the canned response table.
+            out: list[Any] = []
+            for method, params in calls:
+                assert method == "getaddressinfo"
+                addr = params[0]
+                out.append({"ismine": responses[addr]})
+            return out
 
-        backend._rpc_call = make_mock_rpc({"getaddressinfo": addr_info})
+        backend._rpc_batch_call = _mock_batch  # type: ignore[method-assign]
 
         mine = await backend.filter_mine_addresses(list(responses.keys()))
         assert mine == {"bc1qmine_a", "bc1qmine_c"}
+
+    @pytest.mark.asyncio
+    async def test_rpc_batch_call_assembles_and_reorders_responses(self) -> None:
+        """``_rpc_batch_call`` sends one JSON body and maps responses by id.
+
+        Bitcoin Core is allowed to reorder JSON-RPC batch responses; the
+        helper must map them back to input order so callers can zip results
+        with their original call list.
+        """
+        backend = DescriptorWalletBackend(wallet_name="test_batch_rpc")
+        backend._wallet_loaded = True
+
+        captured_payloads: list[Any] = []
+
+        class FakeResponse:
+            def __init__(self, body: Any) -> None:
+                self._body = body
+
+            def json(self) -> Any:
+                return self._body
+
+            def raise_for_status(self) -> None:
+                return None
+
+        class FakeClient:
+            async def post(self, url: str, json: Any) -> FakeResponse:
+                captured_payloads.append(json)
+                # Reverse the order to prove the helper doesn't assume
+                # in-order responses, and include one per-call error.
+                rev = []
+                for entry in reversed(json):
+                    if entry["params"][0] == "addr_err":
+                        rev.append(
+                            {
+                                "jsonrpc": "2.0",
+                                "id": entry["id"],
+                                "error": {"code": -1, "message": "boom"},
+                            }
+                        )
+                    else:
+                        rev.append(
+                            {
+                                "jsonrpc": "2.0",
+                                "id": entry["id"],
+                                "result": {"ok": entry["params"][0]},
+                            }
+                        )
+                return FakeResponse(rev)
+
+        backend.client = FakeClient()  # type: ignore[assignment]
+
+        calls = [
+            ("getaddressinfo", ["addr_a"]),
+            ("getaddressinfo", ["addr_err"]),
+            ("getaddressinfo", ["addr_c"]),
+        ]
+        results = await backend._rpc_batch_call(calls)
+
+        # Single HTTP POST regardless of N.
+        assert len(captured_payloads) == 1
+        # Result order matches input order even though server reversed.
+        assert results[0] == {"ok": "addr_a"}
+        assert isinstance(results[1], ValueError)
+        assert "boom" in str(results[1])
+        assert results[2] == {"ok": "addr_c"}
+
+    @pytest.mark.asyncio
+    async def test_rpc_batch_call_chunks_large_inputs(self) -> None:
+        """Inputs larger than ``chunk_size`` are split into multiple HTTP POSTs."""
+        backend = DescriptorWalletBackend(wallet_name="test_batch_chunk")
+        backend._wallet_loaded = True
+
+        post_count = 0
+
+        class FakeResponse:
+            def __init__(self, body: Any) -> None:
+                self._body = body
+
+            def json(self) -> Any:
+                return self._body
+
+            def raise_for_status(self) -> None:
+                return None
+
+        class FakeClient:
+            async def post(self, url: str, json: Any) -> FakeResponse:
+                nonlocal post_count
+                post_count += 1
+                return FakeResponse(
+                    [{"jsonrpc": "2.0", "id": e["id"], "result": e["params"][0]} for e in json]
+                )
+
+        backend.client = FakeClient()  # type: ignore[assignment]
+
+        calls = [("getaddressinfo", [f"addr_{i}"]) for i in range(750)]
+        results = await backend._rpc_batch_call(calls, chunk_size=200)
+
+        # ceil(750 / 200) = 4 HTTP POSTs.
+        assert post_count == 4
+        # All results preserved in input order.
+        assert results == [f"addr_{i}" for i in range(750)]
+
+    @pytest.mark.asyncio
+    async def test_batch_get_address_info_converts_errors_to_none(self) -> None:
+        """Per-address RPC errors surface as ``None`` to match the single-call contract."""
+        backend = DescriptorWalletBackend(wallet_name="test_batch_gai")
+        backend._wallet_loaded = True
+
+        async def _mock_batch(
+            calls: Any,
+            client: Any = None,
+            use_wallet: bool = True,
+            chunk_size: int = 500,
+        ) -> list[Any]:
+            out: list[Any] = []
+            for _, params in calls:
+                if params[0] == "bad":
+                    out.append(ValueError("rpc error -5: invalid address"))
+                else:
+                    out.append({"ismine": True, "desc": "wpkh()"})
+            return out
+
+        backend._rpc_batch_call = _mock_batch  # type: ignore[method-assign]
+
+        result = await backend.batch_get_address_info(["good_a", "bad", "good_b"])
+        assert result[0] == {"ismine": True, "desc": "wpkh()"}
+        assert result[1] is None
+        assert result[2] == {"ismine": True, "desc": "wpkh()"}
+
+    @pytest.mark.asyncio
+    async def test_batch_get_address_info_empty_input_short_circuits(self) -> None:
+        """Empty input must not issue any RPC."""
+        backend = DescriptorWalletBackend(wallet_name="test_batch_empty")
+        backend._wallet_loaded = True
+
+        called = False
+
+        async def _mock_batch(*args: Any, **kwargs: Any) -> list[Any]:
+            nonlocal called
+            called = True
+            return []
+
+        backend._rpc_batch_call = _mock_batch  # type: ignore[method-assign]
+
+        result = await backend.batch_get_address_info([])
+        assert result == []
+        assert not called, "empty input must not trigger any RPC"
 
     @pytest.mark.asyncio
     async def test_sync_skips_extended_scan_for_external_addresses(self) -> None:
@@ -2088,9 +2246,15 @@ class TestAddressHistory:
             # external address: not ours according to Bitcoin Core
             return {"ismine": address == own_addr, "address": address}
 
+        async def mock_batch_get_address_info(
+            addresses: Any,
+        ) -> list[dict[str, Any] | None]:
+            return [await mock_get_address_info(a) for a in addresses]
+
         backend.get_all_utxos = mock_get_all_utxos  # type: ignore[method-assign]
         backend.get_addresses_with_history = mock_get_addresses_with_history  # type: ignore[method-assign]
         backend.get_address_info = mock_get_address_info  # type: ignore[method-assign]
+        backend.batch_get_address_info = mock_batch_get_address_info  # type: ignore[method-assign]
 
         wallet = WalletService(
             mnemonic=TEST_MNEMONIC,
@@ -2175,9 +2339,15 @@ class TestAddressHistory:
                 return None
             return {"ismine": True, "desc": "wpkh([abcd/0/0]ff)#cs", "address": address}
 
+        async def mock_batch_get_address_info(
+            addresses: Any,
+        ) -> list[dict[str, Any] | None]:
+            return [await mock_get_address_info(a) for a in addresses]
+
         backend.get_all_utxos = mock_get_all_utxos  # type: ignore[method-assign]
         backend.get_addresses_with_history = mock_get_addresses_with_history  # type: ignore[method-assign]
         backend.get_address_info = mock_get_address_info  # type: ignore[method-assign]
+        backend.batch_get_address_info = mock_batch_get_address_info  # type: ignore[method-assign]
 
         wallet = WalletService(
             mnemonic=TEST_MNEMONIC,

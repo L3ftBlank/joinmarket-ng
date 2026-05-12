@@ -30,6 +30,96 @@ else
     VENV_BIN="${HOME_JM}/.joinmarket-ng/venv/bin"
 fi
 
+# =============================================================================
+# ---- Exit Handler (Environment-aware) ---------------------------------------
+# =============================================================================
+#
+# This function handles the exit behavior of the JoinMarket-NG TUI based on
+# the detected environment. The behavior differs between Raspiblitz and
+# standalone installations to provide the best user experience on each
+# platform.
+#
+# On Raspiblitz:
+#   - Instead of exiting directly to the Raspiblitz menu (which would lose
+#     the activated virtual environment), we drop to an interactive shell
+#     with the JoinMarket venv activated.
+#   - This allows users to continue using JoinMarket CLI tools directly
+#     without reactivating the environment manually.
+#   - From this shell, users can:
+#     * Run 'jm-ng' to restart the TUI
+#     * Run 'exit' to return to the Raspiblitz menu
+#     * Run any JoinMarket CLI commands directly
+#   - Shell nesting is prevented via JM_NG_SHELL_ACTIVE environment variable:
+#     When the user exits jm-ng while already inside the JM-NG shell
+#     (e.g. ESC from a restarted TUI), the variable is already set and we
+#     exit directly to the Raspiblitz menu instead of starting another shell.
+#
+# On Standalone:
+#   - We exit normally to the shell, as the user typically launches jm-ng
+#     from an already configured environment.
+#   - The virtual environment is usually managed by the user directly
+#     in standalone setups.
+#
+# The RASPIBLITZ variable is set during environment detection at startup:
+#   - RASPIBLITZ=1 if /home/admin/config.scripts/bonus.joinmarket-ng.sh exists
+#   - RASPIBLITZ=0 otherwise
+#
+# Technical notes:
+#   - Uses bash --init-file with process substitution instead of exec --rcfile:
+#     * No temp file to manage (process substitution cleans up automatically)
+#     * No exec (avoids unreliable exit behavior in some environments)
+#     * exit 0 after bash ensures jm-ng terminates when the shell exits
+#   - JM_NG_SHELL_ACTIVE=1 is exported in the subshell to prevent nesting
+#
+# Usage:
+#   Called from multiple places in the script:
+#   - When user selects 'X' (Exit) from the main menu
+#   - When user cancels (ESC) from any menu
+#   - After the main loop ends (as a safety net)
+
+exit_jm_ng() {
+    local exit_mode="${1:-auto}"
+    clear
+    if [ "${RASPIBLITZ}" -eq 1 ]; then
+        # Auto mode: determine based on where we came from
+        if [ "${exit_mode}" = "auto" ]; then
+            if [ "${JM_NG_SHELL_ACTIVE}" = "1" ]; then
+                exit_mode="shell"
+            else
+                exit_mode="menu"
+            fi
+        fi
+
+        if [ "${exit_mode}" = "menu" ]; then
+            # Exit directly to RaspiBlitz menu
+            if [ -n "${JM_SHELL_PID:-}" ]; then
+                kill "${JM_SHELL_PID}" 2>/dev/null
+            fi
+            exit 0
+        fi
+
+        # Show JM shell message
+        echo "========================================"
+        echo "  JoinMarket-NG CLI Shell"
+        echo "========================================"
+        echo "  jm-ng       → JoinMarket-NG TUI"
+        echo "  exit        → Exit to RaspiBlitz menu"
+        echo "========================================"
+
+        # Check if we're already in JM-NG shell (avoid nesting)
+        if [ "${JM_NG_SHELL_ACTIVE}" = "1" ]; then
+            exit 0
+        fi
+
+        # Start a new bash shell with venv activated and marker set
+        bash --init-file <(echo "export JM_NG_SHELL_ACTIVE=1; export JM_SHELL_PID=\$\$; source /home/joinmarketng/venv/bin/activate; export PS1=\"(jmshell) \u@\h:\w\$ \"")
+        exit 0
+    else
+        # Standalone: normal exit
+        exit 0
+    fi
+}
+
 # ---- Paths ------------------------------------------------------------------
 DATA_DIR="${HOME_JM}/.joinmarket-ng"
 CONFIG_FILE="${DATA_DIR}/config.toml"
@@ -717,21 +807,34 @@ while true; do
     WALLET_INFO="Active Wallet: (none configured)"
   fi
 
-CHOICE=$(whiptail --title " JoinMarket-NG Menu" \
-    --menu "\n$WALLET_INFO | Maker Bot: $MAKER_STATUS" \
-    18 64 7 \
-    "S" "Send Bitcoin" \
-    "W" "Wallet Management" \
-    "M" "Maker Bot Control" \
-    "C" "Edit Configuration" \
-    "U" "Update JoinMarket-NG" \
-    "I" "Info / Documentation" \
-    "X" "Exit" 3>&1 1>&2 2>&3)
+if [ "${RASPIBLITZ}" -eq 1 ]; then
+    CHOICE=$(whiptail --title " JoinMarket-NG Menu" \
+        --menu "\n$WALLET_INFO | Maker Bot: $MAKER_STATUS" \
+        20 64 8 \
+        "S" "Send Bitcoin" \
+        "W" "Wallet Management" \
+        "M" "Maker Bot Control" \
+        "C" "Edit Configuration" \
+        "U" "Update JoinMarket-NG" \
+        "I" "Info / Documentation" \
+        "B" "Exit to RaspiBlitz Menu" \
+        "X" "Exit to JoinMarket-NG CLI Shell" 3>&1 1>&2 2>&3)
+  else
+    CHOICE=$(whiptail --title " JoinMarket-NG Menu" \
+        --menu "\n$WALLET_INFO | Maker Bot: $MAKER_STATUS" \
+        18 64 7 \
+        "S" "Send Bitcoin" \
+        "W" "Wallet Management" \
+        "M" "Maker Bot Control" \
+        "C" "Edit Configuration" \
+        "U" "Update JoinMarket-NG" \
+        "I" "Info / Documentation" \
+        "X" "Exit to JoinMarket-NG CLI Shell" 3>&1 1>&2 2>&3)
+  fi
 
   exitstatus=$?
   if [ $exitstatus != 0 ]; then
-    clear
-    exit 0
+    exit_jm_ng
   fi
 
   case $CHOICE in
@@ -1833,10 +1936,17 @@ Maker service (as admin):
   sudo journalctl -u joinmarket-ng-maker -f" 24 66
       ;;
 
+    B)
+     exit_jm_ng menu
+     ;;
+
     X)
-      clear
-      exit 0
-      ;;
+     exit_jm_ng shell
+     ;;
+
   esac
 
 done
+
+# Cancel pressed or loop ended
+exit_jm_ng

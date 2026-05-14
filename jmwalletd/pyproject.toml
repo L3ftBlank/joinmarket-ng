@@ -25,7 +25,7 @@ dependencies = [
     # coincurve 21.0.0 has a bug that prevents installation on 3.14
     # See: https://github.com/ofek/coincurve/issues/219
     # Pinned to commit hash until a fixed version is released
-    "coincurve @ https://github.com/ofek/coincurve/archive/7829b29c08ebb1cc80386a1cdaf8c2243c4ef5c5.zip",
+    "coincurve @ https://github.com/ofek/coincurve/archive/7829b29c08ebb1cc80386a1cdaf8c2243c4ef5c5.zip#sha256=623b363c1e39977255d9222351e211a96dc5884aebb28e8a23d85bfef0dec37e",
 ]
 
 [project.optional-dependencies]

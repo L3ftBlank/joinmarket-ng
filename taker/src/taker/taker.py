@@ -18,7 +18,7 @@ import asyncio
 import time
 from typing import Any
 
-from jmcore.bitcoin import calculate_tx_vsize, get_txid, parse_transaction
+from jmcore.bitcoin import calculate_tx_vsize, get_address_type, get_txid, parse_transaction
 from jmcore.bond_calc import calculate_timelocked_fidelity_bond_value
 from jmcore.btc_script import derive_bond_address
 from jmcore.commitment_blacklist import set_blacklist_path
@@ -63,7 +63,39 @@ __all__ = [
     "MakerSession",
     "PhaseResult",
     "Taker",
+    "warn_if_destination_script_mismatch",
 ]
+
+
+# JM-NG wallets are uniformly wpkh descriptors, so any non-p2wpkh destination
+# mixes script types in the CoinJoin output and acts as a fingerprint linking
+# the taker output back to its inputs.
+_WALLET_OUTPUT_SCRIPT_TYPE = "p2wpkh"
+
+
+def warn_if_destination_script_mismatch(destination: str) -> str | None:
+    """
+    Emit a warning when the destination address does not match the wallet's
+    native script type. Returns the detected destination type on mismatch,
+    None otherwise (matched type, or unparseable address - the canonical
+    validation error is produced later in the pipeline).
+
+    See issue #113.
+    """
+    try:
+        dest_type = get_address_type(destination)
+    except ValueError:
+        return None
+    if dest_type == _WALLET_OUTPUT_SCRIPT_TYPE:
+        return None
+    logger.warning(
+        f"Destination address {destination} is {dest_type} but wallet is "
+        f"{_WALLET_OUTPUT_SCRIPT_TYPE} (native segwit). Mixing script types "
+        "in CoinJoin outputs fingerprints your output and reduces the "
+        "effective anonymity set. Consider sending to a bech32 "
+        "(bc1q.../tb1q...) address instead."
+    )
+    return dest_type
 
 
 class Taker(TakerMonitoringMixin):
@@ -451,6 +483,10 @@ class Taker(TakerMonitoringMixin):
                 dest_index = self.wallet.get_next_address_index(dest_mixdepth, 1)
                 destination = self.wallet.get_change_address(dest_mixdepth, dest_index)
                 logger.info(f"Using internal address: {destination}")
+            else:
+                # Warn when the user-supplied destination does not match the
+                # wallet's native script type (#113).
+                warn_if_destination_script_mismatch(destination)
 
             # Resolve fee rate early (before any fee estimation calls)
             try:

@@ -340,6 +340,78 @@ neutrino-api server itself rather than via `bitcoin-cli`. See
 [Neutrino TLS](technical/neutrino-tls.md) for credentials and the
 neutrino-api project's own `/status` endpoint for sync state.
 
+## Uninstall
+
+There is no automatic uninstaller. Uninstalling has three parts: the
+Python packages, the JoinMarket NG data directory, and the descriptor
+wallet inside Bitcoin Core. Pick the steps that apply to your install.
+
+> WARNING: the data directory holds your encrypted wallet seeds, the
+> fidelity-bond registry, and other state. Back it up before deleting
+> anything. You will be able to recover the funds with the mnemonic alone.
+
+### 1) Python packages and virtualenv
+
+If you used `install.sh` (recommended path), removing the venv removes
+all installed JoinMarket NG packages and shell entry points at once:
+
+```bash
+rm -rf "${JMNG_VENV_DIR:-$HOME/.joinmarket-ng/venv}"
+```
+
+If you installed into a system Python or another venv, uninstall the
+packages explicitly:
+
+```bash
+pip uninstall jmcore jmwallet jmwalletd jm-taker jm-maker jm-tumbler \
+              jm-directory-server joinmarket-orderbook-watcher
+```
+
+Static shell completions installed by `install.sh` live alongside the
+venv and are removed with it. If you also added a manual `source ...`
+line to `~/.bashrc` / `~/.zshrc` (for example for `activate.sh`),
+remove that line too.
+
+### 2) Data directory
+
+The data directory defaults to `~/.joinmarket-ng` and is configurable
+via `$JOINMARKET_DATA_DIR`. It contains:
+
+- `config.toml`
+- `wallets/` (encrypted seeds and the fidelity-bond registry)
+- Tor state, log files, and per-wallet caches
+
+```bash
+rm -rf "${JOINMARKET_DATA_DIR:-$HOME/.joinmarket-ng}"
+```
+
+### 3) Descriptor wallet inside Bitcoin Core
+
+When using the `descriptor_wallet` backend, JoinMarket NG creates a
+watch-only descriptor wallet inside Bitcoin Core named
+`jm_<fingerprint>_<network>` (for example `jm_abc12345_mainnet`). It is
+not removed by uninstalling the Python packages.
+
+List JoinMarket NG wallets currently loaded:
+
+```bash
+bitcoin-cli listwallets | jq '.[] | select(startswith("jm_"))'
+```
+
+Unload then delete each one. Bitcoin Core has no RPC to remove wallet
+files, so the directory must be removed manually after unloading:
+
+```bash
+WALLET="jm_<fingerprint>_<network>"
+bitcoin-cli unloadwallet "$WALLET"
+# Remove the on-disk wallet directory. Adjust the path if your
+# Bitcoin Core datadir is not the default ~/.bitcoin (use
+# `bitcoin-cli getwalletinfo` while loaded to confirm the location).
+rm -rf "$HOME/.bitcoin/wallets/$WALLET"
+```
+
+On Neutrino-only installs there is no Bitcoin Core wallet to clean up.
+
 ## Next Docs
 
 - [Wallet](README-jmwallet.md)

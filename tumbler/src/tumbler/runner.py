@@ -159,7 +159,19 @@ class TumbleRunner:
                     return self.plan
                 await self._run_one_phase(phase)
                 if phase.status == PhaseStatus.FAILED:
-                    if await self._try_tweak_for_retry(phase):
+                    try:
+                        retry = await self._try_tweak_for_retry(phase)
+                    except _StopRequestedError:
+                        # A stop arrived during the retry back-off wait.
+                        # Treat the phase (and plan) as cancelled rather
+                        # than letting the exception escape ``run()`` and
+                        # surface as a generic runner crash.
+                        phase.status = PhaseStatus.CANCELLED
+                        phase.finished_at = datetime.now(UTC)
+                        self.plan.status = PlanStatus.CANCELLED
+                        self._persist()
+                        return self.plan
+                    if retry:
                         # Re-run the same phase index; bookkeeping
                         # (attempt_count, PENDING reset) has been applied.
                         self._persist()

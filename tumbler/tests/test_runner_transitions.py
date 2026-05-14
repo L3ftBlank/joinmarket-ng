@@ -588,6 +588,65 @@ class TestRunnerCancellation:
         # At least the first phase completed before cancel.
         assert any(p.status == PhaseStatus.COMPLETED for p in result.phases)
 
+    async def test_request_stop_during_retry_backoff_cancels_plan(self, tmp_path: Path) -> None:
+        """A stop arriving during the retry back-off must cancel cleanly.
+
+        Regression: previously ``_try_tweak_for_retry`` invoked
+        ``_wait_interruptibly`` without catching ``_StopRequestedError``, so a
+        stop that arrived between a phase failure and its retry crashed the
+        runner with an unhandled exception, leaving the plan in ``FAILED``
+        (and surfacing as "tumbler runner crashed" in jmwalletd). The plan
+        should instead transition to ``CANCELLED``.
+        """
+        plan = _plan(tmp_path)
+
+        async def fake_sleep(seconds: float) -> None:
+            # Yield control so the stop flag can be observed mid-wait.
+            await asyncio.sleep(0)
+
+        async def make_taker(phase: Any) -> FakeTaker:
+            t = FakeTaker(phase)
+
+            async def always_fail(
+                amount: int,
+                destination: str,
+                mixdepth: int = 0,
+                counterparty_count: int | None = None,
+            ) -> str | None:
+                t.state = "failed"
+                t.last_failure_reason = "Not enough offers: need 2, found 0"
+                return None
+
+            t.do_coinjoin = always_fail  # type: ignore[assignment]
+            return t
+
+        runner = TumbleRunner(
+            plan,
+            _ctx(
+                tmp_path,
+                taker_factory=make_taker,
+                sleep=fake_sleep,
+                retry_delay_seconds=5.0,
+            ),
+        )
+
+        # Trip the stop flag as soon as the retry path persists its
+        # ``attempt_count`` bump, which happens just before the back-off wait.
+        original = runner._persist  # type: ignore[attr-defined]
+        stopped = {"done": False}
+
+        def hooked() -> None:
+            original()
+            if not stopped["done"] and plan.phases[0].attempt_count >= 1:
+                stopped["done"] = True
+                runner.request_stop()
+
+        runner._persist = hooked  # type: ignore[attr-defined,method-assign]
+        result = await runner.run()
+
+        assert result.status == PlanStatus.CANCELLED
+        assert result.phases[0].status == PhaseStatus.CANCELLED
+
 
 class TestRunnerMakerPhase:
     async def test_maker_phase_runs_until_duration(self, tmp_path: Path) -> None:

@@ -111,10 +111,19 @@ class JMTokenAuthority:
         )
 
         # Validate scope includes our expected scope.
+        #
+        # Scope is an OAuth2-style space-separated set of tokens. We must
+        # compare token-by-token (set membership) and NOT use a naive
+        # substring check: a substring check would accept a token issued
+        # for wallet "ali" (scope "walletrpc YWxp") when the daemon is
+        # currently serving wallet "alice" (scope "walletrpc YWxpY2U="),
+        # because "walletrpc YWxp" is a substring of "walletrpc YWxpY2U=".
         token_scope = payload.get("scope", "")
         if not self.scope:
             return payload
-        if self.scope not in token_scope:
+        expected_tokens = set(self.scope.split())
+        presented_tokens = set(token_scope.split())
+        if not expected_tokens.issubset(presented_tokens):
             msg = f"Scope mismatch: expected '{self.scope}' in '{token_scope}'"
             raise jwt.InvalidTokenError(msg)
 
@@ -134,8 +143,11 @@ class JMTokenAuthority:
         )
 
         token_scope = payload.get("scope", "")
-        if self.scope and self.scope not in token_scope:
-            msg = f"Scope mismatch: expected '{self.scope}' in '{token_scope}'"
-            raise jwt.InvalidTokenError(msg)
+        if self.scope:
+            expected_tokens = set(self.scope.split())
+            presented_tokens = set(token_scope.split())
+            if not expected_tokens.issubset(presented_tokens):
+                msg = f"Scope mismatch: expected '{self.scope}' in '{token_scope}'"
+                raise jwt.InvalidTokenError(msg)
 
         return payload

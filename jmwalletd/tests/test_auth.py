@@ -175,3 +175,70 @@ class TestJMTokenAuthority:
         )
         with pytest.raises(jwt.InvalidTokenError, match="Scope mismatch"):
             token_authority.verify_refresh(forged_token)
+
+    def test_verify_access_rejects_wallet_name_prefix(
+        self, token_authority: JMTokenAuthority
+    ) -> None:
+        """A token issued for a longer wallet name must not validate for a prefix name.
+
+        The base64 encoding of a short wallet name is a prefix of the base64
+        encoding of a longer wallet name that starts with the same bytes, so a
+        naive substring scope check (``self.scope in token_scope``) accepts a
+        token issued for the longer name when the daemon is currently serving
+        the shorter, prefix name. Verify the set-membership check we now use
+        rejects this.
+
+        Example: b64("ali") == "YWxp" is a prefix of b64("alice") == "YWxpY2U=".
+        With the old substring check, expected scope ``"walletrpc YWxp"`` was
+        a substring of presented scope ``"walletrpc YWxpY2U="``, so a token
+        for ``alice`` was accepted when the daemon was serving ``ali``.
+        """
+        # Sanity check: the base64 prefix relationship holds.
+        assert base64.b64encode(b"alice").decode().startswith(base64.b64encode(b"ali").decode())
+
+        # Issue a token for the longer wallet name.
+        pair = token_authority.issue("alice")
+        # Switch to the shorter, prefix wallet name without rotating signing
+        # keys so the token still verifies cryptographically. Only the scope
+        # check protects against cross-wallet reuse here.
+        token_authority._wallet_name = "ali"
+
+        with pytest.raises(jwt.InvalidTokenError, match="Scope mismatch"):
+            token_authority.verify_access(pair.token)
+
+    def test_verify_refresh_rejects_wallet_name_prefix(
+        self, token_authority: JMTokenAuthority
+    ) -> None:
+        """Same prefix-collision check as the access path, on the refresh path."""
+        token_authority.issue("alice")
+        refresh_key_alice = token_authority._refresh_key
+        scope_alice = "walletrpc " + base64.b64encode(b"alice").decode()
+        token_for_alice = jwt.encode(
+            {"exp": time.time() + 14400, "scope": scope_alice},
+            refresh_key_alice,
+            algorithm="HS256",
+        )
+
+        token_authority._wallet_name = "ali"
+
+        with pytest.raises(jwt.InvalidTokenError, match="Scope mismatch"):
+            token_authority.verify_refresh(token_for_alice)
+
+    def test_verify_access_accepts_superset_scope(self, token_authority: JMTokenAuthority) -> None:
+        """A token whose scope is a superset of the expected scope must verify.
+
+        Future-proofing: if a token ever carries extra scope tokens (e.g. a
+        feature scope alongside the wallet binding), the set-membership check
+        should still accept it as long as the expected scope tokens are all
+        present.
+        """
+        token_authority._wallet_name = "w.jmdat"
+        expected = token_authority.scope
+        extra_scope = expected + " extra-feature"
+        token = jwt.encode(
+            {"exp": time.time() + 1800, "scope": extra_scope},
+            token_authority._access_key,
+            algorithm="HS256",
+        )
+        payload = token_authority.verify_access(token)
+        assert payload["scope"] == extra_scope

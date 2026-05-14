@@ -1,6 +1,8 @@
 # Security
 
-This page summarizes practical security properties and controls.
+This page summarizes practical security properties and controls. For the
+full adversary model and per-threat mitigations, see
+[Threat Model](threat-model.md).
 
 ## Threat Model (High Level)
 

@@ -134,6 +134,59 @@ def test_tui_script_fidelity_bonds_list_uses_msgbox_when_empty() -> None:
     assert "BONDS_OUT" in list_block
 
 
+def test_tui_script_fidelity_bond_address_regex_matches_all_networks() -> None:
+    """The CREATE flow extracts the generated bond address from
+    ``jm-wallet generate-bond-address`` output via grep. The regex must
+    match bech32 addresses across all networks (mainnet bc1, testnet/
+    signet tb1, regtest bcrt1) and legacy base58 (1.../3...).
+
+    Regression test for the bug where signet addresses like
+    ``tb1qvksm82wsdaml0s8pvruptpj4xevtuf7rhgl2yxhtzmscpq0rldksfgluqx``
+    were displayed as ``1qvksm...`` because the regex listed only
+    ``bc1|[13]`` and the legacy ``1`` branch swallowed the inner ``1``
+    of the ``tb1`` HRP, dropping the network prefix.
+    """
+    import re
+
+    content = SCRIPT_PATH.read_text()
+    # Locate the BOND_ADDR extraction line and pull the regex literal.
+    match = re.search(r"BOND_ADDR=\$\(grep -oE '([^']+)'", content)
+    assert match is not None, "BOND_ADDR extraction line not found"
+    bond_regex = match.group(1)
+
+    samples = {
+        # Signet (the one from the bug report).
+        "tb1qvksm82wsdaml0s8pvruptpj4xevtuf7rhgl2yxhtzmscpq0rldksfgluqx": (
+            "tb1qvksm82wsdaml0s8pvruptpj4xevtuf7rhgl2yxhtzmscpq0rldksfgluqx"
+        ),
+        # Mainnet bech32.
+        "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4": (
+            "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"
+        ),
+        # Regtest bech32.
+        "bcrt1qq6hag67dl53wl99vzg42z8eyzfz2xlkvwk6f7m": (
+            "bcrt1qq6hag67dl53wl99vzg42z8eyzfz2xlkvwk6f7m"
+        ),
+        # Legacy P2PKH.
+        "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa": ("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"),
+        # Legacy P2SH.
+        "3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy": ("3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy"),
+    }
+    for raw, expected in samples.items():
+        out = subprocess.run(
+            ["grep", "-oE", bond_regex],
+            input=raw + "\n",
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert out.returncode == 0, f"grep failed on {raw!r}: {out.stderr}"
+        assert out.stdout.strip() == expected, (
+            f"regex {bond_regex!r} produced {out.stdout.strip()!r} for "
+            f"input {raw!r}, expected {expected!r}"
+        )
+
+
 def test_tui_script_maker_start_has_wallet_picker() -> None:
     """Maker START must offer wallet selection before password prompts
     when multiple wallets exist (issue #454)."""

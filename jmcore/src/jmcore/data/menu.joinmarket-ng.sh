@@ -1654,8 +1654,15 @@ if [ "${RASPIBLITZ}" -eq 1 ]; then
                             BONDS_CREATE_RC=$?
 
                             if [ $BONDS_CREATE_RC -eq 0 ]; then
-                                # Extract the address (bc1... or other bitcoin address format)
-                                BOND_ADDR=$(grep -oE '(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,87}' "$BONDS_CREATE_OUT" | head -1)
+                                # Extract the address. Match all bech32 HRPs
+                                # (mainnet bc1, testnet/signet tb1, regtest bcrt1)
+                                # plus legacy base58 (1.../3...). The longer
+                                # bech32 prefixes must come first in the
+                                # alternation, otherwise grep would greedily
+                                # accept the inner '1' of "tb1"/"bcrt1" via the
+                                # legacy [13] branch and drop the network HRP
+                                # (e.g. "tb1qvksm..." -> "1qvksm...").
+                                BOND_ADDR=$(grep -oE '(bcrt1|bc1|tb1|[13])[a-zA-HJ-NP-Z0-9]{25,87}' "$BONDS_CREATE_OUT" | head -1)
 
                                 # Show address prominently in whiptail msgbox
                                 whiptail --title " Fidelity Bond Address " --msgbox \

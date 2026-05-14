@@ -267,15 +267,33 @@ class Offer(BaseModel):
     @field_validator("cjfee")
     @classmethod
     def validate_cjfee(cls, v: str | int, info) -> str | int:
+        from decimal import Decimal, InvalidOperation
+
         ordertype = info.data.get("ordertype")
         if ordertype in (OfferType.SW0_ABSOLUTE, OfferType.SWA_ABSOLUTE):
-            return int(v)
+            # Absolute fees are integer satoshis; reject negatives and absurdly
+            # large values that could overflow downstream amount arithmetic.
+            iv = int(v)
+            if iv < 0:
+                raise ValueError("absolute cjfee must be non-negative")
+            # 21M BTC in satoshis - any single-offer fee above this is nonsense
+            # and could be used to trick takers into oversized fee calculations.
+            if iv > 2_100_000_000_000_000:
+                raise ValueError("absolute cjfee exceeds maximum money supply")
+            return iv
+        # Relative fees are decimal fractions in [0, 1).
         # Normalize scientific notation to fixed-point decimal (e.g., "1E-9" -> "0.000000001")
         s = str(v)
+        try:
+            d = Decimal(s)
+        except (InvalidOperation, ValueError) as exc:
+            raise ValueError(f"relative cjfee is not a valid decimal: {s!r}") from exc
+        if d < 0:
+            raise ValueError("relative cjfee must be non-negative")
+        if d >= 1:
+            raise ValueError("relative cjfee must be less than 1")
         if "e" in s.lower():
-            from decimal import Decimal
-
-            s = format(Decimal(s), "f")
+            s = format(d, "f")
         return s
 
     def is_absolute_fee(self) -> bool:

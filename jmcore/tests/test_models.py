@@ -377,6 +377,71 @@ class TestOffer:
         fee = offer.calculate_fee(100_000_000)
         assert isinstance(fee, int)
 
+    def test_negative_absolute_cjfee_rejected(self):
+        """Maker must not advertise a negative absolute cjfee (would mean paying takers)."""
+        with pytest.raises(ValueError, match="absolute cjfee must be non-negative"):
+            Offer(
+                counterparty="J5TestMaker",
+                oid=0,
+                ordertype=OfferType.SW0_ABSOLUTE,
+                minsize=100_000,
+                maxsize=10_000_000,
+                txfee=0,
+                cjfee=-1,
+            )
+
+    def test_absolute_cjfee_exceeding_money_supply_rejected(self):
+        """Absurdly large absolute cjfee values are rejected to prevent fee-arithmetic abuse."""
+        with pytest.raises(ValueError, match="exceeds maximum money supply"):
+            Offer(
+                counterparty="J5TestMaker",
+                oid=0,
+                ordertype=OfferType.SW0_ABSOLUTE,
+                minsize=100_000,
+                maxsize=10_000_000,
+                txfee=0,
+                cjfee=2_100_000_000_000_001,
+            )
+
+    def test_negative_relative_cjfee_rejected(self):
+        """Negative relative cjfee is rejected (would yield negative fees)."""
+        with pytest.raises(ValueError, match="relative cjfee must be non-negative"):
+            Offer(
+                counterparty="J5TestMaker",
+                oid=0,
+                ordertype=OfferType.SW0_RELATIVE,
+                minsize=100_000,
+                maxsize=10_000_000,
+                txfee=0,
+                cjfee="-0.5",
+            )
+
+    def test_relative_cjfee_ge_one_rejected(self):
+        """Relative cjfee >= 1 is rejected (fee would meet or exceed the coinjoin amount)."""
+        with pytest.raises(ValueError, match="relative cjfee must be less than 1"):
+            Offer(
+                counterparty="J5TestMaker",
+                oid=0,
+                ordertype=OfferType.SW0_RELATIVE,
+                minsize=100_000,
+                maxsize=10_000_000,
+                txfee=0,
+                cjfee="1.0",
+            )
+
+    def test_relative_cjfee_invalid_decimal_rejected(self):
+        """Non-decimal relative cjfee strings are rejected with a clear error."""
+        with pytest.raises(ValueError, match="not a valid decimal"):
+            Offer(
+                counterparty="J5TestMaker",
+                oid=0,
+                ordertype=OfferType.SW0_RELATIVE,
+                minsize=100_000,
+                maxsize=10_000_000,
+                txfee=0,
+                cjfee="not-a-number",
+            )
+
 
 # ==============================================================================
 # OrderBook Tests

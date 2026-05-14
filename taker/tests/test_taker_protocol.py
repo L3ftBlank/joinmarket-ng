@@ -90,7 +90,7 @@ def sample_offer():
         minsize=10000,
         maxsize=100_000_000,
         txfee=500,
-        cjfee=250,  # 0.00025 relative
+        cjfee="0.00025",  # 0.025% relative
         counterparty="J5TestMaker",
     )
 
@@ -104,7 +104,7 @@ def sample_offer2():
         minsize=10000,
         maxsize=100_000_000,
         txfee=500,
-        cjfee=300,  # 0.0003 relative
+        cjfee="0.0003",  # 0.03% relative
         counterparty="J5TestMaker2",
     )
 
@@ -377,7 +377,7 @@ async def test_maker_session_tracking():
         minsize=10000,
         maxsize=100_000_000,
         txfee=500,
-        cjfee=250,
+        cjfee="0.0001",
         counterparty="J5Maker1",
     )
 
@@ -387,7 +387,7 @@ async def test_maker_session_tracking():
         minsize=10000,
         maxsize=100_000_000,
         txfee=500,
-        cjfee=300,
+        cjfee="0.0002",
         counterparty="J5Maker2",
     )
 

@@ -236,7 +236,7 @@ async def test_channel_consistency_validation():
         minsize=10_000,
         maxsize=100_000_000,
         txfee=1000,
-        cjfee=5000,
+        cjfee="0.0005",
     )
 
     session = CoinJoinSession(

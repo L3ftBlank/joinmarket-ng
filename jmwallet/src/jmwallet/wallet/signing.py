@@ -1,14 +1,16 @@
 """
 Bitcoin transaction signing utilities for P2WPKH and P2WSH inputs.
 
-Uses the unified transaction models from jmcore.bitcoin.  The signing
-functions access byte-oriented properties (``txid_le``, ``sequence_bytes``,
-``version_bytes``, ``locktime_bytes``) to construct the exact BIP-143
-sighash preimage.
+BIP-143 sighash computation delegates to ``python-bitcointx``'s
+``SignatureHash`` so consensus-critical preimage construction lives in
+an audited library. The transaction is serialized via the in-tree
+``ParsedTransaction`` and handed to bitcointx's ``CTransaction``.
 """
 
 from __future__ import annotations
 
+from bitcointx.core import CTransaction
+from bitcointx.core.script import SIGVERSION_WITNESS_V0, CScript, SignatureHash
 from coincurve import PrivateKey
 from jmcore.bitcoin import (
     ParsedTransaction,
@@ -19,6 +21,7 @@ from jmcore.bitcoin import (
     encode_varint,
     hash256,
     parse_transaction_bytes,
+    serialize_transaction,
 )
 
 # Backward-compat alias: old code imports ``Transaction`` from here.
@@ -55,40 +58,33 @@ def compute_sighash_segwit(
     value: int,
     sighash_type: int,
 ) -> bytes:
+    """Compute the BIP-143 sighash for a segwit input.
+
+    Delegates to :func:`bitcointx.core.script.SignatureHash` with
+    ``SIGVERSION_WITNESS_V0``. The ``ParsedTransaction`` is re-serialized
+    and parsed by bitcointx so we never re-implement the BIP-143 preimage
+    layout in-tree.
+    """
     try:
         if input_index >= len(tx.inputs):
             raise TransactionSigningError("Input index out of range")
 
-        hash_prevouts = hash256(
-            b"".join(inp.txid_le + inp.vout.to_bytes(4, "little") for inp in tx.inputs)
+        ctx = CTransaction.deserialize(
+            serialize_transaction(tx.version, tx.inputs, tx.outputs, tx.locktime)
         )
-        hash_sequence = hash256(b"".join(inp.sequence_bytes for inp in tx.inputs))
-        hash_outputs = hash256(
-            b"".join(
-                out.value.to_bytes(8, "little") + encode_varint(len(out.script)) + out.script
-                for out in tx.outputs
+        return bytes(
+            SignatureHash(
+                CScript(script_code),
+                ctx,
+                input_index,
+                sighash_type,
+                amount=value,
+                sigversion=SIGVERSION_WITNESS_V0,
             )
         )
 
-        target_input = tx.inputs[input_index]
-
-        preimage = (
-            tx.version_bytes
-            + hash_prevouts
-            + hash_sequence
-            + target_input.txid_le
-            + target_input.vout.to_bytes(4, "little")
-            + encode_varint(len(script_code))
-            + script_code
-            + value.to_bytes(8, "little")
-            + target_input.sequence_bytes
-            + hash_outputs
-            + tx.locktime_bytes
-            + sighash_type.to_bytes(4, "little")
-        )
-
-        return hash256(preimage)
-
+    except TransactionSigningError:
+        raise
     except Exception as e:
         raise TransactionSigningError(f"Failed to compute sighash: {e}") from e
 

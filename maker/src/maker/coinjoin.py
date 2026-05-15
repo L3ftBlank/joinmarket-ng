@@ -18,6 +18,7 @@ from typing import Any
 
 from jmcore.encryption import CryptoSession
 from jmcore.models import NetworkType, Offer
+from jmcore.podle import parse_podle_revelation, verify_podle
 from jmcore.protocol import (
     UTXOMetadata,
     format_utxo_list,
@@ -33,7 +34,6 @@ from jmwallet.wallet.signing import (
 )
 from loguru import logger
 
-from maker.podle import parse_podle_revelation, verify_podle
 from maker.tx_verification import verify_unsigned_transaction
 
 

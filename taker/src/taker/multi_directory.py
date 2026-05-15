@@ -17,10 +17,10 @@ from typing import Any
 from jmcore.crypto import NickIdentity
 from jmcore.deduplication import ResponseDeduplicator
 from jmcore.directory_client import DirectoryClient
+from jmcore.directory_pool import DirectoryClientPool
 from jmcore.models import Offer
 from jmcore.network import OnionPeer
 from jmcore.protocol import NOT_SERVING_ONION_HOSTNAME
-from jmcore.tasks import parse_directory_address
 from loguru import logger
 
 
@@ -54,7 +54,7 @@ class ChannelBinding:
         return self.channel_id == "direct"
 
 
-class MultiDirectoryClient:
+class MultiDirectoryClient(DirectoryClientPool):
     """
     Wrapper for managing multiple DirectoryClient connections.
 
@@ -97,28 +97,24 @@ class MultiDirectoryClient:
         our_location: str = "NOT-SERVING-ONION",
         stream_isolation: bool = False,
     ):
-        self.directory_servers = directory_servers
-        self.network = network
-        self.nick_identity = nick_identity
+        # Connection / SOCKS / credential setup is delegated to the
+        # DirectoryClientPool base; it handles directory_servers, network,
+        # nick_identity, SOCKS params, connection_timeout, stream_isolation,
+        # the clients dict, and _dir_creds / _peer_creds.
+        super().__init__(
+            directory_servers=directory_servers,
+            network=network,
+            nick_identity=nick_identity,
+            socks_host=socks_host,
+            socks_port=socks_port,
+            connection_timeout=connection_timeout,
+            stream_isolation=stream_isolation,
+        )
+
+        # Taker-specific state below.
         self.nick = nick_identity.nick
-        self.socks_host = socks_host
-        self.socks_port = socks_port
-        self.connection_timeout = connection_timeout
         self.neutrino_compat = neutrino_compat
-        self.clients: dict[str, DirectoryClient] = {}
         self.on_nick_leave = on_nick_leave
-        self.stream_isolation = stream_isolation
-
-        # Pre-compute isolation credentials (None when disabled)
-        self._dir_creds: tuple[str | None, str | None] = (None, None)
-        self._peer_creds: tuple[str | None, str | None] = (None, None)
-        if stream_isolation:
-            from jmcore.tor_isolation import IsolationCategory, get_isolation_credentials
-
-            dir_c = get_isolation_credentials(IsolationCategory.DIRECTORY)
-            self._dir_creds = (dir_c.username, dir_c.password)
-            peer_c = get_isolation_credentials(IsolationCategory.PEER)
-            self._peer_creds = (peer_c.username, peer_c.password)
 
         # Direct peer connection settings
         self.prefer_direct_connections = prefer_direct_connections
@@ -137,6 +133,12 @@ class MultiDirectoryClient:
         # True = nick is present on this server, False = gone from this server
         # A nick is only considered completely gone when ALL servers report False
         self._active_nicks: dict[str, dict[str, bool]] = {}
+
+    def _build_client_kwargs(self, host: str, port: int) -> dict[str, Any]:
+        """Inject the taker's ``neutrino_compat`` flag into the base kwargs."""
+        kwargs = super()._build_client_kwargs(host, port)
+        kwargs["neutrino_compat"] = self.neutrino_compat
+        return kwargs
 
     def _update_nick_status(self, nick: str, server: str, is_present: bool) -> None:
         """
@@ -437,57 +439,24 @@ class MultiDirectoryClient:
         self._peer_connections.clear()
 
     async def connect_all(self) -> int:
-        """Connect to all directory servers in parallel, return count of successful connections."""
+        """Connect to all directory servers in parallel.
 
-        async def connect_single(server: str) -> tuple[str, DirectoryClient | None]:
-            """Connect to a single directory server."""
-            try:
-                host, port = parse_directory_address(server)
-
-                client = DirectoryClient(
-                    host=host,
-                    port=port,
-                    network=self.network,
-                    nick_identity=self.nick_identity,
-                    socks_host=self.socks_host,
-                    socks_port=self.socks_port,
-                    timeout=self.connection_timeout,
-                    neutrino_compat=self.neutrino_compat,
-                    socks_username=self._dir_creds[0],
-                    socks_password=self._dir_creds[1],
-                )
-                await client.connect()
-                logger.info(f"Connected to directory server: {server}")
-                return (server, client)
-            except Exception as e:
-                logger.warning(f"Failed to connect to {server}: {e}")
-                return (server, None)
-
-        # Connect to all directories in parallel
-        tasks = [connect_single(server) for server in self.directory_servers]
-        results = await asyncio.gather(*tasks)
-
-        # Collect successful connections
-        connected = 0
-        for server, client in results:
-            if client is not None:
-                self.clients[server] = client
-                connected += 1
-
-        return connected
+        Thin compatibility wrapper around
+        :meth:`DirectoryClientPool.connect_all_parallel` that preserves
+        the historical name used by the taker codebase.
+        """
+        return await self.connect_all_parallel()
 
     async def close_all(self) -> None:
-        """Close all directory and peer connections."""
-        # Clean up peer connections first
-        await self._cleanup_peer_connections()
+        """Close all directory and peer connections.
 
-        # Close directory connections
-        for server, client in self.clients.items():
-            try:
-                await client.close()
-            except Exception as e:
-                logger.warning(f"Error closing connection to {server}: {e}")
-        self.clients.clear()
+        Peer (direct onion) connections are torn down first so any
+        outgoing per-peer messages have a chance to flush before we
+        close the relay channels. Directory client teardown is handled
+        by :meth:`DirectoryClientPool.close_all`.
+        """
+        await self._cleanup_peer_connections()
+        await super().close_all()
 
     async def fetch_orderbook(
         self,

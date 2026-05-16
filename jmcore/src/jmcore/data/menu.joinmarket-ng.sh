@@ -738,6 +738,26 @@ maker_prepare_wallet() {
             clear_config_value "mnemonic_password"
             CURRENT_WALLET="$only_path"
         fi
+
+        # Offer password storage for encrypted wallets without stored password.
+        # Abort maker start if password storage fails (3 wrong attempts).
+        jm-wallet verify-password -f "$only_path" --no-prompt --password "" >/dev/null 2>&1
+        if [ $? -ne 2 ]; then
+            local stored_pwd
+            stored_pwd=$(get_stored_mnemonic_password)
+            if [ -z "$stored_pwd" ]; then
+                if whiptail --title " Store Password " \
+                    --yesno "Active wallet set to: $only_wallet\n\nStore this wallet's password in config.toml?\nThis lets the maker start without prompting.\nChoose No to be asked for the password on each use." \
+                    12 64 --defaultno 3>&1 1>&2 2>&3; then
+                    clear
+                    if ! prompt_and_store_password "$only_path"; then
+                        echo "Password not stored. Maker start aborted."
+                        return 1
+                    fi
+                fi
+            fi
+        fi
+
         return 0
     fi
 
@@ -772,6 +792,26 @@ maker_prepare_wallet() {
         clear_config_value "mnemonic_password"
         CURRENT_WALLET="$selected_path"
     fi
+
+    # Offer password storage for encrypted wallets without stored password.
+    # Abort maker start if password storage fails (3 wrong attempts).
+    jm-wallet verify-password -f "$selected_path" --no-prompt --password "" >/dev/null 2>&1
+    if [ $? -ne 2 ]; then
+        local stored_pwd
+        stored_pwd=$(get_stored_mnemonic_password)
+        if [ -z "$stored_pwd" ]; then
+            if whiptail --title " Store Password " \
+                --yesno "Active wallet set to: $selected\n\nStore this wallet's password in config.toml?\nThis lets the maker start without prompting.\nChoose No to be asked for the password on each use." \
+                12 64 --defaultno 3>&1 1>&2 2>&3; then
+                clear
+                if ! prompt_and_store_password "$selected_path"; then
+                    echo "Password not stored. Maker start aborted."
+                    return 1
+                fi
+            fi
+        fi
+    fi
+
     return 0
 }
 

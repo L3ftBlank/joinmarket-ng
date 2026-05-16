@@ -614,6 +614,106 @@ class TestResolveMnemonic:
         assert result.mnemonic == mnemonic
         assert "default wallet" in result.source
 
+    def test_resolve_mnemonic_cli_file_uses_config_password(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Regression test for issue #498.
+
+        When --mnemonic-file is passed (as in the documented systemd unit)
+        and wallet.mnemonic_password is set in config.toml, the config
+        password must be used instead of falling through to an interactive
+        prompt (which fails under systemd).
+        """
+        from jmcore.cli_common import resolve_mnemonic
+        from jmcore.settings import JoinMarketSettings
+
+        mnemonic = (
+            "abandon abandon abandon abandon abandon abandon "
+            "abandon abandon abandon abandon abandon about"
+        )
+        password = "systemd_config_password"
+
+        # Encrypt mnemonic at an explicit (non-default) location
+        encrypted_path = tmp_path / "custom" / "wallet.mnemonic"
+        encrypted_path.parent.mkdir(parents=True)
+
+        salt = os.urandom(16)
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=600_000,
+        )
+        key = base64.urlsafe_b64encode(kdf.derive(password.encode("utf-8")))
+        fernet = Fernet(key)
+        encrypted_token = fernet.encrypt(mnemonic.encode("utf-8"))
+        encrypted_path.write_bytes(salt + encrypted_token)
+
+        monkeypatch.setenv("JOINMARKET_DATA_DIR", str(tmp_path))
+        settings = JoinMarketSettings(
+            data_dir=tmp_path,
+            wallet={"mnemonic_password": password},
+        )
+
+        # Simulate the maker/taker CLI: pass --mnemonic-file without password.
+        # If the config password is not picked up, load_mnemonic_from_file
+        # would try to prompt and fail (or decrypt with no password and fail).
+        # Patch the prompt so any attempt to use it raises loudly.
+        with patch(
+            "jmcore.cli_common._prompt_for_password",
+            side_effect=AssertionError(
+                "Should not prompt; config password must be used (issue #498)"
+            ),
+        ):
+            result = resolve_mnemonic(settings, mnemonic_file=encrypted_path)
+
+        assert result is not None
+        assert result.mnemonic == mnemonic
+        assert "--mnemonic-file" in result.source
+
+    def test_resolve_mnemonic_env_file_uses_config_password(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """MNEMONIC_FILE env var path also honors wallet.mnemonic_password."""
+        from jmcore.cli_common import resolve_mnemonic
+        from jmcore.settings import JoinMarketSettings
+
+        mnemonic = (
+            "abandon abandon abandon abandon abandon abandon "
+            "abandon abandon abandon abandon abandon about"
+        )
+        password = "env_config_password"
+
+        encrypted_path = tmp_path / "env_wallet.mnemonic"
+        salt = os.urandom(16)
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=600_000,
+        )
+        key = base64.urlsafe_b64encode(kdf.derive(password.encode("utf-8")))
+        fernet = Fernet(key)
+        encrypted_token = fernet.encrypt(mnemonic.encode("utf-8"))
+        encrypted_path.write_bytes(salt + encrypted_token)
+
+        monkeypatch.setenv("JOINMARKET_DATA_DIR", str(tmp_path))
+        monkeypatch.setenv("MNEMONIC_FILE", str(encrypted_path))
+        settings = JoinMarketSettings(
+            data_dir=tmp_path,
+            wallet={"mnemonic_password": password},
+        )
+
+        with patch(
+            "jmcore.cli_common._prompt_for_password",
+            side_effect=AssertionError("Should not prompt; config password must be used"),
+        ):
+            result = resolve_mnemonic(settings)
+
+        assert result is not None
+        assert result.mnemonic == mnemonic
+        assert "MNEMONIC_FILE env" in result.source
+
 
 class TestCreateBackendCreationHeight:
     """Tests for create_backend() with creation_height parameter."""

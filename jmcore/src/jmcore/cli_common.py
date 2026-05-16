@@ -642,6 +642,18 @@ def resolve_mnemonic(
     source = ""
     mnemonic_file_path: Path | None = None  # Track file path for .meta loading
 
+    # Resolve the encryption password once for all file-based paths so that
+    # ``wallet.mnemonic_password`` from config.toml works no matter whether
+    # the file path came from --mnemonic-file, MNEMONIC_FILE env, the config,
+    # or the default wallet location. Without this fallback an explicit
+    # --mnemonic-file (as used by the systemd unit template documented in
+    # docs/README-maker.md) silently bypasses the config password and falls
+    # through to an interactive prompt, which fails under systemd.
+    # See issue #498.
+    effective_password = password
+    if effective_password is None and settings.wallet.mnemonic_password:
+        effective_password = settings.wallet.mnemonic_password.get_secret_value()
+
     # Priority 1: Direct mnemonic argument
     if mnemonic:
         resolved_mnemonic = mnemonic
@@ -649,14 +661,14 @@ def resolve_mnemonic(
 
     # Priority 2: Mnemonic file argument
     elif mnemonic_file:
-        resolved_mnemonic = load_mnemonic_from_file(mnemonic_file, password)
+        resolved_mnemonic = load_mnemonic_from_file(mnemonic_file, effective_password)
         mnemonic_file_path = mnemonic_file
         source = f"--mnemonic-file ({mnemonic_file})"
 
     # Priority 3: MNEMONIC_FILE environment variable
     elif env_file := os.environ.get("MNEMONIC_FILE"):
         env_path = Path(env_file)
-        resolved_mnemonic = load_mnemonic_from_file(env_path, password)
+        resolved_mnemonic = load_mnemonic_from_file(env_path, effective_password)
         mnemonic_file_path = env_path
         source = f"MNEMONIC_FILE env ({env_path})"
 
@@ -668,11 +680,7 @@ def resolve_mnemonic(
     # Priority 5: Config file wallet.mnemonic_file
     elif settings.wallet.mnemonic_file:
         config_path = Path(settings.wallet.mnemonic_file)
-        # Use config password if CLI password not provided
-        config_password = password
-        if config_password is None and settings.wallet.mnemonic_password:
-            config_password = settings.wallet.mnemonic_password.get_secret_value()
-        resolved_mnemonic = load_mnemonic_from_file(config_path, config_password)
+        resolved_mnemonic = load_mnemonic_from_file(config_path, effective_password)
         mnemonic_file_path = config_path
         source = f"config file ({config_path})"
 
@@ -680,11 +688,7 @@ def resolve_mnemonic(
     else:
         default_wallet = settings.get_data_dir() / "wallets" / "default.mnemonic"
         if default_wallet.exists():
-            # Use config password if CLI password not provided
-            config_password = password
-            if config_password is None and settings.wallet.mnemonic_password:
-                config_password = settings.wallet.mnemonic_password.get_secret_value()
-            resolved_mnemonic = load_mnemonic_from_file(default_wallet, config_password)
+            resolved_mnemonic = load_mnemonic_from_file(default_wallet, effective_password)
             mnemonic_file_path = default_wallet
             source = f"default wallet ({default_wallet})"
 

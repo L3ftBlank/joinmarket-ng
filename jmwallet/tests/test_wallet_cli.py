@@ -1886,3 +1886,297 @@ def test_info_scan_depth_bypasses_is_wallet_setup_short_circuit(monkeypatch) -> 
         assert kwargs["check_existing"] is False
         assert kwargs["smart_scan"] is False
         assert kwargs["background_full_rescan"] is False
+
+
+def test_print_scan_status_formats_idle_run(capsys: pytest.CaptureFixture) -> None:
+    """``_print_scan_status`` renders human-readable lines for the
+    diagnostic dict and surfaces the smart-scan-coverage hint when the
+    oldest descriptor timestamp is much newer than genesis."""
+    from jmwallet.cli.wallet import _print_scan_status
+
+    one_year_ago = 1_700_000_000
+    _print_scan_status(
+        {
+            "scanning_in_progress": False,
+            "scan_progress": None,
+            "scan_duration_s": None,
+            "oldest_descriptor_timestamp": one_year_ago,
+            "birthtime": one_year_ago,
+            "txcount": 42,
+            "background_rescan_pending_height": None,
+        }
+    )
+    out = capsys.readouterr().out
+    assert "Bitcoin Core wallet scan status" in out
+    assert "Transactions known to Core" in out
+    assert "42" in out
+    assert "Rescan currently running:      no" in out
+    # The smart-scan coverage warning should fire because the descriptor
+    # timestamp is well after genesis (1230768000).
+    assert "history coverage starts" in out
+    assert "jm-wallet rescan" in out
+
+
+def test_print_scan_status_formats_running_rescan(capsys: pytest.CaptureFixture) -> None:
+    """When a rescan is in progress, the formatter reports progress and
+    duration and the background-rescan-triggered note when applicable."""
+    from jmwallet.cli.wallet import _print_scan_status
+
+    _print_scan_status(
+        {
+            "scanning_in_progress": True,
+            "scan_progress": 0.5,
+            "scan_duration_s": 120,
+            "oldest_descriptor_timestamp": 1_230_768_000,  # genesis -> no hint
+            "birthtime": None,
+            "txcount": 0,
+            "background_rescan_pending_height": 0,
+        }
+    )
+    out = capsys.readouterr().out
+    assert "Rescan currently running:      yes (50.0%, 120s elapsed)" in out
+    assert "Background rescan triggered:   yes (from height 0)" in out
+    # Coverage hint must NOT fire at the genesis boundary.
+    assert "history coverage starts" not in out
+
+
+def test_info_scan_status_flag_prints_diagnostics_and_exits(monkeypatch) -> None:
+    """``jm-wallet info --scan-status`` calls ``get_wallet_scan_status`` and
+    exits without running the regular sync (``setup_descriptor_wallet`` /
+    ``sync_with_descriptor_wallet`` must not be awaited)."""
+    monkeypatch.delenv("JOINMARKET_DATA_DIR", raising=False)
+
+    setup_mock = AsyncMock()
+    sync_mock = AsyncMock(return_value=[])
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        _make_default_wallet(tmpdir)
+        mock_backend = _make_descriptor_info_mock_backend()
+        mock_backend.is_wallet_setup = AsyncMock(return_value=True)
+        mock_backend.get_wallet_scan_status = AsyncMock(
+            return_value={
+                "scanning_in_progress": False,
+                "scan_progress": None,
+                "scan_duration_s": None,
+                "oldest_descriptor_timestamp": 1_700_000_000,
+                "birthtime": 1_700_000_000,
+                "txcount": 99,
+                "background_rescan_pending_height": None,
+            }
+        )
+
+        from jmwallet.wallet.service import WalletService
+
+        with (
+            patch.object(Path, "home", return_value=Path(tmpdir)),
+            patch(
+                "jmwallet.backends.descriptor_wallet.DescriptorWalletBackend",
+                _stub_backend_class(mock_backend),
+            ),
+            patch.object(WalletService, "setup_descriptor_wallet", setup_mock),
+            patch.object(WalletService, "sync_with_descriptor_wallet", sync_mock),
+        ):
+            result = runner.invoke(app, ["info", "--backend", "descriptor_wallet", "--scan-status"])
+
+        assert result.exit_code == 0, f"info --scan-status failed: {result.stdout}"
+        assert "Bitcoin Core wallet scan status" in result.stdout
+        assert "99" in result.stdout
+        # No sync work should have happened.
+        assert setup_mock.await_count == 0
+        assert sync_mock.await_count == 0
+        mock_backend.get_wallet_scan_status.assert_awaited_once()
+
+
+def test_rescan_blocking_invokes_rescan_blockchain(monkeypatch) -> None:
+    """``jm-wallet rescan`` (default --wait) calls
+    ``backend.rescan_blockchain`` with the requested start height (clamped
+    to the wallet's creation height when applicable) and reports scan
+    status before and after."""
+    monkeypatch.delenv("JOINMARKET_DATA_DIR", raising=False)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        _make_default_wallet(tmpdir)
+        mock_backend = _make_descriptor_info_mock_backend()
+        mock_backend.is_wallet_setup = AsyncMock(return_value=True)
+        mock_backend.set_wallet_creation_height = MagicMock()
+        mock_backend.rescan_blockchain = AsyncMock(
+            return_value={"start_height": 0, "stop_height": 1}
+        )
+        mock_backend.start_background_rescan = AsyncMock()
+        status_seq = [
+            {
+                "scanning_in_progress": False,
+                "scan_progress": None,
+                "scan_duration_s": None,
+                "oldest_descriptor_timestamp": 1_700_000_000,
+                "birthtime": None,
+                "txcount": 0,
+                "background_rescan_pending_height": None,
+            },
+            {
+                "scanning_in_progress": False,
+                "scan_progress": None,
+                "scan_duration_s": None,
+                "oldest_descriptor_timestamp": 1_230_768_000,
+                "birthtime": None,
+                "txcount": 5,
+                "background_rescan_pending_height": None,
+            },
+        ]
+        mock_backend.get_wallet_scan_status = AsyncMock(side_effect=status_seq)
+
+        with (
+            patch.object(Path, "home", return_value=Path(tmpdir)),
+            patch(
+                "jmwallet.backends.descriptor_wallet.DescriptorWalletBackend",
+                _stub_backend_class(mock_backend),
+            ),
+        ):
+            result = runner.invoke(app, ["rescan", "--start-height", "0"])
+
+        assert result.exit_code == 0, f"rescan failed: {result.stdout}"
+        mock_backend.rescan_blockchain.assert_awaited_once()
+        kwargs = mock_backend.rescan_blockchain.await_args.kwargs
+        assert kwargs.get("start_height") == 0
+        # Should not have used the background path.
+        mock_backend.start_background_rescan.assert_not_called()
+        assert "Before rescan" in result.stdout
+        assert "After rescan" in result.stdout
+
+
+def test_rescan_background_uses_start_background_rescan(monkeypatch) -> None:
+    """``jm-wallet rescan --background`` kicks off the rescan without
+    waiting."""
+    monkeypatch.delenv("JOINMARKET_DATA_DIR", raising=False)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        _make_default_wallet(tmpdir)
+        mock_backend = _make_descriptor_info_mock_backend()
+        mock_backend.is_wallet_setup = AsyncMock(return_value=True)
+        mock_backend.set_wallet_creation_height = MagicMock()
+        mock_backend.rescan_blockchain = AsyncMock()
+        mock_backend.start_background_rescan = AsyncMock()
+        mock_backend.get_wallet_scan_status = AsyncMock(
+            return_value={
+                "scanning_in_progress": False,
+                "scan_progress": None,
+                "scan_duration_s": None,
+                "oldest_descriptor_timestamp": 1_700_000_000,
+                "birthtime": None,
+                "txcount": 0,
+                "background_rescan_pending_height": None,
+            }
+        )
+
+        with (
+            patch.object(Path, "home", return_value=Path(tmpdir)),
+            patch(
+                "jmwallet.backends.descriptor_wallet.DescriptorWalletBackend",
+                _stub_backend_class(mock_backend),
+            ),
+        ):
+            result = runner.invoke(app, ["rescan", "--background"])
+
+        assert result.exit_code == 0, f"rescan --background failed: {result.stdout}"
+        mock_backend.start_background_rescan.assert_awaited_once()
+        mock_backend.rescan_blockchain.assert_not_called()
+        assert "Background rescan started" in result.stdout
+
+
+def test_rescan_errors_when_wallet_not_loaded(monkeypatch) -> None:
+    """``jm-wallet rescan`` exits non-zero if the wallet has not been set
+    up in Bitcoin Core yet (avoids loading state changes side-effects)."""
+    monkeypatch.delenv("JOINMARKET_DATA_DIR", raising=False)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        _make_default_wallet(tmpdir)
+        mock_backend = _make_descriptor_info_mock_backend()
+        mock_backend.is_wallet_setup = AsyncMock(return_value=False)
+        mock_backend.set_wallet_creation_height = MagicMock()
+        mock_backend.rescan_blockchain = AsyncMock()
+        mock_backend.start_background_rescan = AsyncMock()
+
+        with (
+            patch.object(Path, "home", return_value=Path(tmpdir)),
+            patch(
+                "jmwallet.backends.descriptor_wallet.DescriptorWalletBackend",
+                _stub_backend_class(mock_backend),
+            ),
+        ):
+            result = runner.invoke(app, ["rescan"])
+
+        assert result.exit_code != 0
+        mock_backend.rescan_blockchain.assert_not_called()
+        mock_backend.start_background_rescan.assert_not_called()
+
+
+def _write_neutrino_config(tmpdir: str) -> None:
+    """Write a minimal config.toml at ``<tmpdir>/.joinmarket-ng/config.toml``
+    that selects the Neutrino backend, so CLI commands resolve to it."""
+    cfg_dir = Path(tmpdir) / ".joinmarket-ng"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    (cfg_dir / "config.toml").write_text(
+        "[bitcoin]\n"
+        'backend_type = "neutrino"\n'
+        'neutrino_url = "http://127.0.0.1:0"\n'
+        "\n"
+        "[network]\n"
+        'network = "regtest"\n'
+    )
+
+
+def test_info_scan_status_fails_fast_on_neutrino_backend(monkeypatch) -> None:
+    """``jm-wallet info --scan-status`` is a Bitcoin Core descriptor-wallet
+    diagnostic with no Neutrino analogue. When the configured backend is
+    Neutrino, the command must refuse up front rather than instantiate
+    the Neutrino backend and wait for it to sync before erroring."""
+    monkeypatch.delenv("JOINMARKET_DATA_DIR", raising=False)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        _make_default_wallet(tmpdir)
+        _write_neutrino_config(tmpdir)
+
+        # Sentinel: if either backend gets instantiated, the test fails.
+        # The early-exit guard must trip before backend construction.
+        neutrino_ctor = MagicMock(side_effect=AssertionError("neutrino backend instantiated"))
+        descriptor_ctor = MagicMock(side_effect=AssertionError("descriptor backend instantiated"))
+
+        with (
+            patch.object(Path, "home", return_value=Path(tmpdir)),
+            patch("jmwallet.backends.neutrino.NeutrinoBackend", neutrino_ctor),
+            patch(
+                "jmwallet.backends.descriptor_wallet.DescriptorWalletBackend",
+                descriptor_ctor,
+            ),
+        ):
+            result = runner.invoke(app, ["info", "--scan-status"])
+
+        assert result.exit_code == 2, f"expected exit 2, got {result.exit_code}: {result.stdout}"
+        neutrino_ctor.assert_not_called()
+        descriptor_ctor.assert_not_called()
+
+
+def test_rescan_fails_fast_on_neutrino_backend(monkeypatch) -> None:
+    """``jm-wallet rescan`` is a Bitcoin Core wallet operation. When the
+    configured backend is Neutrino, the command must refuse with a clear
+    message instead of trying to connect to Bitcoin Core (which would
+    fail with a confusing connection error)."""
+    monkeypatch.delenv("JOINMARKET_DATA_DIR", raising=False)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        _make_default_wallet(tmpdir)
+        _write_neutrino_config(tmpdir)
+
+        descriptor_ctor = MagicMock(side_effect=AssertionError("descriptor backend instantiated"))
+
+        with (
+            patch.object(Path, "home", return_value=Path(tmpdir)),
+            patch(
+                "jmwallet.backends.descriptor_wallet.DescriptorWalletBackend",
+                descriptor_ctor,
+            ),
+        ):
+            result = runner.invoke(app, ["rescan"])
+
+        assert result.exit_code == 2, f"expected exit 2, got {result.exit_code}: {result.stdout}"
+        descriptor_ctor.assert_not_called()

@@ -2027,6 +2027,113 @@ class TestAddressHistory:
         assert addresses == {"bc1qok"}
 
     @pytest.mark.asyncio
+    async def test_get_wallet_scan_status_idle(self) -> None:
+        """When Core is not rescanning, ``getwalletinfo.scanning`` is ``False``
+        and the diagnostic snapshot reports no active scan plus a
+        descriptor-coverage timestamp."""
+        backend = DescriptorWalletBackend(wallet_name="test_scan_status_idle")
+        backend._wallet_loaded = True
+
+        # Simulate a wallet that was set up via smart-scan: descriptors
+        # were imported with a unix timestamp one year before "now".
+        one_year_ago = 1_700_000_000
+        backend._rpc_call = make_mock_rpc(
+            {
+                "getwalletinfo": {
+                    "scanning": False,
+                    "txcount": 42,
+                    "birthtime": one_year_ago,
+                },
+                "listdescriptors": {
+                    "descriptors": [
+                        {"active": True, "timestamp": one_year_ago, "desc": "wpkh(.../0/*)"},
+                        {"active": True, "timestamp": one_year_ago, "desc": "wpkh(.../1/*)"},
+                        # Inactive descriptors (legacy) should be ignored.
+                        {"active": False, "timestamp": 1, "desc": "old"},
+                    ]
+                },
+            },
+            strict=False,
+            default={},
+        )
+
+        status = await backend.get_wallet_scan_status()
+
+        assert status["scanning_in_progress"] is False
+        assert status["scan_progress"] is None
+        assert status["scan_duration_s"] is None
+        assert status["txcount"] == 42
+        assert status["birthtime"] == one_year_ago
+        assert status["oldest_descriptor_timestamp"] == one_year_ago
+        assert status["background_rescan_pending_height"] is None
+
+    @pytest.mark.asyncio
+    async def test_get_wallet_scan_status_in_progress(self) -> None:
+        """When Core is rescanning, the dict surfaces progress and duration
+        from the ``scanning`` sub-object."""
+        backend = DescriptorWalletBackend(wallet_name="test_scan_status_running")
+        backend._wallet_loaded = True
+        backend._background_rescan_height = 0
+
+        backend._rpc_call = make_mock_rpc(
+            {
+                "getwalletinfo": {
+                    "scanning": {"duration": 120, "progress": 0.42},
+                    "txcount": 0,
+                },
+                "listdescriptors": {"descriptors": []},
+            },
+            strict=False,
+            default={},
+        )
+
+        status = await backend.get_wallet_scan_status()
+
+        assert status["scanning_in_progress"] is True
+        assert status["scan_progress"] == pytest.approx(0.42)
+        assert status["scan_duration_s"] == 120
+        assert status["background_rescan_pending_height"] == 0
+
+    @pytest.mark.asyncio
+    async def test_get_wallet_scan_status_wallet_not_loaded(self) -> None:
+        """Before the wallet is loaded, the RPCs would fail with -18; the
+        method short-circuits and returns a baseline dict."""
+        backend = DescriptorWalletBackend(wallet_name="test_scan_status_unloaded")
+        backend._wallet_loaded = False
+
+        # Should never reach RPC - any call here would raise.
+        async def boom(*_a: Any, **_kw: Any) -> Any:
+            raise AssertionError("RPC should not be called when wallet is not loaded")
+
+        backend._rpc_call = boom  # type: ignore[method-assign]
+
+        status = await backend.get_wallet_scan_status()
+
+        assert status["scanning_in_progress"] is False
+        assert status["txcount"] == 0
+        assert status["oldest_descriptor_timestamp"] is None
+
+    @pytest.mark.asyncio
+    async def test_get_wallet_scan_status_rpc_errors_are_non_fatal(self) -> None:
+        """If individual RPCs fail (e.g. listdescriptors not available on a
+        very old node), the method still returns a usable dict instead of
+        raising."""
+        backend = DescriptorWalletBackend(wallet_name="test_scan_status_partial")
+        backend._wallet_loaded = True
+
+        async def partial(method: str, *_a: Any, **_kw: Any) -> Any:
+            if method == "getwalletinfo":
+                return {"txcount": 7, "scanning": False}
+            raise RuntimeError(f"{method} not supported")
+
+        backend._rpc_call = partial  # type: ignore[method-assign]
+
+        status = await backend.get_wallet_scan_status()
+
+        assert status["txcount"] == 7
+        assert status["oldest_descriptor_timestamp"] is None
+
+    @pytest.mark.asyncio
     async def test_sync_populates_addresses_with_history(self) -> None:
         """Test that sync_with_descriptor_wallet populates addresses_with_history."""
         from jmwallet.backends.base import UTXO

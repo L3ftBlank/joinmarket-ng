@@ -7,7 +7,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
@@ -330,6 +330,22 @@ def info(
             ),
         ),
     ] = False,
+    scan_status: Annotated[
+        bool,
+        typer.Option(
+            "--scan-status",
+            help=(
+                "Print Bitcoin Core's wallet scan/coverage diagnostics and "
+                "exit (descriptor wallet only). Useful when the wallet is "
+                "proposing already-used addresses: shows whether a rescan is "
+                "currently running, the oldest active-descriptor timestamp "
+                "(i.e., the lower bound of what Core has actually scanned), "
+                "and the wallet transaction count. If the oldest timestamp "
+                "is far newer than your wallet's first use, run "
+                "``jm-wallet rescan`` to repair coverage."
+            ),
+        ),
+    ] = False,
     data_dir: Annotated[
         Path | None,
         typer.Option(
@@ -382,6 +398,7 @@ def info(
             scan_depth=scan_depth,
             show_empty=show_empty,
             creation_height=resolved.creation_height if resolved else None,
+            scan_status_only=scan_status,
         )
     )
 
@@ -397,6 +414,7 @@ async def _show_wallet_info(
     scan_depth: int | None = None,
     show_empty: bool = False,
     creation_height: int | None = None,
+    scan_status_only: bool = False,
 ) -> None:
     """Show wallet info implementation.
 
@@ -426,6 +444,19 @@ async def _show_wallet_info(
     network = backend_settings.network
     backend_type = backend_settings.backend_type
     data_dir = backend_settings.data_dir
+
+    # Fail fast for backend-incompatible options. --scan-status surfaces
+    # Bitcoin Core's descriptor scan coverage, which has no Neutrino
+    # analogue. Refuse before instantiating any backend or waiting on
+    # network sync, so the user is not made to wait for an error they
+    # could have known up front.
+    if scan_status_only and backend_type != "descriptor_wallet":
+        logger.error(
+            "--scan-status is only supported with the descriptor_wallet backend "
+            f"(configured backend: {backend_type}). Neutrino exposes its own "
+            "sync state through `jm-wallet info` directly."
+        )
+        raise typer.Exit(2)
 
     # Load fidelity bond addresses from registry
     from jmwallet.wallet.bond_registry import load_registry
@@ -495,6 +526,25 @@ async def _show_wallet_info(
     )
 
     try:
+        # Early-exit diagnostic path: report Bitcoin Core's wallet scan
+        # status and exit without running the full sync. Cheap and useful
+        # when the wallet is proposing already-used addresses (see
+        # ``get_wallet_scan_status`` docstring for the failure modes this
+        # surfaces).
+        if scan_status_only:
+            # Backend-type guard runs early (see top of this function); by
+            # the time we get here, backend must be a DescriptorWalletBackend.
+            from jmwallet.backends.descriptor_wallet import DescriptorWalletBackend
+
+            assert isinstance(backend, DescriptorWalletBackend)
+            # Make sure the wallet is loaded so getwalletinfo /
+            # listdescriptors actually return something. ``is_wallet_setup``
+            # also loads the wallet as a side effect.
+            await backend.is_wallet_setup(expected_descriptor_count=None)
+            status = await backend.get_wallet_scan_status()
+            _print_scan_status(status)
+            return
+
         # Use descriptor wallet sync if available
         if backend_type == "descriptor_wallet":
             from jmwallet.backends.descriptor_wallet import DescriptorWalletBackend
@@ -656,6 +706,64 @@ async def _show_wallet_info(
 
     finally:
         await wallet.close()
+
+
+def _print_scan_status(status: dict) -> None:
+    """Pretty-print the diagnostic dict from
+    ``DescriptorWalletBackend.get_wallet_scan_status``.
+
+    Formats timestamps, flags suspiciously narrow coverage (oldest active
+    descriptor timestamp much newer than expected), and notes whether a
+    rescan is currently in progress. Intended for ``jm-wallet info
+    --scan-status`` and ``jm-wallet rescan``.
+    """
+    from datetime import datetime
+
+    def _fmt_ts(ts: int | None) -> str:
+        if not ts:
+            return "(unknown)"
+        return (
+            datetime.fromtimestamp(int(ts), tz=UTC).isoformat(timespec="seconds")
+            + f"  (unix {int(ts)})"
+        )
+
+    print("\nBitcoin Core wallet scan status:")
+    print(f"  Transactions known to Core:    {status.get('txcount', 0):,}")
+    print(f"  Wallet birthtime:              {_fmt_ts(status.get('birthtime'))}")
+    print(f"  Oldest active descriptor scan: {_fmt_ts(status.get('oldest_descriptor_timestamp'))}")
+
+    if status.get("scanning_in_progress"):
+        progress = status.get("scan_progress")
+        progress_str = f"{progress * 100:.1f}%" if progress is not None else "?"
+        duration = status.get("scan_duration_s")
+        duration_str = f", {duration}s elapsed" if duration else ""
+        print(f"  Rescan currently running:      yes ({progress_str}{duration_str})")
+    else:
+        print("  Rescan currently running:      no")
+
+    pending = status.get("background_rescan_pending_height")
+    if pending is not None:
+        print(f"  Background rescan triggered:   yes (from height {pending})")
+
+    # Heuristic warning: importdescriptors sets the smart-scan boundary to
+    # ~1 year ago at first setup, which is fine for "recent receives" but
+    # misses older history. Bitcoin's genesis is 2009-01-03 (unix
+    # 1230768000). If the user's coins are older than the oldest covered
+    # block, Core does not know they were ever used.
+    oldest = status.get("oldest_descriptor_timestamp")
+    if oldest is not None and oldest > 1230768000:
+        # Flag explicitly when the smart-scan window is still in effect
+        # (anything materially newer than genesis).
+        from time import time as _now
+
+        years_back = (int(_now()) - int(oldest)) / 31_536_000
+        print(
+            "\n  Note: history coverage starts "
+            f"{years_back:.1f}y in the past. If your wallet has spends or "
+            "receives older than this, Bitcoin Core has not seen them and "
+            "may propose already-used addresses as fresh deposits. "
+            "Run `jm-wallet rescan` to scan from genesis."
+        )
 
 
 def _print_branch_addresses(
@@ -1126,3 +1234,169 @@ def showseed(
             print(f"{i:2d}. {word}")
     else:
         print(mnemonic.strip())
+
+
+@app.command()
+def rescan(
+    mnemonic_file: Annotated[
+        Path | None,
+        typer.Option("--mnemonic-file", "-f", help="Path to mnemonic file", envvar="MNEMONIC_FILE"),
+    ] = None,
+    prompt_bip39_passphrase: Annotated[
+        bool,
+        typer.Option(
+            "--prompt-bip39-passphrase",
+            help="Prompt for BIP39 passphrase interactively",
+        ),
+    ] = False,
+    network: Annotated[str | None, typer.Option("--network", "-n", help="Bitcoin network")] = None,
+    rpc_url: Annotated[str | None, typer.Option("--rpc-url", envvar="BITCOIN_RPC_URL")] = None,
+    start_height: Annotated[
+        int,
+        typer.Option(
+            "--start-height",
+            help=(
+                "Block height to rescan from (default: 0 = genesis). The "
+                "wallet's recorded creation height is used as a floor when "
+                "available, so values below it are clamped up automatically."
+            ),
+        ),
+    ] = 0,
+    wait: Annotated[
+        bool,
+        typer.Option(
+            "--wait/--background",
+            help=(
+                "Block until rescan completes (default). Use --background to "
+                "kick off the rescan and return immediately; check status "
+                "afterwards with `jm-wallet info --scan-status`."
+            ),
+        ),
+    ] = True,
+    data_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--data-dir",
+            envvar="JOINMARKET_DATA_DIR",
+            help="Data directory (default: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR)",
+        ),
+    ] = None,
+    log_level: Annotated[
+        str | None,
+        typer.Option("--log-level", "-l", help="Log level"),
+    ] = None,
+) -> None:
+    """Trigger a Bitcoin Core wallet rescan to repair history coverage.
+
+    Use this when ``jm-wallet info --scan-status`` shows that the oldest
+    active descriptor timestamp is newer than your wallet's first use, or
+    when the wallet is proposing addresses you remember spending from.
+    Rescans are slow (20+ minutes on mainnet from genesis) but read-only;
+    no funds are at risk.
+    """
+    settings = setup_cli(log_level, data_dir=data_dir)
+
+    try:
+        resolved = resolve_mnemonic(
+            settings,
+            mnemonic_file=mnemonic_file,
+            prompt_bip39_passphrase=prompt_bip39_passphrase,
+        )
+        if not resolved:
+            raise ValueError("No mnemonic provided")
+    except (FileNotFoundError, ValueError) as e:
+        logger.error(str(e))
+        raise typer.Exit(1)
+
+    backend_settings = resolve_backend_settings(
+        settings,
+        network=network,
+        rpc_url=rpc_url,
+        data_dir=data_dir,
+    )
+
+    # Rescan is a Bitcoin Core wallet operation; the Neutrino backend has
+    # no analogue and trying to force it down a descriptor_wallet code
+    # path would just fail later with a confusing connection error.
+    if backend_settings.backend_type != "descriptor_wallet":
+        logger.error(
+            "jm-wallet rescan is only supported with the descriptor_wallet backend "
+            f"(configured backend: {backend_settings.backend_type}). The Neutrino "
+            "backend reuses its own filter cache and does not expose a rescan."
+        )
+        raise typer.Exit(2)
+
+    asyncio.run(
+        _run_rescan(
+            mnemonic=resolved.mnemonic,
+            backend_settings=backend_settings,
+            bip39_passphrase=resolved.bip39_passphrase,
+            start_height=start_height,
+            wait=wait,
+            creation_height=resolved.creation_height,
+        )
+    )
+
+
+async def _run_rescan(
+    mnemonic: str,
+    backend_settings: ResolvedBackendSettings,
+    bip39_passphrase: str,
+    start_height: int,
+    wait: bool,
+    creation_height: int | None,
+) -> None:
+    """Implementation of ``jm-wallet rescan``."""
+    from jmwallet.backends.descriptor_wallet import (
+        DescriptorWalletBackend,
+        generate_wallet_name,
+        get_mnemonic_fingerprint,
+    )
+
+    fingerprint = get_mnemonic_fingerprint(mnemonic, bip39_passphrase or "")
+    wallet_name = generate_wallet_name(fingerprint, backend_settings.network)
+    backend = DescriptorWalletBackend(
+        rpc_url=backend_settings.rpc_url,
+        rpc_user=backend_settings.rpc_user,
+        rpc_password=backend_settings.rpc_password,
+        wallet_name=wallet_name,
+    )
+    if creation_height is not None:
+        backend.set_wallet_creation_height(creation_height)
+
+    try:
+        loaded = await backend.is_wallet_setup(expected_descriptor_count=None)
+        if not loaded:
+            logger.error(
+                f"Wallet {wallet_name!r} is not loaded in Bitcoin Core. "
+                "Run `jm-wallet info` once to set it up before rescanning."
+            )
+            raise typer.Exit(1)
+
+        # Show pre-rescan status so the user can confirm coverage actually
+        # changed afterward.
+        pre_status = await backend.get_wallet_scan_status()
+        print("Before rescan:")
+        _print_scan_status(pre_status)
+
+        # Clamp to wallet creation height when it is more recent than the
+        # requested start, mirroring what setup_descriptor_wallet does.
+        effective_start = max(start_height, creation_height or 0)
+        if effective_start != start_height:
+            print(
+                f"\nUsing wallet creation height {effective_start} "
+                f"(requested {start_height}) as the rescan floor."
+            )
+
+        if wait:
+            print(f"\nRescanning from height {effective_start}. This can take a while...")
+            await backend.rescan_blockchain(start_height=effective_start)
+            post_status = await backend.get_wallet_scan_status()
+            print("\nAfter rescan:")
+            _print_scan_status(post_status)
+        else:
+            print(f"\nKicking off background rescan from height {effective_start}.")
+            await backend.start_background_rescan(start_height=effective_start)
+            print("Background rescan started. Check progress with `jm-wallet info --scan-status`.")
+    finally:
+        await backend.close()

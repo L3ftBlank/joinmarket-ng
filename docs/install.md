@@ -314,6 +314,16 @@ Use the wallet creation height as ``$START_HEIGHT``. ``getwalletinfo``
 shows ``birthtime``; for an imported BIP39 wallet, set this to the
 earliest possible block height that could contain your funds.
 
+Prefer the JoinMarket NG wrappers when possible (they print a
+before/after coverage snapshot and respect the wallet's recorded
+creation height as a floor):
+
+```bash
+jm-wallet info --scan-status      # show current Core scan coverage
+jm-wallet rescan                  # blocking rescan from genesis
+jm-wallet rescan --background     # kick off rescan and return immediately
+```
+
 **Cross-check balances and UTXOs** without involving JoinMarket NG:
 
 ```bash

@@ -1015,6 +1015,86 @@ class DescriptorWalletBackend(BlockchainBackend):
         """Check if a background rescan was started and may still be running."""
         return self._background_rescan_height is not None
 
+    async def get_wallet_scan_status(self) -> dict[str, Any]:
+        """Return a diagnostic snapshot of the wallet's scan/coverage state.
+
+        Combines several Bitcoin Core RPCs into a single dict useful for
+        debugging the "wallet does not know an address was used" class of
+        issues (smart-scan window too narrow, interrupted background full
+        rescan, etc.). Used by ``jm-wallet info --scan-status`` and the
+        ``jm-wallet rescan`` command.
+
+        Returned keys (any may be ``None`` on RPC failure):
+
+        - ``scanning_in_progress`` (bool): whether Bitcoin Core is
+          currently rescanning the wallet (mirrors
+          ``getwalletinfo.scanning != false``).
+        - ``scan_progress`` (float | None): 0..1, when a scan is active.
+        - ``scan_duration_s`` (int | None): elapsed time of the active
+          scan in seconds, when active.
+        - ``oldest_descriptor_timestamp`` (int | None): minimum
+          ``timestamp`` across active descriptors. ``importdescriptors``
+          sets this to the smart-scan boundary (~1 year ago) at first
+          setup; if no rescan from genesis was ever run, this is the
+          effective lower bound of the wallet's history coverage.
+        - ``birthtime`` (int | None): Bitcoin Core's reported wallet
+          birthtime (unix timestamp), when available.
+        - ``txcount`` (int): number of wallet transactions Core knows
+          about.
+        - ``background_rescan_pending_height`` (int | None): if this
+          process triggered a background rescan from a given height that
+          has not completed yet, the start height; ``None`` otherwise.
+        """
+        result: dict[str, Any] = {
+            "scanning_in_progress": False,
+            "scan_progress": None,
+            "scan_duration_s": None,
+            "oldest_descriptor_timestamp": None,
+            "birthtime": None,
+            "txcount": 0,
+            "background_rescan_pending_height": self._background_rescan_height,
+        }
+        if not self._wallet_loaded:
+            return result
+
+        try:
+            wallet_info = await self._rpc_call("getwalletinfo")
+        except Exception as e:
+            logger.debug(f"getwalletinfo failed: {e}")
+            wallet_info = {}
+
+        scanning = wallet_info.get("scanning")
+        if isinstance(scanning, dict):
+            result["scanning_in_progress"] = True
+            result["scan_progress"] = scanning.get("progress")
+            result["scan_duration_s"] = scanning.get("duration")
+        result["txcount"] = wallet_info.get("txcount", 0)
+        result["birthtime"] = wallet_info.get("birthtime")
+
+        try:
+            desc_list = await self._rpc_call("listdescriptors")
+            descs = desc_list.get("descriptors", []) if isinstance(desc_list, dict) else []
+        except Exception as e:
+            logger.debug(f"listdescriptors for scan status failed: {e}")
+            descs = []
+
+        # The smallest timestamp across active descriptors marks the
+        # oldest block our wallet considers "covered". importdescriptors
+        # sets this when the import was issued; a value much newer than
+        # the genesis block timestamp tells us the full rescan never ran
+        # (smart-scan only).
+        timestamps = [
+            d["timestamp"]
+            for d in descs
+            if isinstance(d, dict)
+            and d.get("active")
+            and isinstance(d.get("timestamp"), (int, float))
+        ]
+        if timestamps:
+            result["oldest_descriptor_timestamp"] = int(min(timestamps))
+
+        return result
+
     async def wait_for_rescan_complete(
         self,
         poll_interval: float = 5.0,

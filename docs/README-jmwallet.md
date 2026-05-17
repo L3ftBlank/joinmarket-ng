@@ -114,6 +114,8 @@ The full CLI reference below is auto-generated from command `--help` output.
 │ validate                     Validate a mnemonic phrase.                     │
 │ showseed                     Display the BIP39 seed words (mnemonic) of an   │
 │                              existing wallet.                                │
+│ rescan                       Trigger a Bitcoin Core wallet rescan to repair  │
+│                              history coverage.                               │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -889,6 +891,31 @@ The full CLI reference below is auto-generated from command `--help` output.
 │                                                        address.              │
 │                                                        [default:             │
 │                                                        no-show-empty]        │
+│ --scan-status                                          Print Bitcoin Core's  │
+│                                                        wallet scan/coverage  │
+│                                                        diagnostics and exit  │
+│                                                        (descriptor wallet    │
+│                                                        only). Useful when    │
+│                                                        the wallet is         │
+│                                                        proposing             │
+│                                                        already-used          │
+│                                                        addresses: shows      │
+│                                                        whether a rescan is   │
+│                                                        currently running,    │
+│                                                        the oldest            │
+│                                                        active-descriptor     │
+│                                                        timestamp (i.e., the  │
+│                                                        lower bound of what   │
+│                                                        Core has actually     │
+│                                                        scanned), and the     │
+│                                                        wallet transaction    │
+│                                                        count. If the oldest  │
+│                                                        timestamp is far      │
+│                                                        newer than your       │
+│                                                        wallet's first use,   │
+│                                                        run ``jm-wallet       │
+│                                                        rescan`` to repair    │
+│                                                        coverage.             │
 │ --data-dir                                    PATH     Data directory        │
 │                                                        (default:             │
 │                                                        ~/.joinmarket-ng or   │
@@ -992,6 +1019,65 @@ The full CLI reference below is auto-generated from command `--help` output.
 │                                                sure?' confirmation. Use with │
 │                                                care.                         │
 │    --help                                      Show this message and exit.   │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+</details>
+
+<details>
+<summary><code>jm-wallet rescan --help</code></summary>
+
+```
+
+ Usage: jm-wallet rescan [OPTIONS]
+
+ Trigger a Bitcoin Core wallet rescan to repair history coverage.
+
+ Use this when ``jm-wallet info --scan-status`` shows that the oldest
+ active descriptor timestamp is newer than your wallet's first use, or
+ when the wallet is proposing addresses you remember spending from.
+ Rescans are slow (20+ minutes on mainnet from genesis) but read-only;
+ no funds are at risk.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --mnemonic-file          -f                  PATH     Path to mnemonic file  │
+│                                                       [env var:              │
+│                                                       MNEMONIC_FILE]         │
+│ --prompt-bip39-passphr…                               Prompt for BIP39       │
+│                                                       passphrase             │
+│                                                       interactively          │
+│ --network                -n                  TEXT     Bitcoin network        │
+│ --rpc-url                                    TEXT     [env var:              │
+│                                                       BITCOIN_RPC_URL]       │
+│ --start-height                               INTEGER  Block height to rescan │
+│                                                       from (default: 0 =     │
+│                                                       genesis). The wallet's │
+│                                                       recorded creation      │
+│                                                       height is used as a    │
+│                                                       floor when available,  │
+│                                                       so values below it are │
+│                                                       clamped up             │
+│                                                       automatically.         │
+│                                                       [default: 0]           │
+│ --wait                       --background             Block until rescan     │
+│                                                       completes (default).   │
+│                                                       Use --background to    │
+│                                                       kick off the rescan    │
+│                                                       and return             │
+│                                                       immediately; check     │
+│                                                       status afterwards with │
+│                                                       `jm-wallet info        │
+│                                                       --scan-status`.        │
+│                                                       [default: wait]        │
+│ --data-dir                                   PATH     Data directory         │
+│                                                       (default:              │
+│                                                       ~/.joinmarket-ng or    │
+│                                                       $JOINMARKET_DATA_DIR)  │
+│                                                       [env var:              │
+│                                                       JOINMARKET_DATA_DIR]   │
+│ --log-level              -l                  TEXT     Log level              │
+│ --help                                                Show this message and  │
+│                                                       exit.                  │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 

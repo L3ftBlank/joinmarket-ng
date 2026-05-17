@@ -1613,18 +1613,31 @@ class DescriptorWalletBackend(BlockchainBackend):
             raise
 
     async def get_addresses_with_history(self) -> set[str]:
-        """
-        Get all addresses that have ever received funds in this wallet.
+        """Get all wallet-owned addresses that have ever held funds.
 
-        Uses Bitcoin Core's ``listreceivedbyaddress 0 false true`` RPC
-        (minconf=0, include_empty=false, include_watchonly=true). This
-        returns one row per wallet-owned address that has at least one
-        receive (any category, any depth, including unconfirmed and
-        change). It is semantically exact for this method's intent
-        (track address reuse and advance the next-unused-index pointer
-        for our own descriptors) and is significantly faster than the
-        previously used ``listaddressgroupings`` + ``listsinceblock``
-        combination on wallets with many transactions or large keypools.
+        Combines two fast Bitcoin Core RPCs:
+
+        1. ``listreceivedbyaddress 0 false true`` - one row per wallet-owned
+           address that has at least one receive on an ``internal=False``
+           descriptor (Core's ``ListReceived`` walks outputs and groups by
+           destination with no input-side scan). Critically, Core sets
+           ``fIncludeChange=false`` for this RPC and the flag is not
+           exposed as an argument, so addresses on ``internal=True``
+           descriptors (every JoinMarket /1/* change address) are
+           **unconditionally excluded** from the result, even though they
+           have been used. Verified against Core v30.2 in regtest.
+
+        2. ``listunspent 0 9999999`` - all currently unspent outputs in
+           the wallet, regardless of descriptor flavor. Used to recover
+           change-address membership that (1) silently drops. Only catches
+           change addresses that still hold a UTXO; historical change
+           addresses that have already been spent cannot be recovered
+           from Core via a fast RPC (``listaddressgroupings`` would, but
+           is O(txs * (inputs + outputs)) and timed out at 10 minutes on
+           CoinJoin-heavy wallets, which is why this method moved away
+           from it; see commit 11b118bd). For those, the wallet relies on
+           its own persisted CoinJoin and send history (see
+           :func:`jmwallet.history.get_used_addresses`).
 
         Performance comparison (Core v30.2 regtest, descriptor wallet):
 
@@ -1635,23 +1648,16 @@ class DescriptorWalletBackend(BlockchainBackend):
         23,660 txs           0.41s             0.15s (2.7x)
         ===================  ===============  ====================
 
-        ``listaddressgroupings`` walks every input and output of every
-        wallet transaction with per-script ``IsMine`` checks plus a
-        union-find merge (see Bitcoin Core ``wallet/receive.cpp``
-        ``GetAddressGroupings``), making it O(txs * (inputs + outputs))
-        with significant overhead on CoinJoin-heavy wallets where
-        co-spends inflate the input set. ``listreceivedbyaddress``
-        iterates outputs only and groups directly by destination, with
-        no input-side scan and no merge step.
-
-        For privacy-sensitive CoinJoin wallets, the receive-only
-        semantics are preferable: counterparty addresses that appear
-        only as send targets are correctly excluded.
+        ``listunspent`` is similarly cheap (output-only scan over the
+        UTXO set, not the full tx history).
 
         Returns:
-            Set of addresses owned by this wallet that have ever
-            received funds.
+            Set of addresses owned by this wallet that have ever held
+            funds (external receives via ``listreceivedbyaddress``, plus
+            current change UTXOs via ``listunspent``).
         """
+        addresses: set[str] = set()
+
         try:
             entries = await self._rpc_call(
                 "listreceivedbyaddress",
@@ -1660,12 +1666,39 @@ class DescriptorWalletBackend(BlockchainBackend):
             )
         except Exception as e:
             logger.warning(f"listreceivedbyaddress failed: {e}")
-            return set()
+            entries = []
 
-        addresses = {
-            entry["address"] for entry in entries if entry.get("address") and entry.get("txids")
-        }
-        logger.debug(f"Found {len(addresses)} addresses with history")
+        external_count = 0
+        for entry in entries:
+            addr = entry.get("address")
+            if addr and entry.get("txids"):
+                addresses.add(addr)
+                external_count += 1
+
+        # Recover current change UTXO addresses (excluded by step 1).
+        # Wallet may not be loaded yet during initial setup; guard against that.
+        change_count = 0
+        if self._wallet_loaded:
+            try:
+                utxos = await self._rpc_call(
+                    "listunspent",
+                    [0, 9999999],  # minconf, maxconf (no address filter)
+                )
+            except Exception as e:
+                logger.debug(f"listunspent for change-address recovery failed: {e}")
+                utxos = []
+            for u in utxos:
+                addr = u.get("address")
+                if not addr or addr in addresses:
+                    continue
+                addresses.add(addr)
+                change_count += 1
+
+        logger.debug(
+            f"Found {len(addresses)} addresses with history "
+            f"(listreceivedbyaddress: {external_count}, "
+            f"+change UTXOs from listunspent: {change_count})"
+        )
         return addresses
 
     async def get_address_info(self, address: str) -> dict[str, Any] | None:

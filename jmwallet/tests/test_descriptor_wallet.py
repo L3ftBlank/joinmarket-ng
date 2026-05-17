@@ -1935,6 +1935,98 @@ class TestAddressHistory:
         assert addresses == set()
 
     @pytest.mark.asyncio
+    async def test_get_addresses_with_history_recovers_change_utxos(self) -> None:
+        """Change addresses (internal=True descriptors) are unconditionally
+        excluded from ``listreceivedbyaddress`` by Bitcoin Core's design (see
+        Core's ``ListReceived`` with ``fIncludeChange=false``). The method
+        supplements with ``listunspent`` so currently funded change addresses
+        are still recognized as "used" and not re-proposed as fresh deposits.
+        """
+        backend = DescriptorWalletBackend(wallet_name="test_change_recovery")
+        backend._wallet_loaded = True
+
+        # External receive on /0/* descriptor: visible to listreceivedbyaddress.
+        mock_lrba = [
+            {"address": "bc1qexternal", "amount": 0.1, "txids": ["aaa"]},
+        ]
+        # Current change UTXO on /1/* descriptor: invisible to lrba,
+        # surfaces only via listunspent.
+        mock_unspent = [
+            {
+                "address": "bc1qchange",
+                "amount": 0.05,
+                "txid": "bbb",
+                "vout": 1,
+                "confirmations": 3,
+            },
+            # Duplicate of the external one: should be deduped.
+            {
+                "address": "bc1qexternal",
+                "amount": 0.02,
+                "txid": "ccc",
+                "vout": 0,
+                "confirmations": 5,
+            },
+        ]
+
+        backend._rpc_call = make_mock_rpc(
+            {"listreceivedbyaddress": mock_lrba, "listunspent": mock_unspent},
+            strict=False,
+            default=[],
+        )
+
+        addresses = await backend.get_addresses_with_history()
+
+        assert addresses == {"bc1qexternal", "bc1qchange"}
+
+    @pytest.mark.asyncio
+    async def test_get_addresses_with_history_skips_listunspent_when_wallet_not_loaded(
+        self,
+    ) -> None:
+        """During initial setup the wallet may not be loaded yet; ``listunspent``
+        would error with -18, so we skip it and return only the lrba results."""
+        backend = DescriptorWalletBackend(wallet_name="test_not_loaded")
+        backend._wallet_loaded = False
+
+        call_log: list[str] = []
+
+        async def tracking_rpc(method: str, params: Any = None, *args: Any, **kwargs: Any) -> Any:
+            call_log.append(method)
+            if method == "listreceivedbyaddress":
+                return [{"address": "bc1qextern", "amount": 0.1, "txids": ["x"]}]
+            return []
+
+        backend._rpc_call = tracking_rpc  # type: ignore[method-assign]
+
+        addresses = await backend.get_addresses_with_history()
+
+        assert addresses == {"bc1qextern"}
+        assert "listunspent" not in call_log
+
+    @pytest.mark.asyncio
+    async def test_get_addresses_with_history_listunspent_error_non_fatal(self) -> None:
+        """If ``listunspent`` errors (transient RPC issue), the method still
+        returns the addresses recovered from ``listreceivedbyaddress`` instead
+        of dropping everything."""
+        backend = DescriptorWalletBackend(wallet_name="test_lu_error")
+        backend._wallet_loaded = True
+
+        async def partial_failing_rpc(
+            method: str, params: Any = None, *args: Any, **kwargs: Any
+        ) -> Any:
+            if method == "listreceivedbyaddress":
+                return [{"address": "bc1qok", "amount": 0.1, "txids": ["x"]}]
+            if method == "listunspent":
+                raise RuntimeError("simulated listunspent failure")
+            return []
+
+        backend._rpc_call = partial_failing_rpc  # type: ignore[method-assign]
+
+        addresses = await backend.get_addresses_with_history()
+
+        assert addresses == {"bc1qok"}
+
+    @pytest.mark.asyncio
     async def test_sync_populates_addresses_with_history(self) -> None:
         """Test that sync_with_descriptor_wallet populates addresses_with_history."""
         from jmwallet.backends.base import UTXO

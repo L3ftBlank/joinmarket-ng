@@ -49,7 +49,13 @@ class TransactionHistoryEntry:
     completed_at: str = ""  # ISO format
 
     # Role and outcome
-    role: Literal["maker", "taker"] = "taker"
+    # "maker" / "taker" denote CoinJoin participation; "send" denotes a plain
+    # (non-CoinJoin) wallet spend recorded so that the destination and change
+    # addresses are persistently marked as used, even if Bitcoin Core's
+    # transaction history later loses sight of them (for example, after an
+    # interrupted full rescan or when the smart-scan window does not cover
+    # the spend).
+    role: Literal["maker", "taker", "send"] = "taker"
     success: bool = True
     failure_reason: str = ""
 
@@ -342,7 +348,7 @@ def _write_history_entries_atomic(
 def read_history(
     data_dir: Path | None = None,
     limit: int | None = None,
-    role_filter: Literal["maker", "taker"] | None = None,
+    role_filter: Literal["maker", "taker", "send"] | None = None,
     wallet_fingerprint: str | None = None,
 ) -> list[TransactionHistoryEntry]:
     """
@@ -469,8 +475,13 @@ def _compute_stats(entries: list[TransactionHistoryEntry]) -> dict[str, int | fl
 
     maker_entries = [e for e in entries if e.role == "maker"]
     taker_entries = [e for e in entries if e.role == "taker"]
-    successful = [e for e in entries if e.success]
-    failed = [e for e in entries if not e.success and e.completed_at]
+    # Plain non-CoinJoin sends are tracked in the same CSV (for the address-reuse
+    # ledger consumed by ``get_used_addresses``) but must not skew CoinJoin
+    # success rate / volume / counts. Restrict the rest of the aggregates to
+    # CoinJoin roles only.
+    cj_entries = [e for e in entries if e.role in ("maker", "taker")]
+    successful = [e for e in cj_entries if e.success]
+    failed = [e for e in cj_entries if not e.success and e.completed_at]
     # Fees are recorded at signing time (before broadcast), so failed entries
     # may carry a non-zero ``fee_received`` / ``total_maker_fees_paid`` that
     # never actually moved coins (for example, when the taker abandons after
@@ -482,23 +493,24 @@ def _compute_stats(entries: list[TransactionHistoryEntry]) -> dict[str, int | fl
     # Collect all unique UTXOs disclosed across all entries.  The same UTXO may
     # appear in multiple CoinJoin attempts; users care about how many distinct
     # UTXOs external observers know about, not how many disclosure events occurred.
+    # Plain ``send`` entries do not disclose UTXOs to peers, so they are excluded.
     all_disclosed: set[str] = set()
-    for e in entries:
+    for e in cj_entries:
         all_disclosed |= _parse_utxos(e.utxos_used)
 
     return {
-        "total_coinjoins": len(entries),
+        "total_coinjoins": len(cj_entries),
         "maker_coinjoins": len(maker_entries),
         "taker_coinjoins": len(taker_entries),
         "successful_coinjoins": len(successful),
         "failed_coinjoins": len(failed),
-        "total_volume": sum(e.cj_amount for e in entries),
+        "total_volume": sum(e.cj_amount for e in cj_entries),
         "successful_volume": sum(e.cj_amount for e in successful),
         "total_fees_earned": sum(e.fee_received for e in successful_maker_entries),
         "total_fees_paid": sum(
             e.total_maker_fees_paid + e.mining_fee_paid for e in successful_taker_entries
         ),
-        "success_rate": len(successful) / len(entries) * 100 if entries else 0.0,
+        "success_rate": len(successful) / len(cj_entries) * 100 if cj_entries else 0.0,
         "utxos_disclosed": len(all_disclosed),
     }
 
@@ -524,7 +536,7 @@ def get_history_stats(
 
 def get_history_stats_for_period(
     hours: float,
-    role_filter: Literal["maker", "taker"] | None = None,
+    role_filter: Literal["maker", "taker", "send"] | None = None,
     data_dir: Path | None = None,
     wallet_fingerprint: str | None = None,
 ) -> dict[str, int | float]:
@@ -1037,6 +1049,59 @@ def update_taker_awaiting_transaction_broadcast(
     return _write_history_entries_atomic(entries, history_path)
 
 
+def update_send_awaiting_broadcast(
+    pending_entry: TransactionHistoryEntry,
+    *,
+    txid: str,
+    success: bool,
+    failure_reason: str,
+    data_dir: Path | None = None,
+) -> bool:
+    """Finalize a "send" history row created with ``failure_reason="awaiting broadcast"``.
+
+    The send CLI calls :func:`create_send_history_entry` and immediately
+    appends the row so the destination/change addresses are persisted to
+    disk *before* the broadcast attempt. After broadcast resolves (success
+    or failure) the same row is updated in place with the final outcome.
+
+    Args:
+        pending_entry: The in-memory entry that was just appended. Its
+            ``timestamp`` and ``destination_address`` identify the row.
+        txid: Final transaction ID (empty string if broadcast failed).
+        success: True if the transaction was broadcast successfully.
+        failure_reason: Final failure reason (empty string on success).
+        data_dir: Optional data directory.
+
+    Returns:
+        True if a matching row was found and rewritten, False otherwise.
+    """
+    history_path = _get_history_path(data_dir)
+    if not history_path.exists():
+        return False
+
+    entries = read_history(data_dir)
+    updated = False
+    for entry in entries:
+        if (
+            entry.role == "send"
+            and entry.timestamp == pending_entry.timestamp
+            and entry.destination_address == pending_entry.destination_address
+            and entry.failure_reason == "awaiting broadcast"
+            and not entry.txid
+        ):
+            entry.txid = txid
+            entry.success = success
+            entry.failure_reason = failure_reason
+            entry.completed_at = entry.timestamp
+            updated = True
+            break
+
+    if not updated:
+        return False
+
+    return _write_history_entries_atomic(entries, history_path)
+
+
 def mark_pending_transaction_failed(
     destination_address: str,
     failure_reason: str,
@@ -1236,6 +1301,79 @@ def create_taker_history_entry(
         change_address=change_address,
         utxos_used=",".join(f"{txid}:{vout}" for txid, vout in selected_utxos),
         broadcast_method=broadcast_method,
+        network=network,
+        wallet_fingerprint=wallet_fingerprint,
+    )
+
+
+def create_send_history_entry(
+    destination: str,
+    change_address: str,
+    amount: int,
+    mining_fee: int,
+    source_mixdepth: int,
+    selected_utxos: list[tuple[str, int]],
+    txid: str = "",
+    success: bool = True,
+    failure_reason: str = "",
+    network: str = "mainnet",
+    wallet_fingerprint: str = "",
+) -> TransactionHistoryEntry:
+    """Create a history entry for a plain (non-CoinJoin) wallet send.
+
+    The point of recording these entries is privacy/correctness of the
+    next-unused-address pointer: once the wallet has signed a transaction
+    that exposes ``destination`` and/or ``change_address``, both must be
+    treated as used regardless of broadcast outcome (the signed bytes are
+    already out of the wallet's control) and regardless of whether Bitcoin
+    Core's transaction history still surfaces the transaction (an
+    interrupted background rescan or a smart-scan window that drops the
+    spend would otherwise leave the addresses looking fresh).
+
+    ``get_used_addresses()`` consumes every row regardless of ``role``, so
+    persisting a row with ``role="send"`` is enough to keep
+    ``WalletService.get_next_address_index()`` from handing the same
+    address out twice.
+
+    Args:
+        destination: Destination address (recorded so we never propose it
+            as a fresh deposit address if it happens to be one of ours).
+        change_address: Change output address (always ours; empty if the
+            send had no change, e.g., a sweep).
+        amount: Amount sent to ``destination`` in sats.
+        mining_fee: Mining fee paid in sats.
+        source_mixdepth: Source mixdepth the spend was funded from.
+        selected_utxos: List of ``(txid, vout)`` tuples for our inputs.
+        txid: Transaction ID (empty string if not yet known / not broadcast).
+        success: Whether the transaction was successfully broadcast.
+        failure_reason: Reason for failure if any.
+        network: Network name.
+        wallet_fingerprint: Wallet fingerprint for issue #473 scoping.
+
+    Returns:
+        A ``TransactionHistoryEntry`` ready to be appended via
+        :func:`append_history_entry`.
+    """
+    now = datetime.now().isoformat()
+    return TransactionHistoryEntry(
+        timestamp=now,
+        completed_at=now,
+        role="send",
+        success=success,
+        failure_reason=failure_reason,
+        confirmations=0,
+        confirmed_at="",
+        txid=txid,
+        cj_amount=amount,
+        peer_count=None,
+        counterparty_nicks="",
+        mining_fee_paid=mining_fee,
+        net_fee=-mining_fee,
+        source_mixdepth=source_mixdepth,
+        destination_address=destination,
+        change_address=change_address,
+        utxos_used=",".join(f"{t}:{v}" for t, v in selected_utxos),
+        broadcast_method="self",
         network=network,
         wallet_fingerprint=wallet_fingerprint,
     )

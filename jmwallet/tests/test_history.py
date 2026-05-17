@@ -19,6 +19,7 @@ from jmwallet.history import (
     append_history_entry,
     cleanup_stale_pending_transactions,
     create_maker_history_entry,
+    create_send_history_entry,
     create_taker_history_entry,
     detect_coinjoin_peer_count,
     get_address_history_types,
@@ -31,6 +32,7 @@ from jmwallet.history import (
     update_all_pending_transactions,
     update_awaiting_transaction_signed,
     update_pending_transaction_txid,
+    update_send_awaiting_broadcast,
     update_taker_awaiting_transaction_broadcast,
     update_transaction_confirmation,
     update_transaction_confirmation_with_detection,
@@ -403,6 +405,44 @@ class TestHistoryStats:
         assert stats["failed_coinjoins"] == 1
         # Only the successful round's fee should be counted.
         assert stats["total_fees_earned"] == 410
+
+    def test_send_entries_excluded_from_coinjoin_stats(self, temp_data_dir: Path) -> None:
+        """``role="send"`` entries must not skew CoinJoin success rate / volume / counts."""
+        cj_entry = TransactionHistoryEntry(
+            timestamp="2024-01-01T00:00:00",
+            role="maker",
+            success=True,
+            txid="cj_tx" * 13,
+            cj_amount=1_000_000,
+            fee_received=500,
+            utxos_used="aabb:0",
+        )
+        send_entry = create_send_history_entry(
+            destination="bc1qdest1234567890abcdef1234567890abcdef1234",
+            change_address="bc1qchange234567890abcdef1234567890abcdef12",
+            amount=5_000_000,
+            mining_fee=300,
+            source_mixdepth=2,
+            selected_utxos=[("send_utxo", 0)],
+            txid="send_tx" * 9 + "abcd",
+            success=True,
+        )
+        append_history_entry(cj_entry, temp_data_dir)
+        append_history_entry(send_entry, temp_data_dir)
+
+        stats = get_history_stats(temp_data_dir)
+        # The send must not be counted as a CoinJoin.
+        assert stats["total_coinjoins"] == 1
+        assert stats["maker_coinjoins"] == 1
+        assert stats["taker_coinjoins"] == 0
+        assert stats["successful_coinjoins"] == 1
+        assert stats["total_volume"] == 1_000_000  # only the CJ
+        assert stats["success_rate"] == 100.0
+        # But the send addresses ARE recorded as used (so the next-unused
+        # pointer skips them on subsequent syncs).
+        used = get_used_addresses(temp_data_dir)
+        assert send_entry.destination_address in used
+        assert send_entry.change_address in used
 
     def test_failed_taker_entry_excluded_from_fees_paid(self, temp_data_dir: Path) -> None:
         """Regression: failed taker entries should not contribute to ``total_fees_paid``."""
@@ -2590,3 +2630,143 @@ class TestLegacyHeaderMigration:
         for _ in range(3):
             read_history(temp_data_dir)
         assert path.read_text() == before
+
+
+class TestSendHistoryEntry:
+    """Tests for plain (non-CoinJoin) send history entries.
+
+    Regression for the bug where ``jm-wallet send`` did not record the
+    destination/change addresses, leaving the wallet to propose the same
+    addresses again on the next sync whenever Bitcoin Core's transaction
+    history did not surface the spend (e.g., outside the smart-scan
+    window or after an interrupted background rescan).
+    """
+
+    def test_round_trip_persists_addresses_as_used(self, temp_data_dir: Path) -> None:
+        entry = create_send_history_entry(
+            destination="bc1qdest1234567890abcdef1234567890abcdef1234",
+            change_address="bc1qchg1234567890abcdef1234567890abcdef1234",
+            amount=666,
+            mining_fee=178,
+            source_mixdepth=4,
+            selected_utxos=[("aabb" * 16, 3), ("ccdd" * 16, 7)],
+            txid="ee" * 32,
+            success=True,
+        )
+        append_history_entry(entry, temp_data_dir)
+
+        round_trip = read_history(temp_data_dir)
+        assert len(round_trip) == 1
+        assert round_trip[0].role == "send"
+        assert round_trip[0].destination_address == entry.destination_address
+        assert round_trip[0].change_address == entry.change_address
+        assert round_trip[0].source_mixdepth == 4
+        assert round_trip[0].net_fee == -178  # signed: cost
+        assert round_trip[0].utxos_used == f"{'aabb' * 16}:3,{'ccdd' * 16}:7"
+
+        used = get_used_addresses(temp_data_dir)
+        assert entry.destination_address in used
+        assert entry.change_address in used
+
+    def test_sweep_send_has_no_change_address(self, temp_data_dir: Path) -> None:
+        entry = create_send_history_entry(
+            destination="bc1qdest1234567890abcdef1234567890abcdef1234",
+            change_address="",
+            amount=10_000,
+            mining_fee=200,
+            source_mixdepth=0,
+            selected_utxos=[("aa" * 32, 0)],
+            success=True,
+        )
+        append_history_entry(entry, temp_data_dir)
+
+        used = get_used_addresses(temp_data_dir)
+        assert entry.destination_address in used
+        # Empty change must not be reported as a "used" address.
+        assert "" not in used
+
+    def test_role_filter_excludes_send(self, temp_data_dir: Path) -> None:
+        """``role_filter="maker"|"taker"`` must not surface send entries."""
+        send = create_send_history_entry(
+            destination="bc1qdest1234567890abcdef1234567890abcdef1234",
+            change_address="bc1qchg1234567890abcdef1234567890abcdef1234",
+            amount=10_000,
+            mining_fee=200,
+            source_mixdepth=0,
+            selected_utxos=[("aa" * 32, 0)],
+            success=True,
+        )
+        maker = TransactionHistoryEntry(
+            timestamp="2024-01-01T00:00:00",
+            role="maker",
+            success=True,
+            txid="cd" * 32,
+            cj_amount=1_000_000,
+        )
+        append_history_entry(send, temp_data_dir)
+        append_history_entry(maker, temp_data_dir)
+
+        assert {e.role for e in read_history(temp_data_dir, role_filter="maker")} == {"maker"}
+        assert read_history(temp_data_dir, role_filter="taker") == []
+
+    def test_update_send_awaiting_broadcast_success(self, temp_data_dir: Path) -> None:
+        pending = create_send_history_entry(
+            destination="bc1qdest1234567890abcdef1234567890abcdef1234",
+            change_address="bc1qchg1234567890abcdef1234567890abcdef1234",
+            amount=666,
+            mining_fee=178,
+            source_mixdepth=4,
+            selected_utxos=[("aa" * 32, 0)],
+            txid="",
+            success=False,
+            failure_reason="awaiting broadcast",
+        )
+        append_history_entry(pending, temp_data_dir)
+
+        ok = update_send_awaiting_broadcast(
+            pending,
+            txid="dd" * 32,
+            success=True,
+            failure_reason="",
+            data_dir=temp_data_dir,
+        )
+        assert ok is True
+
+        rows = read_history(temp_data_dir)
+        assert len(rows) == 1
+        assert rows[0].success is True
+        assert rows[0].txid == "dd" * 32
+        assert rows[0].failure_reason == ""
+        assert rows[0].completed_at == rows[0].timestamp
+
+    def test_update_send_awaiting_broadcast_failure(self, temp_data_dir: Path) -> None:
+        pending = create_send_history_entry(
+            destination="bc1qdest1234567890abcdef1234567890abcdef1234",
+            change_address="",
+            amount=10_000,
+            mining_fee=200,
+            source_mixdepth=0,
+            selected_utxos=[("aa" * 32, 0)],
+            txid="",
+            success=False,
+            failure_reason="awaiting broadcast",
+        )
+        append_history_entry(pending, temp_data_dir)
+
+        ok = update_send_awaiting_broadcast(
+            pending,
+            txid="",
+            success=False,
+            failure_reason="broadcast failed",
+            data_dir=temp_data_dir,
+        )
+        assert ok is True
+
+        rows = read_history(temp_data_dir)
+        assert len(rows) == 1
+        assert rows[0].success is False
+        assert rows[0].failure_reason == "broadcast failed"
+        # Even though the broadcast failed, the addresses must remain in the
+        # used-set so a fresh wallet does not re-issue them.
+        used = get_used_addresses(temp_data_dir)
+        assert pending.destination_address in used

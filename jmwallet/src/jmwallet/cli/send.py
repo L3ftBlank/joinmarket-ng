@@ -523,6 +523,7 @@ async def _send_transaction(
         outputs_data.extend(dest_script)
 
         # Change (if any)
+        change_addr = ""
         if change_amount > 0:
             change_index = wallet.get_next_address_index(mixdepth, 1)
             change_addr = wallet.get_change_address(mixdepth, change_index)
@@ -620,11 +621,70 @@ async def _send_transaction(
         print(f"\nSigned Transaction ({len(signed_tx)} bytes):")
         print(f"{tx_hex[:80]}...")
 
+        # Persist a "send" history entry BEFORE broadcasting so that the
+        # destination and change addresses are recorded as used even if the
+        # broadcast itself fails or the process is killed mid-broadcast. Once
+        # we have a signed transaction, the addresses are committed: the
+        # signed bytes can be re-broadcast by anyone holding them, so the
+        # wallet must never propose those addresses as fresh again, even
+        # without Bitcoin Core seeing the transaction. ``get_used_addresses``
+        # consumes this entry so ``WalletService.get_next_address_index``
+        # advances past these addresses on subsequent runs.
+        from jmwallet.history import (
+            append_history_entry,
+            create_send_history_entry,
+            update_send_awaiting_broadcast,
+        )
+
+        selected_outpoints = [(u.txid, u.vout) for u in utxos]
+        send_entry = create_send_history_entry(
+            destination=destination,
+            change_address=change_addr,
+            amount=send_amount,
+            mining_fee=estimated_fee,
+            source_mixdepth=mixdepth,
+            selected_utxos=selected_outpoints,
+            txid="",
+            success=False,
+            failure_reason="awaiting broadcast",
+            network=backend_settings.network,
+            wallet_fingerprint=wallet.wallet_fingerprint,
+        )
+        try:
+            append_history_entry(send_entry, data_dir=backend_settings.data_dir)
+        except Exception as e:
+            # Persistence failure should not block the user from broadcasting;
+            # surface a warning and continue.
+            logger.warning(f"Failed to persist send history entry: {e}")
+
         if broadcast:
             logger.info("Broadcasting transaction...")
-            txid = await backend.broadcast_transaction(tx_hex)
+            try:
+                txid = await backend.broadcast_transaction(tx_hex)
+            except Exception:
+                try:
+                    update_send_awaiting_broadcast(
+                        send_entry,
+                        txid="",
+                        success=False,
+                        failure_reason="broadcast failed",
+                        data_dir=backend_settings.data_dir,
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to finalize send history entry: {e}")
+                raise
             print("\nTransaction broadcast successfully!")
             print(f"TXID: {txid}")
+            try:
+                update_send_awaiting_broadcast(
+                    send_entry,
+                    txid=txid,
+                    success=True,
+                    failure_reason="",
+                    data_dir=backend_settings.data_dir,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to finalize send history entry: {e}")
         else:
             print("\nTransaction NOT broadcast (--no-broadcast set)")
             print(f"Full hex: {tx_hex}")

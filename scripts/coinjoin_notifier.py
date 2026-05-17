@@ -2,13 +2,16 @@
 """
 CoinJoin History Monitor - Sends Gotify notifications for new CoinJoin transactions.
 
-This script watches the coinjoin_history.csv file for new entries and sends
-notifications via Gotify when CoinJoins are completed or confirmed.
+This script watches the history.csv file (legacy: coinjoin_history.csv) for
+new entries and sends notifications via Gotify when CoinJoins are completed
+or confirmed.
 
 Uses inotify to efficiently monitor file changes without polling.
 
 Configuration via environment variables:
-- HISTORY_FILE: Path to coinjoin_history.csv (default: ~/.joinmarket/coinjoin_history.csv)
+- HISTORY_FILE: Path to history.csv (default: ~/.joinmarket/history.csv,
+  falling back to ~/.joinmarket/coinjoin_history.csv if the new name is
+  not yet present)
 - GOTIFY_URL: Gotify server URL (default: https://gotify.example.com)
 - GOTIFY_TOKEN: Gotify app token (required)
 - NOTIFY_ON_PENDING: Send notifications for pending transactions (default: true)
@@ -23,7 +26,7 @@ Usage:
     python3 coinjoin_notifier.py
 
     # Custom settings
-    export HISTORY_FILE="/data/joinmarket-ng/coinjoin_history.csv"
+    export HISTORY_FILE="/data/joinmarket-ng/history.csv"
     export GOTIFY_URL="https://gotify.example.com"
     python3 coinjoin_notifier.py
 """
@@ -47,9 +50,24 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Configuration with sane defaults
-HISTORY_FILE = Path(
-    os.getenv("HISTORY_FILE", Path.home() / ".joinmarket" / "coinjoin_history.csv")
-)
+_DEFAULT_HISTORY_DIR = Path.home() / ".joinmarket"
+_NEW_HISTORY_FILENAME = "history.csv"
+_LEGACY_HISTORY_FILENAME = "coinjoin_history.csv"
+
+
+def _resolve_default_history_path() -> Path:
+    """Pick the canonical ``history.csv`` if it exists, else fall back to
+    the legacy ``coinjoin_history.csv``. Allows running this script against
+    a data directory that has not yet been opened by an updated wallet
+    (which would migrate the filename on first read)."""
+    new_path = _DEFAULT_HISTORY_DIR / _NEW_HISTORY_FILENAME
+    legacy_path = _DEFAULT_HISTORY_DIR / _LEGACY_HISTORY_FILENAME
+    if new_path.exists() or not legacy_path.exists():
+        return new_path
+    return legacy_path
+
+
+HISTORY_FILE = Path(os.getenv("HISTORY_FILE", _resolve_default_history_path()))
 GOTIFY_URL = os.getenv("GOTIFY_URL", "https://gotify.example.com")
 GOTIFY_TOKEN = os.getenv("GOTIFY_TOKEN", "")
 NOTIFY_ON_PENDING = os.getenv("NOTIFY_ON_PENDING", "true").lower() == "true"
@@ -402,7 +420,9 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Environment Variables:
-  HISTORY_FILE          Path to coinjoin_history.csv (default: ~/.joinmarket/coinjoin_history.csv)
+  HISTORY_FILE          Path to history.csv (default: ~/.joinmarket/history.csv,
+                        falling back to ~/.joinmarket/coinjoin_history.csv if the
+                        new name is not yet present)
   GOTIFY_URL            Gotify server URL (default: https://gotify.example.com)
   GOTIFY_TOKEN          Gotify app token (required)
   NOTIFY_ON_PENDING     Notify on pending transactions (default: true)
@@ -410,7 +430,7 @@ Environment Variables:
 
 Example:
   export GOTIFY_TOKEN="A-72bLc7ONO6mG6"
-  export HISTORY_FILE="/data/joinmarket-ng/coinjoin_history.csv"
+  export HISTORY_FILE="/data/joinmarket-ng/history.csv"
   python3 coinjoin_notifier.py
         """,
     )

@@ -4,6 +4,7 @@ Tests for transaction history tracking.
 
 from __future__ import annotations
 
+import csv
 import struct
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -281,7 +282,7 @@ class TestAppendAndReadHistory:
         append_history_entry(new_entry, temp_data_dir)
 
         # Read the raw CSV and check rows are in ascending timestamp order.
-        history_path = temp_data_dir / "coinjoin_history.csv"
+        history_path = temp_data_dir / "history.csv"
         with open(history_path, newline="", encoding="utf-8") as f:
             reader = csv_mod.DictReader(f)
             timestamps = [row["timestamp"] for row in reader]
@@ -2623,13 +2624,80 @@ class TestLegacyHeaderMigration:
             wallet_fingerprint=self.FP,
         )
         append_history_entry(entry, temp_data_dir)
-        path = temp_data_dir / "coinjoin_history.csv"
+        path = temp_data_dir / "history.csv"
         before = path.read_text()
 
         # Re-read several times: file content must be byte-identical.
         for _ in range(3):
             read_history(temp_data_dir)
         assert path.read_text() == before
+
+
+class TestLegacyFilenameMigration:
+    """The history CSV was renamed from coinjoin_history.csv to history.csv.
+
+    Existing installs must keep working without manual intervention: the
+    first time any history API is called against a data directory that
+    still has the legacy filename, the file must be renamed in place and
+    all subsequent reads/writes must target the new name.
+    """
+
+    def test_legacy_file_renamed_in_place(self, temp_data_dir: Path) -> None:
+        legacy_path = temp_data_dir / "coinjoin_history.csv"
+        new_path = temp_data_dir / "history.csv"
+        # Seed the data dir with the legacy filename only.
+        entry = TransactionHistoryEntry(
+            timestamp="2024-01-01T00:00:00",
+            role="taker",
+            success=True,
+            txid="legacy_tx" * 7 + "abc",
+            cj_amount=42,
+        )
+        # Append once via the public API while pretending the file is at
+        # the legacy location: write rows directly, then trigger a read.
+        from jmwallet.history import _get_fieldnames
+
+        with open(legacy_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=_get_fieldnames())
+            writer.writeheader()
+            writer.writerow({name: getattr(entry, name) for name in _get_fieldnames()})
+
+        assert legacy_path.exists() and not new_path.exists()
+
+        rows = read_history(temp_data_dir)
+        assert {e.txid for e in rows} == {entry.txid}
+        # After the read, the file must be at the new location and the
+        # legacy name must be gone.
+        assert new_path.exists()
+        assert not legacy_path.exists()
+
+    def test_both_files_present_keeps_canonical_and_warns(self, temp_data_dir: Path) -> None:
+        """If both names exist (e.g., user manually restored a backup), do
+        not silently overwrite the canonical file; keep both untouched and
+        operate on ``history.csv``."""
+        legacy_path = temp_data_dir / "coinjoin_history.csv"
+        new_path = temp_data_dir / "history.csv"
+        from jmwallet.history import _get_fieldnames
+
+        # Same header, different content, in each file.
+        legacy_entry = TransactionHistoryEntry(
+            timestamp="2024-01-01T00:00:00", role="maker", txid="legacy", cj_amount=1
+        )
+        new_entry = TransactionHistoryEntry(
+            timestamp="2024-01-02T00:00:00", role="maker", txid="canonical", cj_amount=2
+        )
+        for path, e in ((legacy_path, legacy_entry), (new_path, new_entry)):
+            with open(path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=_get_fieldnames())
+                writer.writeheader()
+                writer.writerow({name: getattr(e, name) for name in _get_fieldnames()})
+
+        rows = read_history(temp_data_dir)
+        # Only the canonical file's content is surfaced.
+        assert {e.txid for e in rows} == {"canonical"}
+        # Both files remain on disk (legacy not destroyed).
+        assert legacy_path.exists()
+        assert new_path.exists()
 
 
 class TestSendHistoryEntry:

@@ -136,7 +136,9 @@ Both maker and taker support periodic rescanning:
 ### Multiple Wallets in One Data Directory
 
 JoinMarket-NG records every CoinJoin (as taker or maker) in a single
-`coinjoin_history.csv` file inside the data directory. Each row is tagged with
+`history.csv` file inside the data directory (legacy installs may still
+have it under the old name `coinjoin_history.csv`; the wallet renames it
+in place on first read). Each row is tagged with
 the BIP32 master fingerprint (`wallet_fingerprint`, first 4 bytes of `m/0`),
 so commands like `jm-wallet history` and `jm-wallet info` filter to the
 correct wallet automatically when a mnemonic is supplied.

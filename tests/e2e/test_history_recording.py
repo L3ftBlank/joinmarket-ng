@@ -80,7 +80,7 @@ async def test_history_recording_mechanism(bitcoin_core_backend):
             append_history_entry(history_entry, data_dir=data_dir)
 
             # Verify history file was created
-            history_file = data_dir / "coinjoin_history.csv"
+            history_file = data_dir / "history.csv"
             assert history_file.exists(), "History file should be created"
 
             # Read back and verify
@@ -223,7 +223,7 @@ async def test_coinjoin_creates_history_entry(
                 await asyncio.sleep(2)
 
                 # Check if failure was recorded in history
-                history_file = data_dir / "coinjoin_history.csv"
+                history_file = data_dir / "history.csv"
                 if history_file.exists():
                     entries = read_history(data_dir=data_dir)
                     print(f"History entries after failed CoinJoin: {len(entries)}")
@@ -245,7 +245,7 @@ async def test_coinjoin_creates_history_entry(
             await asyncio.sleep(2)
 
             # Verify history was recorded
-            history_file = data_dir / "coinjoin_history.csv"
+            history_file = data_dir / "history.csv"
             assert history_file.exists(), "History file should be created"
 
             entries = read_history(data_dir=data_dir)

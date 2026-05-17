@@ -2855,7 +2855,7 @@ class Taker(TakerMonitoringMixin):
         Log a CSV entry that can be manually added for tracking unbroadcast transactions.
 
         When users decline to broadcast or want to broadcast manually, this logs
-        the CSV entry they can add to coinjoin_history.csv for tracking.
+        the CSV entry they can add to history.csv for tracking.
         """
         try:
             txid = get_txid(self.final_tx.hex())
@@ -2885,7 +2885,7 @@ class Taker(TakerMonitoringMixin):
             values = [str(getattr(history_entry, f)) for f in fieldnames]
 
             logger.info("-" * 70)
-            logger.info("MANUAL CSV ENTRY - Add to coinjoin_history.csv if broadcasting manually:")
+            logger.info("MANUAL CSV ENTRY - Add to history.csv if broadcasting manually:")
             logger.info(f"txid: {txid}")
             logger.info(f"CSV line: {','.join(values)}")
             logger.info("-" * 70)

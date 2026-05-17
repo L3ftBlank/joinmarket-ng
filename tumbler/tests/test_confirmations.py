@@ -89,7 +89,7 @@ def _write_history(
     """
     history_dir = data_dir
     history_dir.mkdir(parents=True, exist_ok=True)
-    path = history_dir / "coinjoin_history.csv"
+    path = history_dir / "history.csv"
     # ``read_history`` is tolerant about extra/missing columns; lean on
     # that and write a small superset of the fields we touch.
     with path.open("w", encoding="utf-8") as fh:

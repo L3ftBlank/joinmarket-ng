@@ -104,20 +104,51 @@ class TransactionHistoryEntry:
     wallet_fingerprint: str = ""
 
 
+HISTORY_FILENAME = "history.csv"
+LEGACY_HISTORY_FILENAME = "coinjoin_history.csv"
+
+
 def _get_history_path(data_dir: Path | None = None) -> Path:
-    """
-    Get the path to the history CSV file.
+    """Get the path to the history CSV file.
+
+    The canonical filename is ``history.csv`` (covers CoinJoin maker/taker
+    rounds and plain wallet sends; see ``TransactionHistoryEntry.role``).
+    For backwards compatibility, an older ``coinjoin_history.csv`` in the
+    same directory is renamed in place the first time this function runs
+    against it. The rename is silent unless either file is missing or
+    something else holds the old name (in which case we leave both alone
+    and let the caller observe the legacy file).
 
     Args:
-        data_dir: Optional data directory (defaults to get_default_data_dir())
+        data_dir: Optional data directory (defaults to
+            ``get_default_data_dir()``).
 
     Returns:
-        Path to coinjoin_history.csv in the data directory
+        Path to ``history.csv`` in the data directory (which may have
+        been freshly migrated from the legacy name).
     """
     if data_dir is None:
         data_dir = get_default_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
-    return data_dir / "coinjoin_history.csv"
+    new_path = data_dir / HISTORY_FILENAME
+    legacy_path = data_dir / LEGACY_HISTORY_FILENAME
+
+    # One-shot in-place rename of the legacy filename. Only safe when the
+    # new filename does not already exist; if both exist, the legacy file
+    # is from a previous JM install and should be merged manually rather
+    # than silently overwriting whatever the user has at ``history.csv``.
+    if legacy_path.exists() and not new_path.exists():
+        try:
+            legacy_path.rename(new_path)
+            logger.info(f"Migrated history file: {LEGACY_HISTORY_FILENAME} -> {HISTORY_FILENAME}")
+        except OSError as e:
+            logger.warning(
+                f"Could not rename {legacy_path} to {new_path}: {e}; "
+                "continuing to read from the legacy filename"
+            )
+            return legacy_path
+
+    return new_path
 
 
 def _get_fieldnames() -> list[str]:
@@ -142,7 +173,7 @@ def _read_csv_header(history_path: Path) -> list[str] | None:
 
 
 def _ensure_history_header_current(history_path: Path) -> None:
-    """Migrate a legacy ``coinjoin_history.csv`` to the current header.
+    """Migrate a legacy history CSV to the current header layout.
 
     When the dataclass gains a new field (for example
     ``wallet_fingerprint`` introduced for issue #473), an existing CSV
@@ -171,7 +202,7 @@ def _ensure_history_header_current(history_path: Path) -> None:
         return
 
     logger.info(
-        f"Migrating coinjoin history CSV: adding columns {missing} "
+        f"Migrating history CSV: adding columns {missing} "
         f"(legacy {len(actual)}-column header detected)"
     )
     # Read raw rows assuming the *expected* layout so cells previously

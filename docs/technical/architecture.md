@@ -44,7 +44,7 @@ JoinMarket NG uses a dedicated data directory for persistent files shared across
 │   ├── taker.nick         # Current taker nick
 │   ├── directory.nick     # Current directory server nick
 │   └── orderbook.nick     # Current orderbook watcher nick
-├── coinjoin_history.csv   # Transaction history log
+├── history.csv            # Transaction history log (CoinJoins + plain sends)
 └── fidelity_bonds.json    # Bond registry
 ```
 
@@ -54,7 +54,7 @@ JoinMarket NG uses a dedicated data directory for persistent files shared across
 |------|---------|---------|
 | `cmtdata/commitmentlist` | Makers | Network-wide blacklisted PoDLE commitments |
 | `cmtdata/commitments.json` | Takers | Locally used commitments (prevents reuse) |
-| `coinjoin_history.csv` | Both | Transaction history with confirmation tracking |
+| `history.csv` | Both | Transaction history with confirmation tracking (CoinJoins and plain sends; legacy name: `coinjoin_history.csv`, renamed in place on first read) |
 | `state/*.nick` | All | Component nick files for self-CoinJoin protection |
 
 **Nick State Files:**

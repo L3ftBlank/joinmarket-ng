@@ -4,7 +4,7 @@
 # Update with: ./scripts/update-base-images.sh
 # =============================================================================
 ARG PYTHON_VERSION=3.14
-ARG PYTHON_SLIM_DIGEST=sha256:1697e8e8d39bf168e177ac6b5fdab6df86d81cfc24dae17dfb96cfc3ef76b4dd
+ARG PYTHON_SLIM_DIGEST=sha256:7a500125bc50693f2214e842a621440a1b1b9cbb2188f74ab045d29ed2ea5856
 ARG NODE_VERSION=24
 ARG NODE_SLIM_DIGEST=sha256:24dc26ef1e3c3690f27ebc4136c9c186c3133b25563ae4d7f0692e4d1fe5db0e
 # JAM frontend is built on a single fixed platform regardless of the target
@@ -132,7 +132,7 @@ FROM python:${PYTHON_VERSION}-slim@${PYTHON_SLIM_DIGEST} AS jmwalletd
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    tini=0.19.0-3+b6 \
+    tini=0.19.0-3+b7 \
     libsodium23=1.0.18-1+deb13u1 \
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf /var/log/dpkg.log /var/log/apt/* /var/cache/ldconfig/aux-cache
@@ -174,8 +174,8 @@ ARG JAM_COMMIT
 ARG SOURCE_DATE_EPOCH
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates=20230311+deb12u1 \
-    git=1:2.39.5-0+deb12u3 \
+    ca-certificates=20250419 \
+    git=1:2.47.3-0+deb13u1 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN git clone https://github.com/joinmarket-webui/jam.git /app \

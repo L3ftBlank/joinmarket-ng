@@ -676,33 +676,50 @@ The full CLI reference below is auto-generated from command `--help` output.
 │ *    destination      TEXT  Destination address [required]                   │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --amount                   -a      INTEGER  Amount in sats (0 for sweep)     │
-│                                             [default: 0]                     │
-│ --mnemonic-file            -f      PATH     [env var: MNEMONIC_FILE]         │
-│ --prompt-bip39-passphrase                   Prompt for BIP39 passphrase      │
-│ --mixdepth                 -m      INTEGER  Source mixdepth [default: 0]     │
-│ --fee-rate                         FLOAT    Manual fee rate in sat/vB (e.g.  │
-│                                             1.5). Mutually exclusive with    │
-│                                             --block-target. Defaults to      │
-│                                             3-block estimation.              │
-│ --block-target                     INTEGER  Target blocks for fee estimation │
-│                                             (1-1008). Defaults to 3.         │
-│ --network                  -n      TEXT     Bitcoin network                  │
-│ --backend                  -b      TEXT     Backend: descriptor_wallet |     │
-│                                             neutrino                         │
-│ --rpc-url                          TEXT     [env var: BITCOIN_RPC_URL]       │
-│ --neutrino-url                     TEXT     [env var: NEUTRINO_URL]          │
-│ --broadcast                                 Broadcast the transaction        │
-│                                             [default: True]                  │
-│ --yes                      -y               Skip confirmation prompt         │
-│ --select-utxos             -s               Interactively select UTXOs       │
-│                                             (fzf-like TUI)                   │
-│ --data-dir                         PATH     Data directory (default:         │
-│                                             ~/.joinmarket-ng or              │
-│                                             $JOINMARKET_DATA_DIR)            │
-│                                             [env var: JOINMARKET_DATA_DIR]   │
-│ --log-level                -l      TEXT     Log level                        │
-│ --help                                      Show this message and exit.      │
+│ --amount               -a                    INTEGER  Amount in sats (0 for  │
+│                                                       sweep)                 │
+│                                                       [default: 0]           │
+│ --mnemonic-file        -f                    PATH     [env var:              │
+│                                                       MNEMONIC_FILE]         │
+│ --prompt-bip39-passp…                                 Prompt for BIP39       │
+│                                                       passphrase             │
+│ --mixdepth             -m                    INTEGER  Source mixdepth        │
+│                                                       [default: 0]           │
+│ --fee-rate                                   FLOAT    Manual fee rate in     │
+│                                                       sat/vB (e.g. 1.5).     │
+│                                                       Mutually exclusive     │
+│                                                       with --block-target.   │
+│                                                       Defaults to 3-block    │
+│                                                       estimation.            │
+│ --block-target                               INTEGER  Target blocks for fee  │
+│                                                       estimation (1-1008).   │
+│                                                       Defaults to 3.         │
+│ --network              -n                    TEXT     Bitcoin network        │
+│ --backend              -b                    TEXT     Backend:               │
+│                                                       descriptor_wallet |    │
+│                                                       neutrino               │
+│ --rpc-url                                    TEXT     [env var:              │
+│                                                       BITCOIN_RPC_URL]       │
+│ --neutrino-url                               TEXT     [env var:              │
+│                                                       NEUTRINO_URL]          │
+│ --broadcast                --no-broadcast             Broadcast the          │
+│                                                       transaction (use       │
+│                                                       --no-broadcast to      │
+│                                                       skip)                  │
+│                                                       [default: broadcast]   │
+│ --yes                  -y                             Skip confirmation      │
+│                                                       prompt                 │
+│ --select-utxos         -s                             Interactively select   │
+│                                                       UTXOs (fzf-like TUI)   │
+│ --data-dir                                   PATH     Data directory         │
+│                                                       (default:              │
+│                                                       ~/.joinmarket-ng or    │
+│                                                       $JOINMARKET_DATA_DIR)  │
+│                                                       [env var:              │
+│                                                       JOINMARKET_DATA_DIR]   │
+│ --log-level            -l                    TEXT     Log level              │
+│ --help                                                Show this message and  │
+│                                                       exit.                  │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -835,6 +852,31 @@ The full CLI reference below is auto-generated from command `--help` output.
 │ --gap                  -g                     INTEGER  Max address gap to    │
 │                                                        show in extended view │
 │                                                        [default: 6]          │
+│ --scan-depth                                  INTEGER  One-shot override of  │
+│                                                        the descriptor scan   │
+│                                                        range (max address    │
+│                                                        index per branch).    │
+│                                                        When set, JoinMarket  │
+│                                                        re-imports            │
+│                                                        descriptors at the    │
+│                                                        given range and       │
+│                                                        triggers a full       │
+│                                                        rescan from genesis   │
+│                                                        -- use this once for  │
+│                                                        a wallet migrated     │
+│                                                        from legacy           │
+│                                                        joinmarket-clientser… │
+│                                                        whose addresses sit   │
+│                                                        beyond the default    │
+│                                                        1000 (issue #475).    │
+│                                                        Without this flag,    │
+│                                                        the configured        │
+│                                                        ``.scan_range`` is    │
+│                                                        used and an existing  │
+│                                                        import is left alone. │
+│                                                        Slow: a full rescan   │
+│                                                        can take 20+ minutes  │
+│                                                        on mainnet.           │
 │ --show-empty               --no-show-empty             In --extended view,   │
 │                                                        show addresses with   │
 │                                                        zero balance. When    │

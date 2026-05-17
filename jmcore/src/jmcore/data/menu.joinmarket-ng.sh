@@ -1323,6 +1323,15 @@ if [ "${RASPIBLITZ}" -eq 1 ]; then
                   continue
               fi
 
+              # Check if wallet already exists (issue #476)
+              WALLET_PATH="$DATA_DIR/wallets/${WNAME}.mnemonic"
+              if [ -f "$WALLET_PATH" ]; then
+                  if ! whiptail --title " Wallet Already Exists " --defaultno \
+                      --yesno "A wallet named '${WNAME}' already exists.\n\nOverwrite?" 9 55; then
+                      continue
+                  fi
+              fi
+
               # Ask for word count
               WORDS_CHOICE=$(whiptail --title " Import Wallet " --notags \
                   --menu "How many seed words does your wallet have?" 12 50 2 \
@@ -1331,7 +1340,6 @@ if [ "${RASPIBLITZ}" -eq 1 ]; then
                   3>&1 1>&2 2>&3) || continue
               WORDS="${WORDS_CHOICE:-24}"
 
-              WALLET_PATH="$DATA_DIR/wallets/${WNAME}.mnemonic"
               mkdir -p "$DATA_DIR/wallets"
 
               # Collect the encryption password upfront (issue #462).
@@ -1343,12 +1351,13 @@ if [ "${RASPIBLITZ}" -eq 1 ]; then
               echo "You will be prompted to enter your BIP39 seed words."
               echo ""
               MNEMONIC_PASSWORD="$NEW_PWD" jm-wallet import \
-                  --words "$WORDS" --no-prompt-password -o "$WALLET_PATH"
+                  --words "$WORDS" --no-prompt-password --force -o "$WALLET_PATH"
               RESULT=$?
 
               if [ $RESULT -eq 0 ] && [ -f "$WALLET_PATH" ]; then
                   echo ""
                   echo "Wallet imported to: $WALLET_PATH"
+                  clear
                   post_wallet_create "$WALLET_PATH" "$NEW_PWD"
               else
                   echo "Import may have failed. Check output above."

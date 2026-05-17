@@ -150,7 +150,9 @@ def test_tui_script_fidelity_bond_address_regex_matches_all_networks() -> None:
 
     content = SCRIPT_PATH.read_text()
     # Locate the BOND_ADDR extraction line and pull the regex literal.
-    match = re.search(r"BOND_ADDR=\$\(grep -oE '([^']+)'", content)
+    # The extraction may pipe through printf/echo before grep, so accept any
+    # prefix up to the first grep -oE '...'.
+    match = re.search(r"BOND_ADDR=\$\([^\n]*grep -oE '([^']+)'", content)
     assert match is not None, "BOND_ADDR extraction line not found"
     bond_regex = match.group(1)
 
@@ -448,10 +450,13 @@ def test_tui_exports_quiet_log_level_by_default() -> None:
     """Child jm-* commands launched from the TUI must default to WARNING so
     loguru INFO messages from jmcore.settings/jmwallet do not pollute the
     whiptail output panes (issue #459). The user can still override by
-    pre-setting LOGGING__LEVEL before launching jm-ng."""
+    pre-setting LOGGING__LEVEL before launching jm-ng, or by setting
+    [tui] log_level in config.toml."""
     content = SCRIPT_PATH.read_text()
     assert 'if [ -z "${LOGGING__LEVEL:-}"' in content
-    assert 'export LOGGING__LEVEL="WARNING"' in content
+    # WARNING must be the built-in fallback when neither the env var nor
+    # [tui] log_level in config.toml is set.
+    assert 'export LOGGING__LEVEL="${TUI_LOG_LEVEL:-WARNING}"' in content
 
 
 def test_tui_clears_stale_mnemonic_file_entry() -> None:

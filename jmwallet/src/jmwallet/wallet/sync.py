@@ -8,6 +8,7 @@ sync, descriptor wallet setup, and address path resolution.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -68,6 +69,7 @@ class WalletSyncMixin:
     address_cache: dict[str, tuple[int, int, int]]
     utxo_cache: dict[int, list[UTXOInfo]]
     addresses_with_history: set[str]
+    metadata_store: Any  # UTXOMetadataStore | None (deferred import)
     fidelity_bond_locktime_cache: dict[str, int]
 
     # Methods provided by the host class
@@ -82,6 +84,48 @@ class WalletSyncMixin:
 
     def _apply_frozen_state(self) -> None:
         raise NotImplementedError
+
+    # -- Persistent address-history tracking --------------------------------
+
+    def _record_history_address(self, address: str, origin: str | None = None) -> None:
+        """Mark ``address`` as having on-chain history (current or spent).
+
+        Updates both the in-memory ``addresses_with_history`` set and the
+        persistent BIP-329 metadata store (when configured). This is the
+        single entry point used by every sync path; calling ``set.add()``
+        directly would skip persistence and reintroduce the deposit-address
+        reuse bug after the funded UTXO is spent.
+        """
+        if not address:
+            return
+        already_in_memory = address in self.addresses_with_history
+        self.addresses_with_history.add(address)
+        store = getattr(self, "metadata_store", None)
+        if store is None or already_in_memory:
+            return
+        try:
+            store.mark_address_used(address, origin)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(f"Could not persist used address {address[:12]}...: {exc}")
+
+    def _record_history_addresses(
+        self, addresses: Iterable[str], origin: str | None = None
+    ) -> None:
+        """Batched variant of :meth:`_record_history_address` for hot loops."""
+        new_addresses: list[str] = []
+        for address in addresses:
+            if address and address not in self.addresses_with_history:
+                self.addresses_with_history.add(address)
+                new_addresses.append(address)
+        if not new_addresses:
+            return
+        store = getattr(self, "metadata_store", None)
+        if store is None:
+            return
+        try:
+            store.mark_addresses_used(new_addresses, origin)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(f"Could not persist {len(new_addresses)} used addresses: {exc}")
 
     # -- Address-by-address sync (Groups B+C) --------------------------------
 
@@ -121,7 +165,7 @@ class WalletSyncMixin:
                     if addr_utxos:
                         consecutive_empty = 0
                         # Track that this address has had UTXOs
-                        self.addresses_with_history.add(address)
+                        self._record_history_address(address)
                         for utxo in addr_utxos:
                             path = f"{self.root_path}/{mixdepth}'/{change}/{index + i}"
                             utxos.append(
@@ -201,7 +245,7 @@ class WalletSyncMixin:
             addr_utxos = utxos_by_address[address]
             if addr_utxos:
                 locktime, timenumber = address_to_info[address]
-                self.addresses_with_history.add(address)
+                self._record_history_address(address)
                 for utxo in addr_utxos:
                     path = f"{self.root_path}/0'/{FIDELITY_BOND_BRANCH}/{timenumber}:{locktime}"
                     utxo_info = _make_utxo_info(
@@ -637,7 +681,7 @@ class WalletSyncMixin:
             )
 
             # Track that this address has had UTXOs
-            self.addresses_with_history.add(address)
+            self._record_history_address(address)
 
             # Build path string
             path = f"{self.root_path}/{mixdepth}'/{change}/{index}"
@@ -959,7 +1003,7 @@ class WalletSyncMixin:
                 locktime, index = bond_address_to_info[address]
                 path = f"{self.root_path}/0'/{FIDELITY_BOND_BRANCH}/{index}:{locktime}"
                 # Track that this address has had UTXOs
-                self.addresses_with_history.add(address)
+                self._record_history_address(address)
                 utxo_info = _make_utxo_info(
                     txid=utxo.txid,
                     vout=utxo.vout,
@@ -999,7 +1043,7 @@ class WalletSyncMixin:
                         path = (
                             f"{self.root_path}/0'/{FIDELITY_BOND_BRANCH}/{index}:{cached_locktime}"
                         )
-                        self.addresses_with_history.add(address)
+                        self._record_history_address(address)
                         utxo_info = _make_utxo_info(
                             txid=utxo.txid,
                             vout=utxo.vout,
@@ -1036,7 +1080,7 @@ class WalletSyncMixin:
 
                 if bond_locktime is not None:
                     path = f"{self.root_path}/0'/{FIDELITY_BOND_BRANCH}/{index}:{bond_locktime}"
-                    self.addresses_with_history.add(address)
+                    self._record_history_address(address)
                     utxo_info = _make_utxo_info(
                         txid=utxo.txid,
                         vout=utxo.vout,
@@ -1065,7 +1109,7 @@ class WalletSyncMixin:
             path = f"{self.root_path}/{mixdepth}'/{change}/{index}"
 
             # Track that this address has had UTXOs
-            self.addresses_with_history.add(address)
+            self._record_history_address(address)
 
             utxo_info = _make_utxo_info(
                 txid=utxo.txid,
@@ -1098,7 +1142,7 @@ class WalletSyncMixin:
                     # Use _find_address_path which checks cache first, then derives if needed
                     path_info = self._find_address_path(address)
                     if path_info is not None:
-                        self.addresses_with_history.add(address)
+                        self._record_history_address(address)
                     else:
                         # Address not found in current range - may be beyond descriptor range
                         addresses_beyond_range.append(address)
@@ -1216,7 +1260,7 @@ class WalletSyncMixin:
                     skipped_non_wpkh += 1
                     continue
                 self.address_cache[address] = path_info
-                self.addresses_with_history.add(address)
+                self._record_history_address(address)
                 resolved += 1
             if skipped_external:
                 logger.debug(
@@ -1247,7 +1291,7 @@ class WalletSyncMixin:
             for address in addresses_beyond_range:
                 path_info = self._find_address_path_extended(address)
                 if path_info is not None:
-                    self.addresses_with_history.add(address)
+                    self._record_history_address(address)
                     extended_addresses_found += 1
             if extended_addresses_found > 0:
                 logger.info(

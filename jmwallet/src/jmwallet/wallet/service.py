@@ -4,6 +4,7 @@ JoinMarket wallet service with mixdepth support.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -83,9 +84,26 @@ class WalletService(WalletSyncMixin, CoinSelectionMixin, WalletDisplayMixin):
         self.address_cache: dict[str, tuple[int, int, int]] = {}
         self._path_cache: dict[tuple[int, int, int], str] = {}
         self.utxo_cache: dict[int, list[UTXOInfo]] = {}
-        # Track addresses that have ever had UTXOs (including spent ones)
-        # This is used to correctly label addresses as "used-empty" vs "new"
+
+        # UTXO + address metadata store (BIP-329 JSONL). Frozen UTXO state,
+        # output labels, and the persistent "addresses with on-chain history"
+        # set all live in the same wallet_metadata.jsonl file.
+        self.metadata_store: UTXOMetadataStore | None = None
+        if data_dir is not None:
+            self.metadata_store = load_metadata_store(data_dir)
+
+        # Track addresses that have ever had UTXOs (including spent ones).
+        # Used to label addresses as "used-empty" vs "new" and, critically,
+        # to prevent reissuing a previously-funded deposit address. Backed by
+        # the metadata store so the knowledge survives across runs (light
+        # clients like Neutrino and Bitcoin Core's address-book-bound
+        # ``listreceivedbyaddress`` cannot always rediscover spent-then-empty
+        # addresses from scratch).
         self.addresses_with_history: set[str] = set()
+        if self.metadata_store is not None:
+            self.addresses_with_history.update(self.metadata_store.get_used_addresses())
+            self._migrate_legacy_address_history(data_dir)
+
         # Track addresses currently reserved for in-progress CoinJoin sessions
         # These addresses have been shared with a taker but the CoinJoin hasn't
         # completed yet. They must not be reused until the session ends.
@@ -96,10 +114,52 @@ class WalletService(WalletSyncMixin, CoinSelectionMixin, WalletDisplayMixin):
         # Cache for fidelity bond locktimes (address -> locktime)
         self.fidelity_bond_locktime_cache: dict[str, int] = {}
 
-        # UTXO metadata store for frozen state and labels (BIP-329)
-        self.metadata_store: UTXOMetadataStore | None = None
-        if data_dir is not None:
-            self.metadata_store = load_metadata_store(data_dir)
+    def _migrate_legacy_address_history(self, data_dir: Path | None) -> None:
+        """Fold a legacy ``address_history_<fingerprint>.jsonl`` file into the
+        unified metadata store, then remove it.
+
+        Pre-0.30.0 builds shipped a brief intermediate format that stored the
+        privacy-critical "used addresses" set in its own JSONL file. The
+        current architecture keeps it inside ``wallet_metadata.jsonl`` as
+        BIP-329 ``addr`` records. This one-shot migration runs at startup;
+        once the legacy file is consumed it is unlinked so subsequent runs
+        skip the check cheaply.
+        """
+        if data_dir is None or self.metadata_store is None:
+            return
+        safe_fp = self.wallet_fingerprint.strip().lower()
+        if not safe_fp.isalnum():
+            return
+        legacy_path = data_dir / f"address_history_{safe_fp}.jsonl"
+        if not legacy_path.exists():
+            return
+        try:
+            text = legacy_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            logger.warning(f"Failed to read legacy address history {legacy_path}: {exc}")
+            return
+        migrated: list[str] = []
+        for raw in text.splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, str) and value:
+                migrated.append(value)
+        if migrated:
+            self.metadata_store.mark_addresses_used(migrated, origin="legacy")
+            self.addresses_with_history.update(migrated)
+            logger.info(
+                f"Migrated {len(migrated)} address(es) from legacy "
+                f"{legacy_path.name} into wallet_metadata.jsonl"
+            )
+        try:
+            legacy_path.unlink()
+        except OSError as exc:  # pragma: no cover - defensive
+            logger.warning(f"Could not remove legacy {legacy_path.name}: {exc}")
 
     # -- Key derivation & address generation (Group A) ----------------------
 

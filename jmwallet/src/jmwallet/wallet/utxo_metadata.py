@@ -1,17 +1,33 @@
 """
-UTXO metadata persistence using BIP-329 wallet labels export format.
+UTXO and address metadata persistence using BIP-329 wallet labels export format.
 
-Stores UTXO-level metadata (frozen state, labels) in a JSONL file where
-each line is a BIP-329 record. This enables interoperability with external
-wallets like Sparrow for coin control and labeling.
+Stores UTXO-level metadata (frozen state, labels) and address-level metadata
+(addresses with on-chain history) in a single JSONL file. Each line is a
+BIP-329 record. This enables interoperability with external wallets like
+Sparrow for coin control and labeling.
 
-BIP-329 format (JSON Lines):
+BIP-329 format (JSON Lines)::
+
     {"type": "output", "ref": "txid:vout", "spendable": false}
     {"type": "output", "ref": "txid:vout", "label": "cold storage"}
+    {"type": "addr",   "ref": "<address>", "label": "jm:used:deposit"}
 
 The ``spendable`` field maps to frozen state:
     - ``spendable: false`` -> UTXO is frozen
     - ``spendable: true`` or absent -> UTXO is spendable (not frozen)
+
+The ``addr`` records track which on-chain addresses the wallet has ever held
+funds at (including spent-then-empty addresses). This is a privacy-critical
+guarantee: once an address has been observed with any UTXO it must never be
+reissued as a "next unused" deposit address. Light-client backends (Neutrino)
+and Bitcoin Core's address-book-bound RPCs alone cannot give us that
+guarantee across restarts; the persistent ``addr`` records do.
+
+Label convention (informational, ignored by other BIP-329 consumers):
+``jm:used[:<origin>]`` where ``origin`` is one of ``deposit``, ``change``,
+``cj_out``, ``cj_in``, ``send`` (or a comma-separated combination). The
+``origin`` part is best-effort context; the mere presence of the record is
+the privacy-relevant fact.
 
 Reference: https://github.com/bitcoin/bips/blob/master/bip-0329.mediawiki
 """
@@ -20,10 +36,13 @@ from __future__ import annotations
 
 import json
 import tempfile
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from loguru import logger
+
+USED_LABEL_PREFIX = "jm:used"
 
 
 @dataclass
@@ -76,8 +95,72 @@ class OutputRecord:
 
 
 @dataclass
+class AddressRecord:
+    """A BIP-329 ``addr`` record marking an address with on-chain history.
+
+    The mere presence of a record means: this address has been observed
+    holding (or having held) funds and must never be reissued. The ``label``
+    encodes optional origin context using the ``jm:used[:origin]`` convention.
+
+    Attributes:
+        ref: Bitcoin address.
+        label: ``jm:used`` or ``jm:used:<origin>`` (``deposit``, ``change``,
+            ``cj_out``, ``cj_in``, ``send``).
+    """
+
+    ref: str
+    label: str = USED_LABEL_PREFIX
+
+    @property
+    def origins(self) -> set[str]:
+        """Decode the comma-separated origin set from the label, if any."""
+        if not self.label.startswith(USED_LABEL_PREFIX):
+            return set()
+        rest = self.label[len(USED_LABEL_PREFIX) :]
+        if not rest.startswith(":"):
+            return set()
+        return {part.strip() for part in rest[1:].split(",") if part.strip()}
+
+    def with_added_origin(self, origin: str | None) -> AddressRecord:
+        """Return a copy of this record with ``origin`` merged into the label."""
+        if origin is None:
+            return self
+        origins = self.origins
+        if origin in origins:
+            return self
+        origins.add(origin)
+        new_label = f"{USED_LABEL_PREFIX}:{','.join(sorted(origins))}"
+        return AddressRecord(ref=self.ref, label=new_label)
+
+    def to_dict(self) -> dict[str, str]:
+        """Serialize to a BIP-329 JSON dict."""
+        return {"type": "addr", "ref": self.ref, "label": self.label}
+
+    @classmethod
+    def from_dict(cls, d: dict[str, str | bool]) -> AddressRecord | None:
+        """Deserialize from a BIP-329 JSON dict.
+
+        Returns ``None`` unless this is a ``type=addr`` record bearing our
+        ``jm:used`` label convention; addr records labeled by other tools
+        (Sparrow user labels etc.) are not treated as used-address markers
+        and are preserved verbatim by ``UTXOMetadataStore``.
+        """
+        if d.get("type") != "addr":
+            return None
+        ref = d.get("ref")
+        label = d.get("label", USED_LABEL_PREFIX)
+        if not isinstance(ref, str) or not ref:
+            return None
+        if not isinstance(label, str):
+            return None
+        if not label.startswith(USED_LABEL_PREFIX):
+            return None
+        return cls(ref=ref, label=label)
+
+
+@dataclass
 class UTXOMetadataStore:
-    """In-memory store for UTXO metadata backed by a BIP-329 JSONL file.
+    """In-memory store for UTXO + address metadata backed by a BIP-329 JSONL file.
 
     Thread-safety: This class is NOT thread-safe. If concurrent access is
     needed, external synchronization must be applied.
@@ -85,10 +168,17 @@ class UTXOMetadataStore:
     Attributes:
         path: Path to the JSONL file on disk.
         records: Mapping from outpoint (``txid:vout``) to ``OutputRecord``.
+        address_records: Mapping from address to ``AddressRecord`` (only those
+            we own with our ``jm:used`` label convention).
+        foreign_addr_lines: Verbatim BIP-329 ``addr`` records written by
+            other tools (Sparrow user labels, etc.). Preserved on save so we
+            do not silently drop interoperable metadata we did not create.
     """
 
     path: Path
     records: dict[str, OutputRecord] = field(default_factory=dict)
+    address_records: dict[str, AddressRecord] = field(default_factory=dict)
+    foreign_addr_lines: list[dict[str, str | bool]] = field(default_factory=list)
 
     def load(self) -> None:
         """Load metadata from disk.
@@ -97,6 +187,8 @@ class UTXOMetadataStore:
         Lines that cannot be parsed are logged and skipped.
         """
         self.records.clear()
+        self.address_records.clear()
+        self.foreign_addr_lines.clear()
 
         if not self.path.exists():
             logger.debug(f"No wallet metadata file at {self.path}")
@@ -118,38 +210,60 @@ class UTXOMetadataStore:
                 logger.warning(f"Malformed JSON at {self.path}:{line_no}: {e}")
                 continue
 
-            record = OutputRecord.from_dict(data)
-            if record is None:
-                # Not an output record -- skip (BIP-329 says ignore unknown types)
-                continue
-
-            self.records[record.ref] = record
+            record_type = data.get("type") if isinstance(data, dict) else None
+            if record_type == "output":
+                record = OutputRecord.from_dict(data)
+                if record is not None:
+                    self.records[record.ref] = record
+            elif record_type == "addr":
+                # Only our ``jm:used`` labels count as used-address markers.
+                # Foreign addr records (Sparrow address-book labels etc.) are
+                # preserved verbatim so we round-trip third-party metadata.
+                label = data.get("label")
+                if isinstance(label, str) and label.startswith(USED_LABEL_PREFIX):
+                    rec = AddressRecord.from_dict(data)
+                    if rec is not None:
+                        self.address_records[rec.ref] = rec
+                else:
+                    if isinstance(data, dict):
+                        self.foreign_addr_lines.append(data)
+            else:
+                # BIP-329 says ignore unknown types -- but preserve them so we
+                # do not silently drop interoperable data.
+                if isinstance(data, dict):
+                    self.foreign_addr_lines.append(data)
 
         frozen_count = sum(1 for r in self.records.values() if r.is_frozen)
-        if self.records:
+        if self.records or self.address_records:
             logger.debug(
-                f"Loaded {len(self.records)} UTXO metadata record(s) "
-                f"({frozen_count} frozen) from {self.path}"
+                f"Loaded {len(self.records)} UTXO record(s) "
+                f"({frozen_count} frozen), {len(self.address_records)} used "
+                f"address(es), and {len(self.foreign_addr_lines)} foreign "
+                f"record(s) from {self.path}"
             )
 
     def save(self) -> None:
         """Persist all records to disk.
 
-        Writes the entire file atomically (write to temp, then rename)
-        to prevent corruption on crash.
+        Writes the entire file atomically (write to temp, then rename) to
+        prevent corruption on crash. ``output`` records, our ``jm:used``
+        ``addr`` records, and any foreign records loaded from disk are all
+        serialized in a deterministic order.
 
         Raises:
             OSError: If the file cannot be written (e.g., read-only filesystem).
         """
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Filter out records that carry no useful metadata
-        records_to_write = [
+        # Filter out output records that carry no useful metadata
+        outputs_to_write = [
             r for r in self.records.values() if r.spendable is not None or r.label is not None
         ]
+        outputs_to_write.sort(key=lambda r: r.ref)
 
-        if not records_to_write:
-            # No metadata to persist -- remove the file if it exists
+        addr_records_to_write = sorted(self.address_records.values(), key=lambda r: r.ref)
+
+        if not outputs_to_write and not addr_records_to_write and not self.foreign_addr_lines:
             if self.path.exists():
                 try:
                     self.path.unlink()
@@ -159,17 +273,22 @@ class UTXOMetadataStore:
                     raise
             return
 
-        # Sort by ref for deterministic output
-        records_to_write.sort(key=lambda r: r.ref)
+        lines: list[str] = []
+        lines.extend(json.dumps(r.to_dict(), separators=(",", ":")) for r in outputs_to_write)
+        lines.extend(json.dumps(r.to_dict(), separators=(",", ":")) for r in addr_records_to_write)
+        # Foreign records last; sort by (type, ref) for determinism.
+        for foreign in sorted(
+            self.foreign_addr_lines,
+            key=lambda d: (str(d.get("type", "")), str(d.get("ref", ""))),
+        ):
+            lines.append(json.dumps(foreign, separators=(",", ":")))
 
         tmp_path = self.path.with_suffix(".tmp")
         try:
-            lines = [json.dumps(r.to_dict(), separators=(",", ":")) for r in records_to_write]
             tmp_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
             tmp_path.replace(self.path)
         except OSError as e:
             logger.error(f"Failed to save wallet metadata: {e}")
-            # Clean up temp file on failure
             try:
                 tmp_path.unlink(missing_ok=True)
             except OSError:
@@ -281,6 +400,74 @@ class UTXOMetadataStore:
         """
         record = self.records.get(outpoint)
         return record.label if record else None
+
+    # -- Address history (BIP-329 ``addr`` records with ``jm:used`` label) --
+
+    def mark_address_used(self, address: str, origin: str | None = None) -> bool:
+        """Record an address as having on-chain history.
+
+        Idempotent. If the address is already recorded, only the origin label
+        is augmented (best-effort context); the file is rewritten only when
+        the record actually changes. Returns ``True`` if disk state changed.
+        """
+        if not address:
+            return False
+        existing = self.address_records.get(address)
+        if existing is None:
+            self.address_records[address] = AddressRecord(
+                ref=address,
+                label=f"{USED_LABEL_PREFIX}:{origin}" if origin else USED_LABEL_PREFIX,
+            )
+            self.save()
+            return True
+        updated = existing.with_added_origin(origin)
+        if updated.label == existing.label:
+            return False
+        self.address_records[address] = updated
+        self.save()
+        return True
+
+    def mark_addresses_used(
+        self,
+        addresses: Iterable[str],
+        origin: str | None = None,
+    ) -> int:
+        """Batched variant of :meth:`mark_address_used`.
+
+        Performs a single ``save()`` for many addresses; returns the count of
+        records that were created or had their origin extended.
+        """
+        changed = 0
+        for address in addresses:
+            if not address:
+                continue
+            existing = self.address_records.get(address)
+            if existing is None:
+                self.address_records[address] = AddressRecord(
+                    ref=address,
+                    label=f"{USED_LABEL_PREFIX}:{origin}" if origin else USED_LABEL_PREFIX,
+                )
+                changed += 1
+                continue
+            updated = existing.with_added_origin(origin)
+            if updated.label != existing.label:
+                self.address_records[address] = updated
+                changed += 1
+        if changed:
+            self.save()
+        return changed
+
+    def is_address_used(self, address: str) -> bool:
+        """Return True if ``address`` has been recorded as having history."""
+        return address in self.address_records
+
+    def get_used_addresses(self) -> set[str]:
+        """Return the set of addresses with on-chain history.
+
+        This is the privacy-critical "do not reissue" set, surviving across
+        process restarts and backend swaps.
+        """
+        return set(self.address_records.keys())
 
     def verify_writable(self) -> None:
         """Verify that the metadata file's directory is writable.

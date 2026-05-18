@@ -16,7 +16,12 @@ import json
 
 import pytest
 
-from jmwallet.wallet.utxo_metadata import OutputRecord, UTXOMetadataStore
+from jmwallet.wallet.utxo_metadata import (
+    USED_LABEL_PREFIX,
+    AddressRecord,
+    OutputRecord,
+    UTXOMetadataStore,
+)
 
 # ---------------------------------------------------------------------------
 # OutputRecord tests
@@ -575,3 +580,111 @@ class TestVerifyWritable:
                 store.verify_writable()
         finally:
             tmp_path.chmod(0o755)
+
+
+# ---------------------------------------------------------------------------
+# Address history tests (BIP-329 ``addr`` records with ``jm:used`` label)
+# ---------------------------------------------------------------------------
+
+
+class TestAddressRecord:
+    """Tests for the AddressRecord dataclass."""
+
+    def test_default_label_recognized_as_used(self):
+        rec = AddressRecord(ref="bcrt1qabc")
+        assert rec.label.startswith(USED_LABEL_PREFIX)
+        assert rec.origins == set()
+
+    def test_label_with_origin_round_trip(self):
+        rec = AddressRecord(ref="bcrt1qabc", label="jm:used:deposit")
+        assert rec.origins == {"deposit"}
+        data = rec.to_dict()
+        assert data == {"type": "addr", "ref": "bcrt1qabc", "label": "jm:used:deposit"}
+        rec2 = AddressRecord.from_dict(data)
+        assert rec2 == rec
+
+    def test_with_added_origin_accumulates_sorted(self):
+        rec = AddressRecord(ref="bcrt1qabc", label="jm:used:deposit")
+        rec = rec.with_added_origin("cj_in")
+        rec = rec.with_added_origin("cj_in")  # idempotent
+        assert rec.origins == {"cj_in", "deposit"}
+        # Sorted, comma-joined for determinism on disk.
+        assert rec.label == "jm:used:cj_in,deposit"
+
+    def test_from_dict_rejects_non_jm_used_label(self):
+        # Foreign Sparrow-style labels must not be picked up as jm:used.
+        rec = AddressRecord.from_dict({"type": "addr", "ref": "bcrt1q", "label": "Donations"})
+        assert rec is None
+
+    def test_from_dict_rejects_wrong_type(self):
+        rec = AddressRecord.from_dict({"type": "output", "ref": "aa:0"})
+        assert rec is None
+
+
+class TestMarkAddressUsed:
+    """Tests for mark_address_used / mark_addresses_used / get_used_addresses."""
+
+    def test_mark_and_persist(self, tmp_path):
+        path = tmp_path / "m.jsonl"
+        s = UTXOMetadataStore(path=path)
+        s.load()
+        assert s.mark_address_used("bcrt1qa", "deposit") is True
+        # Idempotent: re-marking with same origin returns False (no disk write).
+        assert s.mark_address_used("bcrt1qa", "deposit") is False
+        # Adding a new origin extends the label and triggers a save.
+        assert s.mark_address_used("bcrt1qa", "cj_in") is True
+
+        s2 = UTXOMetadataStore(path=path)
+        s2.load()
+        assert s2.get_used_addresses() == {"bcrt1qa"}
+        assert s2.address_records["bcrt1qa"].origins == {"cj_in", "deposit"}
+        assert s2.is_address_used("bcrt1qa")
+        assert not s2.is_address_used("bcrt1qother")
+
+    def test_mark_many_batches_save(self, tmp_path):
+        path = tmp_path / "m.jsonl"
+        s = UTXOMetadataStore(path=path)
+        s.load()
+        changed = s.mark_addresses_used(["bcrt1qa", "bcrt1qb", "bcrt1qa"], "deposit")
+        assert changed == 2
+        s2 = UTXOMetadataStore(path=path)
+        s2.load()
+        assert s2.get_used_addresses() == {"bcrt1qa", "bcrt1qb"}
+
+    def test_empty_address_ignored(self, tmp_path):
+        s = UTXOMetadataStore(path=tmp_path / "m.jsonl")
+        s.load()
+        assert s.mark_address_used("", "deposit") is False
+        assert s.get_used_addresses() == set()
+
+    def test_coexists_with_output_records(self, tmp_path):
+        path = tmp_path / "m.jsonl"
+        s = UTXOMetadataStore(path=path)
+        s.load()
+        s.freeze("aa:0")
+        s.mark_address_used("bcrt1qa", "deposit")
+        s.set_label("aa:0", "spendme")
+
+        s2 = UTXOMetadataStore(path=path)
+        s2.load()
+        assert s2.is_frozen("aa:0")
+        assert s2.records["aa:0"].label == "spendme"
+        assert s2.get_used_addresses() == {"bcrt1qa"}
+
+    def test_preserves_foreign_addr_records(self, tmp_path):
+        """Sparrow-style address-book labels survive a load/save round-trip."""
+        path = tmp_path / "m.jsonl"
+        foreign = {"type": "addr", "ref": "bcrt1qsparrow", "label": "Donations"}
+        path.write_text(json.dumps(foreign) + "\n", encoding="utf-8")
+
+        s = UTXOMetadataStore(path=path)
+        s.load()
+        assert s.foreign_addr_lines == [foreign]
+        assert s.get_used_addresses() == set()
+
+        # Adding our own record must not drop the foreign one.
+        s.mark_address_used("bcrt1qours", "deposit")
+        s2 = UTXOMetadataStore(path=path)
+        s2.load()
+        assert s2.foreign_addr_lines == [foreign]
+        assert s2.get_used_addresses() == {"bcrt1qours"}

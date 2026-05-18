@@ -608,6 +608,7 @@ class ProtocolHandlersMixin:
                     # - The taker sends invalid !tx and we reject it
                     try:
                         our_utxos = list(session.our_utxos.keys())
+                        our_input_addresses = [u.address for u in session.our_utxos.values()]
                         # Use 0 for fees since we haven't signed yet - will be updated
                         # when transaction is actually signed
                         history_entry = create_maker_history_entry(
@@ -621,6 +622,7 @@ class ProtocolHandlersMixin:
                             txid=None,  # Unknown until tx is signed
                             network=self.config.network.value,
                             wallet_fingerprint=self.wallet.wallet_fingerprint,
+                            source_addresses=our_input_addresses,
                         )
                         # Override failure_reason to indicate addresses revealed but awaiting tx
                         history_entry.failure_reason = "Awaiting transaction"
@@ -781,6 +783,7 @@ class ProtocolHandlersMixin:
                                 "No 'Awaiting transaction' entry found, creating new history entry"
                             )
                             our_utxos = list(session.our_utxos.keys())
+                            our_input_addresses = [u.address for u in session.our_utxos.values()]
                             history_entry = create_maker_history_entry(
                                 taker_nick=taker_nick,
                                 cj_amount=session.amount,
@@ -792,6 +795,7 @@ class ProtocolHandlersMixin:
                                 txid=txid,
                                 network=self.config.network.value,
                                 wallet_fingerprint=self.wallet.wallet_fingerprint,
+                                source_addresses=our_input_addresses,
                             )
                             append_history_entry(history_entry, data_dir=self.config.data_dir)
                             logger.debug(f"Created new CoinJoin history: net fee {net} sats")

@@ -2553,6 +2553,7 @@ class Taker(TakerMonitoringMixin):
                 network=self.config.network.value,
                 failure_reason="Awaiting transaction",
                 wallet_fingerprint=self.wallet.wallet_fingerprint,
+                source_addresses=[utxo.address for utxo in self.selected_utxos],
             )
             append_history_entry(history_entry, data_dir=self.config.data_dir)
 
@@ -2876,6 +2877,7 @@ class Taker(TakerMonitoringMixin):
                 network=self.config.network.value,
                 failure_reason="User declined broadcast (manual broadcast pending)",
                 wallet_fingerprint=self.wallet.wallet_fingerprint,
+                source_addresses=[utxo.address for utxo in self.selected_utxos],
             )
 
             # Format as CSV line for manual addition

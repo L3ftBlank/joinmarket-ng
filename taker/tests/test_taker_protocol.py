@@ -1610,7 +1610,7 @@ class TestTakerHistoryHardening:
         taker.unsigned_tx = b"dummy_tx_bytes"
         taker.cj_amount = 500_000
         taker.cj_destination = "bcrt1qdest"
-        taker.selected_utxos = [MagicMock(txid="b", vout=0)]
+        taker.selected_utxos = [MagicMock(txid="b", vout=0, address="bcrt1qinput")]
         taker.tx_metadata = {"source_mixdepth": 0}
 
         taker.directory_client = AsyncMock()

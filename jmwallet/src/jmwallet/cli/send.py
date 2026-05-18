@@ -637,6 +637,7 @@ async def _send_transaction(
         )
 
         selected_outpoints = [(u.txid, u.vout) for u in utxos]
+        selected_input_addresses = [u.address for u in utxos]
         send_entry = create_send_history_entry(
             destination=destination,
             change_address=change_addr,
@@ -649,6 +650,7 @@ async def _send_transaction(
             failure_reason="awaiting broadcast",
             network=backend_settings.network,
             wallet_fingerprint=wallet.wallet_fingerprint,
+            source_addresses=selected_input_addresses,
         )
         try:
             append_history_entry(send_entry, data_dir=backend_settings.data_dir)

@@ -103,6 +103,17 @@ class TransactionHistoryEntry:
     # active.
     wallet_fingerprint: str = ""
 
+    # Comma-separated addresses corresponding to ``utxos_used`` (one address
+    # per spent input, in the same order when known). Populated at entry
+    # creation time so that ``get_used_addresses`` can blacklist input
+    # addresses without re-querying the backend later. Defaults to "" for
+    # backwards compatibility with rows written before this column existed;
+    # such legacy rows can be backfilled out-of-band via ``gettransaction``.
+    # Kept last in the field order so the existing CSV header migration
+    # (which assigns trailing legacy cells positionally to appended columns)
+    # continues to work for files written by older releases.
+    source_addresses: str = ""
+
 
 HISTORY_FILENAME = "history.csv"
 LEGACY_HISTORY_FILENAME = "coinjoin_history.csv"
@@ -280,6 +291,7 @@ def _row_to_entry(row: Mapping[str, str | None]) -> TransactionHistoryEntry | No
             destination_address=_get("destination_address"),
             change_address=_get("change_address"),
             utxos_used=_get("utxos_used"),
+            source_addresses=_get("source_addresses"),
             broadcast_method=_get("broadcast_method"),
             network=_get("network", "mainnet"),
             wallet_fingerprint=_get("wallet_fingerprint"),
@@ -619,6 +631,7 @@ def create_maker_history_entry(
     txid: str | None = None,
     network: str = "mainnet",
     wallet_fingerprint: str = "",
+    source_addresses: list[str] | None = None,
 ) -> TransactionHistoryEntry:
     """
     Create a history entry for a maker CoinJoin (initially marked as pending).
@@ -663,6 +676,7 @@ def create_maker_history_entry(
         destination_address=cj_address,
         change_address=change_address,
         utxos_used=",".join(f"{txid}:{vout}" for txid, vout in our_utxos),
+        source_addresses=",".join(source_addresses) if source_addresses else "",
         network=network,
         wallet_fingerprint=wallet_fingerprint,
     )
@@ -1279,6 +1293,7 @@ def create_taker_history_entry(
     success: bool = False,  # Default to pending
     failure_reason: str = "Awaiting transaction",
     wallet_fingerprint: str = "",
+    source_addresses: list[str] | None = None,
 ) -> TransactionHistoryEntry:
     """
     Create a history entry for a taker CoinJoin.
@@ -1331,6 +1346,7 @@ def create_taker_history_entry(
         destination_address=destination,
         change_address=change_address,
         utxos_used=",".join(f"{txid}:{vout}" for txid, vout in selected_utxos),
+        source_addresses=",".join(source_addresses) if source_addresses else "",
         broadcast_method=broadcast_method,
         network=network,
         wallet_fingerprint=wallet_fingerprint,
@@ -1349,6 +1365,7 @@ def create_send_history_entry(
     failure_reason: str = "",
     network: str = "mainnet",
     wallet_fingerprint: str = "",
+    source_addresses: list[str] | None = None,
 ) -> TransactionHistoryEntry:
     """Create a history entry for a plain (non-CoinJoin) wallet send.
 
@@ -1404,6 +1421,7 @@ def create_send_history_entry(
         destination_address=destination,
         change_address=change_address,
         utxos_used=",".join(f"{t}:{v}" for t, v in selected_utxos),
+        source_addresses=",".join(source_addresses) if source_addresses else "",
         broadcast_method="self",
         network=network,
         wallet_fingerprint=wallet_fingerprint,
@@ -1417,12 +1435,15 @@ def get_used_addresses(
     """
     Get all addresses that have been used in CoinJoin history.
 
-    Returns both destination addresses (CoinJoin outputs) and change addresses
-    from all history entries, regardless of success or confirmation status.
+    Returns destination addresses (CoinJoin outputs), change addresses, and
+    source (input) addresses from all history entries, regardless of success
+    or confirmation status.
 
     This is critical for privacy: once an address has been shared with peers
     (even if the transaction failed or wasn't confirmed), it should never be
-    reused.
+    reused. Input addresses are included so that a spent deposit address is
+    never proposed again, even if the backend later loses sight of the
+    spending transaction (e.g., interrupted rescan, smart-scan window miss).
 
     Args:
         data_dir: Optional data directory
@@ -1440,6 +1461,11 @@ def get_used_addresses(
             used_addresses.add(entry.destination_address)
         if entry.change_address:
             used_addresses.add(entry.change_address)
+        if entry.source_addresses:
+            for addr in entry.source_addresses.split(","):
+                addr = addr.strip()
+                if addr:
+                    used_addresses.add(addr)
 
     return used_addresses
 

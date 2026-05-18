@@ -1256,6 +1256,49 @@ class TestUsedAddressTracking:
         assert "bc1qcoinjoin123456" in used
         assert "bc1qchange789012345" in used
 
+    def test_get_used_addresses_includes_source_addresses(self, temp_data_dir: Path) -> None:
+        """Source (input) addresses must be blacklisted as used.
+
+        Layer 3 of the deposit-address-reuse fix: spent deposit addresses
+        are persisted on the history row so they survive backend amnesia.
+        """
+        entry = create_taker_history_entry(
+            maker_nicks=["J5peer1"],
+            cj_amount=1_000_000,
+            total_maker_fees=300,
+            mining_fee=200,
+            destination="bc1qdestination0000",
+            change_address="bc1qchange00000000",
+            source_mixdepth=0,
+            selected_utxos=[("abc", 0), ("def", 1)],
+            source_addresses=["bc1qinput0000000000", "bc1qinput1111111111"],
+        )
+        append_history_entry(entry, temp_data_dir)
+
+        used = get_used_addresses(temp_data_dir)
+        assert "bc1qdestination0000" in used
+        assert "bc1qchange00000000" in used
+        assert "bc1qinput0000000000" in used
+        assert "bc1qinput1111111111" in used
+
+    def test_get_used_addresses_ignores_empty_source_field(self, temp_data_dir: Path) -> None:
+        """Legacy rows with empty source_addresses must not produce empty entries."""
+        entry = create_taker_history_entry(
+            maker_nicks=["J5peer1"],
+            cj_amount=1_000_000,
+            total_maker_fees=300,
+            mining_fee=200,
+            destination="bc1qdest2",
+            change_address="",
+            source_mixdepth=0,
+            selected_utxos=[("abc", 0)],
+        )
+        append_history_entry(entry, temp_data_dir)
+
+        used = get_used_addresses(temp_data_dir)
+        assert "" not in used
+        assert used == {"bc1qdest2"}
+
 
 class TestUpdateAwaitingTransactionSigned:
     """Tests for updating 'Awaiting transaction' entries when tx is signed."""

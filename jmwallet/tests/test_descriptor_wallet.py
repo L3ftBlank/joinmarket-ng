@@ -1813,21 +1813,24 @@ class TestAddressHistory:
     @pytest.mark.asyncio
     async def test_get_addresses_with_history(self) -> None:
         """``get_addresses_with_history`` collects every wallet-owned address
-        that has at least one receive entry in ``listtransactions``."""
+        that has at least one receive entry in ``listsinceblock``."""
         backend = DescriptorWalletBackend(wallet_name="test_addr_history")
         backend._wallet_loaded = True
 
-        mock_lt = [
-            {"address": "bc1qtest1", "category": "receive", "txid": "abc"},
-            {"address": "bc1qtest2", "category": "receive", "txid": "def"},
-            {"address": "bc1qsend", "category": "send", "txid": "ghi"},
-            {"address": "bc1qtest3", "category": "receive", "txid": "jkl"},
-        ]
+        mock_lsb = {
+            "transactions": [
+                {"address": "bc1qtest1", "category": "receive", "txid": "abc"},
+                {"address": "bc1qtest2", "category": "receive", "txid": "def"},
+                {"address": "bc1qsend", "category": "send", "txid": "ghi"},
+                {"address": "bc1qtest3", "category": "receive", "txid": "jkl"},
+            ],
+            "lastblock": "00" * 32,
+        }
 
         backend._rpc_call = make_mock_rpc(
-            {"listtransactions": mock_lt},
+            {"listsinceblock": mock_lsb},
             strict=False,
-            default=[],
+            default={"transactions": []},
         )
 
         addresses = await backend.get_addresses_with_history()
@@ -1838,14 +1841,14 @@ class TestAddressHistory:
 
     @pytest.mark.asyncio
     async def test_get_addresses_with_history_empty(self) -> None:
-        """Empty ``listtransactions`` -> empty set."""
+        """Empty ``listsinceblock`` -> empty set."""
         backend = DescriptorWalletBackend(wallet_name="test_empty_history")
         backend._wallet_loaded = True
 
         backend._rpc_call = make_mock_rpc(
-            {"listtransactions": []},
+            {"listsinceblock": {"transactions": [], "lastblock": "00" * 32}},
             strict=False,
-            default=[],
+            default={"transactions": []},
         )
 
         addresses = await backend.get_addresses_with_history()
@@ -1855,7 +1858,8 @@ class TestAddressHistory:
     @pytest.mark.asyncio
     async def test_get_addresses_with_history_includes_change_addresses(self) -> None:
         """Change outputs landing on internal descriptors appear in
-        ``listtransactions`` as ``category="receive"`` and must be picked up.
+        ``listsinceblock`` (when called with ``include_change=true``) as
+        ``category="receive"`` and must be picked up.
 
         This is the exact case the previous ``listreceivedbyaddress``
         implementation dropped: Core hard-codes ``fIncludeChange=false`` and
@@ -1865,15 +1869,18 @@ class TestAddressHistory:
         backend = DescriptorWalletBackend(wallet_name="test_change_history")
         backend._wallet_loaded = True
 
-        mock_lt = [
-            {"address": "bc1qexternal", "category": "receive", "txid": "aaa"},
-            {"address": "bc1qchange", "category": "receive", "txid": "bbb"},
-        ]
+        mock_lsb = {
+            "transactions": [
+                {"address": "bc1qexternal", "category": "receive", "txid": "aaa"},
+                {"address": "bc1qchange", "category": "receive", "txid": "bbb"},
+            ],
+            "lastblock": "00" * 32,
+        }
 
         backend._rpc_call = make_mock_rpc(
-            {"listtransactions": mock_lt},
+            {"listsinceblock": mock_lsb},
             strict=False,
-            default=[],
+            default={"transactions": []},
         )
 
         addresses = await backend.get_addresses_with_history()
@@ -1881,44 +1888,52 @@ class TestAddressHistory:
         assert addresses == {"bc1qexternal", "bc1qchange"}
 
     @pytest.mark.asyncio
-    async def test_get_addresses_with_history_paginates(self) -> None:
-        """A full page must trigger another call with skip += page_size, and
-        we stop on the first short page."""
-        backend = DescriptorWalletBackend(wallet_name="test_paginate")
+    async def test_get_addresses_with_history_uses_listsinceblock_with_include_change(
+        self,
+    ) -> None:
+        """The RPC must be called with ``include_change=True`` (5th param).
+
+        Without this flag Bitcoin Core silently omits change-branch
+        outputs, which is the JoinMarket deposit-reuse bug. We also
+        verify only one RPC call is made (no skip-based pagination).
+        """
+        backend = DescriptorWalletBackend(wallet_name="test_lsb_params")
         backend._wallet_loaded = True
 
-        page_size = 1000
-        full_page = [
-            {"address": f"bc1q{i:04d}", "category": "receive", "txid": f"a{i}"}
-            for i in range(page_size)
-        ]
-        tail_page = [{"address": "bc1qtail", "category": "receive", "txid": "tail"}]
+        call_log: list[tuple[str, list[Any]]] = []
 
-        call_log: list[tuple[int, int]] = []
+        async def tracking_rpc(method: str, params: Any = None, *args: Any, **kwargs: Any) -> Any:
+            call_log.append((method, params))
+            if method == "listsinceblock":
+                return {"transactions": [], "lastblock": "00" * 32}
+            return None
 
-        async def paged_rpc(method: str, params: Any = None, *args: Any, **kwargs: Any) -> Any:
-            if method != "listtransactions":
-                return []
-            count, skip = params[1], params[2]
-            call_log.append((count, skip))
-            if skip == 0:
-                return full_page
-            if skip == page_size:
-                return tail_page
-            return []
+        backend._rpc_call = tracking_rpc  # type: ignore[method-assign]
 
-        backend._rpc_call = paged_rpc  # type: ignore[method-assign]
+        await backend.get_addresses_with_history()
 
-        addresses = await backend.get_addresses_with_history()
+        # Exactly one listsinceblock call (no pagination loop).
+        lsb_calls = [c for c in call_log if c[0] == "listsinceblock"]
+        assert len(lsb_calls) == 1, f"expected 1 listsinceblock call, got {len(lsb_calls)}"
 
-        assert len(addresses) == page_size + 1
-        assert "bc1qtail" in addresses
-        assert call_log == [(page_size, 0), (page_size, page_size)]
+        # Params: [blockhash, target_confirmations, include_watchonly,
+        #          include_removed, include_change]
+        params = lsb_calls[0][1]
+        assert params[0] == "", "must start from genesis (empty blockhash)"
+        assert params[2] is True, "include_watchonly must be true"
+        assert params[4] is True, "include_change must be true (critical for privacy)"
 
     @pytest.mark.asyncio
-    async def test_get_addresses_with_history_rpc_error(self) -> None:
-        """RPC errors are logged and produce an empty set rather than raising."""
-        backend = DescriptorWalletBackend(wallet_name="test_lt_error")
+    async def test_get_addresses_with_history_rpc_error_raises(self) -> None:
+        """RPC errors must propagate so callers refuse to downgrade
+        persisted state from a partial / empty enumeration.
+
+        The previous implementation logged a warning and returned
+        whatever it had collected so far. That silently caused the
+        sync layer to operate on a partial view of the address
+        history, which is the privacy bug that this rewrite fixes.
+        """
+        backend = DescriptorWalletBackend(wallet_name="test_lsb_error")
         backend._wallet_loaded = True
 
         async def failing_rpc(method: str, *args: Any, **kwargs: Any) -> Any:
@@ -1926,12 +1941,12 @@ class TestAddressHistory:
 
         backend._rpc_call = failing_rpc  # type: ignore[method-assign]
 
-        addresses = await backend.get_addresses_with_history()
-        assert addresses == set()
+        with pytest.raises(RuntimeError, match="simulated RPC failure"):
+            await backend.get_addresses_with_history()
 
     @pytest.mark.asyncio
     async def test_get_addresses_with_history_skips_when_wallet_not_loaded(self) -> None:
-        """During initial setup the wallet may not be loaded yet; ``listtransactions``
+        """During initial setup the wallet may not be loaded yet; ``listsinceblock``
         would error with -18, so we skip it and return an empty set."""
         backend = DescriptorWalletBackend(wallet_name="test_not_loaded")
         backend._wallet_loaded = False
@@ -1947,7 +1962,79 @@ class TestAddressHistory:
         addresses = await backend.get_addresses_with_history()
 
         assert addresses == set()
-        assert "listtransactions" not in call_log
+        assert "listsinceblock" not in call_log
+
+    @pytest.mark.asyncio
+    async def test_address_has_history_true(self) -> None:
+        """Non-zero ``getreceivedbyaddress`` -> ``True``."""
+        backend = DescriptorWalletBackend(wallet_name="test_addr_recv_true")
+        backend._wallet_loaded = True
+        backend._rpc_call = make_mock_rpc(
+            {"getreceivedbyaddress": 0.00012345},
+            strict=False,
+            default=0.0,
+        )
+
+        result = await backend.address_has_history("bc1qfunded")
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_address_has_history_false(self) -> None:
+        """Zero ``getreceivedbyaddress`` -> ``False`` (no funding ever)."""
+        backend = DescriptorWalletBackend(wallet_name="test_addr_recv_false")
+        backend._wallet_loaded = True
+        backend._rpc_call = make_mock_rpc(
+            {"getreceivedbyaddress": 0.0},
+            strict=False,
+            default=0.0,
+        )
+
+        result = await backend.address_has_history("bc1qnever")
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_address_has_history_includes_mempool(self) -> None:
+        """``getreceivedbyaddress`` must be called with ``minconf=0`` so we
+        also catch addresses funded by an unconfirmed mempool tx (which
+        still leaks the address publicly)."""
+        backend = DescriptorWalletBackend(wallet_name="test_addr_recv_mempool")
+        backend._wallet_loaded = True
+
+        call_log: list[tuple[str, list[Any]]] = []
+
+        async def tracking_rpc(method: str, params: Any = None, *args: Any, **kwargs: Any) -> Any:
+            call_log.append((method, params))
+            return 0.0
+
+        backend._rpc_call = tracking_rpc  # type: ignore[method-assign]
+
+        await backend.address_has_history("bc1qcheck")
+
+        assert call_log == [("getreceivedbyaddress", ["bc1qcheck", 0])]
+
+    @pytest.mark.asyncio
+    async def test_address_has_history_rpc_error_returns_none(self) -> None:
+        """RPC error -> ``None`` so callers can degrade to sync-only path
+        rather than block indefinitely or fail closed."""
+        backend = DescriptorWalletBackend(wallet_name="test_addr_recv_err")
+        backend._wallet_loaded = True
+
+        async def failing_rpc(method: str, *args: Any, **kwargs: Any) -> Any:
+            raise RuntimeError("bitcoind unreachable")
+
+        backend._rpc_call = failing_rpc  # type: ignore[method-assign]
+
+        result = await backend.address_has_history("bc1qfail")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_address_has_history_returns_none_when_wallet_not_loaded(self) -> None:
+        """No wallet -> cannot call ``getreceivedbyaddress``; signal unknown."""
+        backend = DescriptorWalletBackend(wallet_name="test_addr_recv_unloaded")
+        backend._wallet_loaded = False
+
+        result = await backend.address_has_history("bc1qany")
+        assert result is None
 
     @pytest.mark.asyncio
     async def test_get_wallet_scan_status_idle(self) -> None:
@@ -2974,6 +3061,17 @@ class TestDescriptorRangeUpgrade:
                         "txid": "a" * 64,
                     }
                 ]
+            if method == "listsinceblock":
+                return {
+                    "transactions": [
+                        {
+                            "address": spent_address,
+                            "category": "receive",
+                            "txid": "a" * 64,
+                        }
+                    ],
+                    "lastblock": "00" * 32,
+                }
             raise ValueError(f"Unexpected RPC: {method}")
 
         backend._rpc_call = mock_rpc_call  # type: ignore[method-assign]
@@ -3094,6 +3192,18 @@ class TestDescriptorRangeUpgrade:
                     }
                     for i, addr in enumerate(high_index_addresses)
                 ]
+            if method == "listsinceblock":
+                return {
+                    "transactions": [
+                        {
+                            "address": addr,
+                            "category": "receive",
+                            "txid": f"{i:064x}",
+                        }
+                        for i, addr in enumerate(high_index_addresses)
+                    ],
+                    "lastblock": "00" * 32,
+                }
             if method == "getdescriptorinfo":
                 desc = params[0] if params else ""
                 return {"descriptor": f"{desc}#mockchecksum"}
@@ -3212,6 +3322,17 @@ class TestDescriptorRangeUpgrade:
                         "txid": "a" * 64,
                     }
                 ]
+            if method == "listsinceblock":
+                return {
+                    "transactions": [
+                        {
+                            "address": high_index_address,
+                            "category": "receive",
+                            "txid": "a" * 64,
+                        }
+                    ],
+                    "lastblock": "00" * 32,
+                }
             if method == "getdescriptorinfo":
                 desc = params[0] if params else ""
                 return {"descriptor": f"{desc}#mockchecksum"}

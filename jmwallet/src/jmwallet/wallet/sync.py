@@ -1154,7 +1154,20 @@ class WalletSyncMixin:
                         f"search extended range if any are ours"
                     )
         except Exception as e:
-            logger.debug(f"Could not fetch addresses with history: {e}")
+            # Address-history enumeration failure is a privacy-critical
+            # event: if we silently continue, the descriptor-range upgrade
+            # path and the deposit-address picker will operate on a
+            # partial view and may propose a previously funded address as
+            # a fresh deposit. Log loudly. The persisted BIP-329 store
+            # still holds whatever was learned previously (we never
+            # downgrade it), so subsequent ``info``/``send`` runs that
+            # don't trip the same RPC failure will recover.
+            logger.error(
+                f"Could not fetch addresses with history: {e}. "
+                f"Proposed deposit addresses will be checked against "
+                f"the persisted used-address store, but the in-memory "
+                f"enumeration is incomplete for this run."
+            )
 
         # Resolve addresses beyond the current descriptor range.
         #

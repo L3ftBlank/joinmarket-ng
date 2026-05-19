@@ -8,6 +8,7 @@ and generating fidelity bond address summaries.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from jmwallet.wallet.constants import FIDELITY_BOND_BRANCH
 from jmwallet.wallet.models import AddressInfo, AddressStatus, UTXOInfo
@@ -28,6 +29,7 @@ class WalletDisplayMixin:
     root_path: str
     data_dir: Path | None
     wallet_fingerprint: str
+    backend: Any
 
     # Methods provided by the host class
     def get_address(self, mixdepth: int, change: int, index: int) -> str:
@@ -37,6 +39,9 @@ class WalletDisplayMixin:
         raise NotImplementedError
 
     def get_next_address_index(self, mixdepth: int, change: int) -> int:
+        raise NotImplementedError
+
+    def _record_history_address(self, address: str, origin: str | None = None) -> None:
         raise NotImplementedError
 
     def get_address_info_for_mixdepth(
@@ -274,6 +279,64 @@ class WalletDisplayMixin:
 
         address = self.get_receive_address(mixdepth, next_index)
         return address, next_index
+
+    async def get_next_safe_deposit_address(
+        self,
+        mixdepth: int,
+        used_addresses: set[str] | None = None,
+        max_attempts: int = 100,
+    ) -> tuple[str, int]:
+        """Async deposit-address picker with on-chain verification.
+
+        Wraps :meth:`get_next_after_last_used_address` with a backend
+        round-trip per candidate: each proposed address is checked via
+        :meth:`BlockchainBackend.address_has_history` (typically
+        ``getreceivedbyaddress`` on Bitcoin Core). If the backend
+        reports any prior funding the candidate is recorded as used
+        (so subsequent picks skip it) and we advance to the next
+        index.
+
+        This is the privacy-critical belt-and-suspenders that catches
+        the case where the in-memory ``addresses_with_history`` set is
+        incomplete (RPC truncation during sync, node crash mid-walk,
+        stale persisted state, or a wallet imported with no prior
+        sync at all). The sync-layer bulk enumeration remains the
+        fast common path; this method's per-address verification only
+        runs at the moment we are about to hand an address to the
+        user.
+
+        On backend RPC failure (``address_has_history`` returns
+        ``None``) we fall back to the synchronous picker's decision
+        rather than blocking indefinitely; this preserves availability
+        when bitcoind is unreachable, with the caveat that defense in
+        depth is reduced to whatever the persisted store and
+        blockchain-history set already know.
+        """
+        backend = getattr(self, "backend", None)
+        verify = getattr(backend, "address_has_history", None) if backend else None
+
+        address, index = self.get_next_after_last_used_address(mixdepth, used_addresses)
+        if verify is None:
+            return address, index
+
+        for _ in range(max_attempts):
+            on_chain = await verify(address)
+            if on_chain is True:
+                # Belt-and-suspenders catch. Record so future picks
+                # (this run and across restarts) skip the address.
+                self._record_history_address(address, origin="onchain-verify")
+                index += 1
+                address = self.get_receive_address(mixdepth, index)
+                continue
+            # ``False`` or ``None`` (RPC failed) -> use the candidate.
+            return address, index
+
+        raise RuntimeError(
+            f"get_next_safe_deposit_address: could not find an unused "
+            f"address in mixdepth {mixdepth} after {max_attempts} backend "
+            f"verifications; descriptor range may need upgrading or the "
+            f"backend is misreporting history"
+        )
 
     def get_next_unused_unflagged_address(
         self,

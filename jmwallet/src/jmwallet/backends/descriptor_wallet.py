@@ -1695,27 +1695,39 @@ class DescriptorWalletBackend(BlockchainBackend):
     async def get_addresses_with_history(self) -> set[str]:
         """Return every wallet-owned address that has ever received funds.
 
-        Walks ``listtransactions "*" count skip include_watchonly=true`` in
-        pages and collects the ``address`` field of every entry whose
-        ``category`` indicates funds entering the wallet. Unlike the
-        previous ``listreceivedbyaddress``-based implementation, this picks
-        up addresses on ``internal=True`` (change) descriptors too:
-        ``listreceivedbyaddress`` hard-codes ``fIncludeChange=false`` in
-        Bitcoin Core and silently drops every JoinMarket change address,
-        which is the bug that caused freshly issued deposit addresses to
-        collide with previously funded ones after the funds were spent.
+        Uses ``listsinceblock`` with an empty blockhash to fetch every
+        wallet transaction (including change outputs) in a single RPC
+        roundtrip. ``include_change=true`` is critical: without it Core
+        silently drops change-branch addresses, which is the JoinMarket
+        deposit-reuse bug that motivated the rewrite.
 
-        ``listtransactions`` is bounded by the wallet's transaction history
-        (one RPC roundtrip per ``page_size`` entries) which on a CoinJoin-
-        heavy wallet is much smaller than the UTXO set ``listunspent`` scans.
-        On a typical Core v30.2 descriptor wallet this is competitive with
-        the previous fast-path and, critically, returns the correct answer.
+        Why not ``listtransactions skip=N``?
+        -----------------------------------
+        ``listtransactions`` is paginated with ``count``/``skip``, but
+        Core walks the wallet's transaction list from the beginning on
+        every call (O(N) per page → O(N^2) total). On real-world heavy
+        JoinMarket wallets (220K+ tx-entries after a genesis rescan)
+        page 200+ takes minutes server-side and routinely trips socket
+        timeouts or causes bitcoind to drop the connection mid-stream.
+        The walker then silently returned the partial result, the
+        wallet thought it had enumerated history, and the next deposit
+        address landed on a previously-funded address. See
+        ``tmp/joinmarket_ng_wallet_rescan_3.txt`` for a real-world
+        failure trace.
 
-        Persistence note: the wallet additionally caches every observed
-        address in its BIP-329 metadata store the moment it is seen during
-        sync (see :class:`WalletSyncMixin`). That store is the canonical
-        privacy-critical "do not reissue" set; this backend RPC is only the
-        bulk-rediscovery seed used on first sync and after backend swaps.
+        ``listsinceblock`` enumerates in a single server-side pass: O(N)
+        total, one HTTP roundtrip, one large JSON response. aiohttp /
+        httpx stream multi-megabyte JSON without issue.
+
+        Failure semantics
+        -----------------
+        Raises on any RPC error. The previous implementation logged a
+        warning and returned whatever was collected so far; that was a
+        privacy bug because the partial set was then treated as
+        authoritative by the sync layer and persisted to BIP-329. The
+        wallet's persisted ``used_addresses`` store remains the canonical
+        do-not-reissue set; the sync layer is responsible for unioning
+        this RPC result with persisted state (never replacing it).
         """
         addresses: set[str] = set()
 
@@ -1723,49 +1735,93 @@ class DescriptorWalletBackend(BlockchainBackend):
         if not self._wallet_loaded:
             return addresses
 
-        page_size = 1000
-        skip = 0
-        # Cap defensively: a wallet with > 5M tx-entries would have other
-        # problems first. We stop early on a short page in the common case.
-        max_pages = 50_000
-        scanned_entries = 0
+        # Empty blockhash → enumerate from genesis. ``include_watchonly``
+        # is deprecated in Core 30 (it always includes watch-only on
+        # descriptor wallets) but we pass ``true`` for backwards
+        # compatibility with older nodes. ``include_change=true`` is the
+        # critical flag: without it change-branch outputs are dropped and
+        # we miss every internal address that has ever received funds.
+        try:
+            result = await self._rpc_call(
+                "listsinceblock",
+                # blockhash, target_confirmations, include_watchonly,
+                # include_removed, include_change
+                ["", 1, True, True, True],
+            )
+        except Exception:
+            # Surface the failure: callers (sync layer, scan_status_only
+            # diagnostic) must distinguish "no addresses" from "RPC
+            # failed" and refuse to downgrade persisted state.
+            logger.exception("listsinceblock failed; cannot enumerate address history")
+            raise
 
-        for _ in range(max_pages):
-            try:
-                page = await self._rpc_call(
-                    "listtransactions",
-                    # dummy_label, count, skip, include_watchonly
-                    ["*", page_size, skip, True],
-                )
-            except Exception as e:
-                logger.warning(f"listtransactions skip={skip} failed: {e}")
-                break
+        transactions = result.get("transactions", []) if isinstance(result, dict) else []
 
-            if not page:
-                break
-
-            for entry in page:
-                cat = entry.get("category")
-                # ``receive`` covers external funding AND change returned to
-                # the wallet on internal descriptors. ``generate``/``immature``
-                # cover mining rewards if the user is also a miner; harmless
-                # to include.
-                if cat in ("receive", "generate", "immature"):
-                    addr = entry.get("address")
-                    if addr:
-                        addresses.add(addr)
-
-            scanned_entries += len(page)
-
-            if len(page) < page_size:
-                break
-            skip += page_size
+        for entry in transactions:
+            cat = entry.get("category")
+            # ``receive`` covers external funding AND change returned to
+            # the wallet on internal descriptors (when include_change=true).
+            # ``generate``/``immature`` cover mining rewards if the user is
+            # also a miner; harmless to include. ``send`` is excluded
+            # because the address there is the destination, not ours.
+            if cat in ("receive", "generate", "immature"):
+                addr = entry.get("address")
+                if addr:
+                    addresses.add(addr)
 
         logger.debug(
             f"Found {len(addresses)} addresses with history "
-            f"(scanned {scanned_entries} listtransactions entries)"
+            f"(scanned {len(transactions)} listsinceblock entries)"
         )
         return addresses
+
+    async def address_has_history(self, address: str) -> bool | None:
+        """Return True if ``address`` has ever received funds on-chain.
+
+        Uses ``getreceivedbyaddress addr 0`` (zero-confirmation threshold)
+        which is a cheap O(1) lookup against the wallet's per-address
+        receive index. This is the defense-in-depth check used before
+        proposing a fresh deposit address: even if the bulk enumeration
+        in :meth:`get_addresses_with_history` was incomplete (RPC
+        truncation, node crash mid-walk, stale persisted state),
+        ``getreceivedbyaddress`` will catch a previously-funded address
+        because Bitcoin Core keeps that index up to date as part of
+        normal wallet operation.
+
+        Returns
+        -------
+        ``True`` if the address has any received amount > 0,
+        ``False`` if it has zero,
+        ``None`` if the RPC failed (callers should treat this as
+        "unknown" and either retry or fail closed depending on context).
+
+        Notes
+        -----
+        - The address must be watched by the wallet for
+          ``getreceivedbyaddress`` to work; Core errors with -4 / -5
+          otherwise. JoinMarket deposit addresses derive from imported
+          ranged descriptors so they are always watched within range.
+        - ``getreceivedbyaddress`` only counts confirmed funding by
+          default; passing ``0`` includes the mempool so we also catch
+          addresses that received funds but the tx isn't mined yet.
+        """
+        if not self._wallet_loaded:
+            return None
+        try:
+            received = await self._rpc_call("getreceivedbyaddress", [address, 0])
+        except Exception as exc:
+            logger.warning(
+                f"getreceivedbyaddress({address[:12]}...) failed: {exc}; "
+                f"cannot verify whether address has on-chain history"
+            )
+            return None
+        # Core returns a BTC float; any non-zero value means the address
+        # has been funded at least once. Even tiny dust receives count
+        # for privacy purposes.
+        try:
+            return float(received) > 0
+        except (TypeError, ValueError):
+            return None
 
     async def get_address_info(self, address: str) -> dict[str, Any] | None:
         """

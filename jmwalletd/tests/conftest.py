@@ -51,6 +51,7 @@ def mock_wallet_service() -> MagicMock:
     # default mock must be non-zero to allow happy-path plan-creation tests.
     ws.get_balance = AsyncMock(return_value=50_000_000)
     ws.get_new_address = Mock(return_value="bcrt1qtest1234567890abcdef")
+    ws.get_new_address_verified = AsyncMock(return_value="bcrt1qtest1234567890abcdef")
     ws.backend = MagicMock()
     ws.backend.get_block_count = AsyncMock(return_value=800_000)
     ws.num_mixdepths = 5

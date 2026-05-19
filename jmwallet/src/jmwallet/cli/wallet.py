@@ -701,8 +701,16 @@ async def _show_wallet_info(
 
             print("\nDeposit addresses (next unused):")
             for md in range(5):
-                # Get next address after the last used (highest used index + 1)
-                addr, _ = wallet.get_next_after_last_used_address(md, used_addresses)
+                # Get next deposit address with per-candidate on-chain
+                # verification (Layer 4b). Even if the bulk address-history
+                # sync was incomplete due to a transient RPC failure,
+                # ``get_next_safe_deposit_address`` will catch a
+                # previously-funded candidate via ``getreceivedbyaddress``
+                # and advance past it. This is the privacy belt-and-
+                # suspenders that prevents proposing already-used
+                # deposit addresses; see ``tmp/joinmarket_ng_wallet_rescan_3.txt``
+                # for the real-world failure trace that motivated it.
+                addr, _ = await wallet.get_next_safe_deposit_address(md, used_addresses)
                 print(f"  Mixdepth {md}: {addr}")
 
     finally:

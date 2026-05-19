@@ -193,7 +193,7 @@ async def get_new_address(
     if md < 0 or md >= ws.mixdepth_count:
         raise InvalidRequestFormat(f"Mixdepth {md} out of range (0-{ws.mixdepth_count - 1})")
 
-    address = ws.get_new_address(md)
+    address = await ws.get_new_address_verified(md)
     return GetAddressResponse(address=address)
 
 

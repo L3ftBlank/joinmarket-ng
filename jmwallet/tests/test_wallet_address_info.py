@@ -1178,3 +1178,136 @@ class TestIssuedReceiveAddresses:
 
         next_index = wallet.get_next_address_index(mixdepth=0, change=0)
         assert next_index == 1
+
+
+class TestSafeDepositAddress:
+    """Tests for the privacy-critical async deposit-address picker.
+
+    These guard the Layer 4b defense-in-depth: even if the bulk
+    address-history sync is incomplete (RPC truncation, node crash,
+    stale persisted state), the per-candidate
+    ``address_has_history`` check must catch previously-funded
+    addresses before they are proposed as fresh deposits.
+    """
+
+    @pytest.fixture
+    def mock_backend_with_verifier(self, used_set: set[str]):
+        """Backend that returns True from ``address_has_history`` for a
+        configurable set of addresses (the persisted "used" set)."""
+        backend = Mock()
+        backend.get_utxos = AsyncMock(return_value=[])
+        backend.close = AsyncMock()
+
+        async def address_has_history(addr: str) -> bool:
+            return addr in used_set
+
+        backend.address_has_history = address_has_history
+        return backend
+
+    @pytest.fixture
+    def used_set(self):
+        return set()
+
+    @pytest.fixture
+    def wallet(self, mock_backend_with_verifier, test_mnemonic, test_network):
+        wallet = WalletService(
+            mnemonic=test_mnemonic,
+            backend=mock_backend_with_verifier,
+            network=test_network,
+            mixdepth_count=5,
+        )
+        wallet.utxo_cache = {i: [] for i in range(5)}
+        return wallet
+
+    @pytest.mark.asyncio
+    async def test_returns_first_candidate_when_clean(self, wallet):
+        """No on-chain history -> first candidate is accepted."""
+        addr, idx = await wallet.get_next_safe_deposit_address(0)
+        assert idx == 0
+        assert addr == wallet.get_receive_address(0, 0)
+
+    @pytest.mark.asyncio
+    async def test_skips_addresses_with_onchain_history(self, wallet, used_set: set[str]):
+        """Backend says index 0 has history -> picker must advance to index 1
+        and persist the catch so subsequent picks don't repropose it."""
+        used_set.add(wallet.get_receive_address(0, 0))
+
+        addr, idx = await wallet.get_next_safe_deposit_address(0)
+
+        assert idx == 1, "must advance past the previously-funded address"
+        assert addr == wallet.get_receive_address(0, 1)
+        # The caught address must now be in the in-memory used set so
+        # future picks (this run) skip it without re-asking the backend.
+        assert wallet.get_receive_address(0, 0) in wallet.addresses_with_history
+
+    @pytest.mark.asyncio
+    async def test_skips_multiple_used_addresses(self, wallet, used_set: set[str]):
+        """Two consecutive used addresses must both be skipped."""
+        used_set.add(wallet.get_receive_address(0, 0))
+        used_set.add(wallet.get_receive_address(0, 1))
+
+        addr, idx = await wallet.get_next_safe_deposit_address(0)
+
+        assert idx == 2
+        assert addr == wallet.get_receive_address(0, 2)
+
+    @pytest.mark.asyncio
+    async def test_falls_back_when_verifier_returns_none(self, test_mnemonic, test_network):
+        """Backend RPC failure (None) -> use sync-layer pick rather than
+        block indefinitely. Preserves availability when bitcoind is
+        unreachable; defense in depth degrades to the persisted store."""
+        backend = Mock()
+        backend.get_utxos = AsyncMock(return_value=[])
+        backend.close = AsyncMock()
+
+        async def verifier(addr: str) -> bool | None:
+            return None  # simulate RPC failure
+
+        backend.address_has_history = verifier
+
+        wallet = WalletService(
+            mnemonic=test_mnemonic,
+            backend=backend,
+            network=test_network,
+            mixdepth_count=5,
+        )
+        wallet.utxo_cache = {i: [] for i in range(5)}
+
+        addr, idx = await wallet.get_next_safe_deposit_address(0)
+        # Synchronous picker chooses index 0; we don't downgrade.
+        assert idx == 0
+        assert addr == wallet.get_receive_address(0, 0)
+
+    @pytest.mark.asyncio
+    async def test_works_without_verifier_method(self, test_mnemonic, test_network):
+        """Backends without ``address_has_history`` (e.g. neutrino without
+        this method) fall back to the sync picker; no regression."""
+        backend = Mock(spec=["get_utxos", "close"])
+        backend.get_utxos = AsyncMock(return_value=[])
+        backend.close = AsyncMock()
+
+        wallet = WalletService(
+            mnemonic=test_mnemonic,
+            backend=backend,
+            network=test_network,
+            mixdepth_count=5,
+        )
+        wallet.utxo_cache = {i: [] for i in range(5)}
+
+        addr, idx = await wallet.get_next_safe_deposit_address(0)
+        assert idx == 0
+        assert addr == wallet.get_receive_address(0, 0)
+
+    @pytest.mark.asyncio
+    async def test_max_attempts_safety_limit(self, wallet, used_set: set[str]):
+        """If the backend reports every candidate as used (misbehaving or
+        a misconfigured wallet), the picker must raise rather than loop
+        forever. This guards against an infinite descriptor-range walk."""
+
+        async def always_used(addr: str) -> bool:
+            return True
+
+        wallet.backend.address_has_history = always_used
+
+        with pytest.raises(RuntimeError, match="could not find an unused"):
+            await wallet.get_next_safe_deposit_address(0, max_attempts=5)

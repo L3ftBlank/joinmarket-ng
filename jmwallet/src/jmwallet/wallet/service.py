@@ -609,9 +609,34 @@ class WalletService(WalletSyncMixin, CoinSelectionMixin, WalletDisplayMixin):
         return await self.sync_all()
 
     def get_new_address(self, mixdepth: int) -> str:
-        """Get next unused receive address for a mixdepth."""
+        """Get next unused receive address for a mixdepth.
+
+        Synchronous fast path: returns the address at
+        ``get_next_address_index(mixdepth, 0)``. This relies on the
+        sync-layer ``addresses_with_history`` being complete; if the
+        last bulk enumeration was truncated by an RPC failure, this
+        method may return a previously-funded address.
+
+        Privacy-critical callers (CLI ``info`` / daemon address
+        endpoints) should prefer :meth:`get_new_address_verified`,
+        which adds a per-candidate ``getreceivedbyaddress`` check.
+        """
         next_index = self.get_next_address_index(mixdepth, 0)
         address = self.get_receive_address(mixdepth, next_index)
+        self.issued_receive_addresses.add(address)
+        return address
+
+    async def get_new_address_verified(self, mixdepth: int) -> str:
+        """Async deposit-address picker with on-chain verification.
+
+        Wraps :meth:`get_next_safe_deposit_address` and registers the
+        chosen address in ``issued_receive_addresses`` (matching the
+        side effect of :meth:`get_new_address`). Use this from any
+        async code path that exposes a deposit address to users or
+        peers (``jm-wallet info``, jmwalletd ``/wallet/address/new``,
+        maker/taker deposit prompts).
+        """
+        address, _ = await self.get_next_safe_deposit_address(mixdepth)
         self.issued_receive_addresses.add(address)
         return address
 

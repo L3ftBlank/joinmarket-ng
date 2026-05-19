@@ -475,6 +475,37 @@ def test_tui_clears_stale_mnemonic_file_entry() -> None:
     assert "Stale Wallet Config" in main_loop
 
 
+def test_tui_import_wallet_checks_duplicate_name_before_prompts() -> None:
+    """Importing a wallet under an existing name must ask to overwrite
+    before any seed/password prompts (issue #476). The CLI is invoked
+    with --force so the early TUI confirmation is the single source of
+    truth for the overwrite decision."""
+    content = SCRIPT_PATH.read_text()
+
+    imp_block = content.split("          IMP)\n", 1)[1].split("          VAL)\n", 1)[0]
+
+    # The duplicate-name check must come BEFORE the word count menu and
+    # BEFORE the password prompt to avoid wasted user input.
+    overwrite_idx = imp_block.find("Wallet Already Exists")
+    words_idx = imp_block.find("How many seed words does your wallet have?")
+    password_idx = imp_block.find("prompt_new_wallet_password")
+    assert overwrite_idx != -1, "missing duplicate-name whiptail check in IMP flow"
+    assert overwrite_idx < words_idx, (
+        "duplicate-name check must precede word-count prompt"
+    )
+    assert overwrite_idx < password_idx, (
+        "duplicate-name check must precede password prompt"
+    )
+
+    # The whiptail confirmation must default to "No" so an accidental
+    # Enter does not overwrite an existing wallet.
+    assert "--defaultno" in imp_block
+
+    # The CLI invocation must pass --force so it does not re-prompt.
+    assert "jm-wallet import" in imp_block
+    assert "--force" in imp_block
+
+
 def test_tui_no_second_password_prompt_when_storing_in_config() -> None:
     """After creating/importing a wallet and choosing to store the password
     in config.toml, the TUI must reuse the password the user already

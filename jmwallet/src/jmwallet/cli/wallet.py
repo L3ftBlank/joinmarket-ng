@@ -722,7 +722,7 @@ def _print_scan_status(status: dict) -> None:
     ``DescriptorWalletBackend.get_wallet_scan_status``.
 
     Formats timestamps, flags suspiciously narrow coverage (oldest active
-    descriptor timestamp much newer than expected), and notes whether a
+    descriptor timestamp much newer than genesis), and notes whether a
     rescan is currently in progress. Intended for ``jm-wallet info
     --scan-status`` and ``jm-wallet rescan``.
     """
@@ -736,10 +736,33 @@ def _print_scan_status(status: dict) -> None:
             + f"  (unix {int(ts)})"
         )
 
+    def _fmt_age(seconds: int) -> str:
+        """Render an age in human-friendly units (years/months/days)."""
+        if seconds < 60:
+            return f"{seconds}s"
+        if seconds < 3600:
+            return f"{seconds // 60}m"
+        if seconds < 86400:
+            return f"{seconds // 3600}h"
+        days = seconds // 86400
+        if days < 60:
+            return f"{days} day{'s' if days != 1 else ''}"
+        months = days // 30
+        if months < 24:
+            return f"{months} month{'s' if months != 1 else ''}"
+        years = days // 365
+        remaining_months = (days % 365) // 30
+        if remaining_months:
+            return (
+                f"{years} year{'s' if years != 1 else ''}, "
+                f"{remaining_months} month{'s' if remaining_months != 1 else ''}"
+            )
+        return f"{years} year{'s' if years != 1 else ''}"
+
     print("\nBitcoin Core wallet scan status:")
     print(f"  Transactions known to Core:    {status.get('txcount', 0):,}")
     print(f"  Wallet birthtime:              {_fmt_ts(status.get('birthtime'))}")
-    print(f"  Oldest active descriptor scan: {_fmt_ts(status.get('oldest_descriptor_timestamp'))}")
+    print(f"  Smart-scan boundary:           {_fmt_ts(status.get('oldest_descriptor_timestamp'))}")
 
     if status.get("scanning_in_progress"):
         progress = status.get("scan_progress")
@@ -753,21 +776,19 @@ def _print_scan_status(status: dict) -> None:
     # Heuristic warning: importdescriptors sets the smart-scan boundary to
     # ~1 year ago at first setup, which is fine for "recent receives" but
     # misses older history. Bitcoin's genesis is 2009-01-03 (unix
-    # 1230768000). If the user's coins are older than the oldest covered
-    # block, Core does not know they were ever used.
+    # 1230768000). If the user's coins are older than the smart-scan
+    # boundary, Core does not know they were ever used.
     oldest = status.get("oldest_descriptor_timestamp")
     if oldest is not None and oldest > 1230768000:
-        # Flag explicitly when the smart-scan window is still in effect
-        # (anything materially newer than genesis).
         from time import time as _now
 
-        years_back = (int(_now()) - int(oldest)) / 31_536_000
+        age_seconds = max(0, int(_now()) - int(oldest))
         print(
-            "\n  Note: history coverage starts "
-            f"{years_back:.1f}y in the past. If your wallet has spends or "
-            "receives older than this, Bitcoin Core has not seen them and "
-            "may propose already-used addresses as fresh deposits. "
-            "Run `jm-wallet rescan` to scan from genesis."
+            f"\n  Note: Bitcoin Core has only scanned the last {_fmt_age(age_seconds)} "
+            "for this wallet. If your wallet has spends or receives older "
+            "than that, Core has not indexed them and may propose "
+            "already-used addresses as fresh deposits. Run "
+            "`jm-wallet rescan` to scan from genesis."
         )
 
 

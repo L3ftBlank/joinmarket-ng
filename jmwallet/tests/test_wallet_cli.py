@@ -1912,7 +1912,7 @@ def test_print_scan_status_formats_idle_run(capsys: pytest.CaptureFixture) -> No
     assert "Rescan currently running:      no" in out
     # The smart-scan coverage warning should fire because the descriptor
     # timestamp is well after genesis (1230768000).
-    assert "history coverage starts" in out
+    assert "Bitcoin Core has only scanned the last" in out
     assert "jm-wallet rescan" in out
 
 
@@ -1934,7 +1934,7 @@ def test_print_scan_status_formats_running_rescan(capsys: pytest.CaptureFixture)
     out = capsys.readouterr().out
     assert "Rescan currently running:      yes (50.0%, 120s elapsed)" in out
     # Coverage hint must NOT fire at the genesis boundary.
-    assert "history coverage starts" not in out
+    assert "Bitcoin Core has only scanned" not in out
 
 
 def test_info_scan_status_flag_prints_diagnostics_and_exits(monkeypatch) -> None:

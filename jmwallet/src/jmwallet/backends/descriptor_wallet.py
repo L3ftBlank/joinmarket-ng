@@ -317,7 +317,16 @@ class DescriptorWalletBackend(BlockchainBackend):
             return data.get("result")
 
         except httpx.TimeoutException as e:
-            logger.error(f"RPC call timed out: {method} - {e}")
+            # Logged at debug because some callers (notably the rescan
+            # kick) deliberately use a short timeout and treat
+            # TimeoutException as the success path: Bitcoin Core keeps
+            # running the RPC server-side even if the client disconnects.
+            # Unexpected timeouts still surface via the re-raised
+            # exception, so callers can log with their own context.
+            logger.debug(
+                f"RPC call '{method}' timed out (treated as expected by caller "
+                f"if a short deadline was set): {e!r}"
+            )
             raise
         except ValueError as e:
             # If this is a wallet-not-loaded error on a wallet-scoped call,
@@ -981,7 +990,17 @@ class DescriptorWalletBackend(BlockchainBackend):
                 continue
             scanning = info.get("scanning")
             if scanning:
-                logger.info(f"Bitcoin Core confirmed rescan in progress (scanning={scanning})")
+                duration = scanning.get("duration") if isinstance(scanning, dict) else None
+                progress = scanning.get("progress") if isinstance(scanning, dict) else None
+                duration_str = (
+                    f"{int(duration)}s elapsed" if duration is not None else "elapsed unknown"
+                )
+                progress_str = (
+                    f"{float(progress) * 100:.2f}%" if progress is not None else "progress unknown"
+                )
+                logger.info(
+                    f"Bitcoin Core confirmed rescan in progress ({progress_str}, {duration_str})"
+                )
                 return
             # Some Bitcoin Core versions return scanning=false very briefly
             # right after acceptance; back off a bit and re-check.

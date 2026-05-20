@@ -71,6 +71,8 @@ Tests use pytest markers to organize by Docker profile:
   - Example: `Changelog: Improve reconnect handling when directory nodes flap`
 - Never add `Changelog:` trailers to `docs:`, `test:`, `build:`, `refactor:`, `chore:`, or `ci:` commits.
 - Changelog entries are generated at release time from commit trailers via `scripts/generate_changelog.py` (called by `scripts/bump_version.py`) to avoid merge conflicts in `CHANGELOG.md` during normal feature/fix development.
+- Keep commit messages concise. Subject line under 72 chars. Body (when needed) explains the why and the user-visible effect in a few sentences; do not narrate intermediate phases, list every file touched, or paste test counts.
+- Prefer one well-scoped commit over a chain of mechanical phases. Squash related WIP/phase commits before merging so the history reads as a sequence of intentional changes.
 
 ## Project Structure
 Monorepo with `src/` layout. Root `pytest.ini` handles global tests.

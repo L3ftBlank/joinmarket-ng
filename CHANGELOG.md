@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-05-20
+
+Major improvements for wallet performance, specially for exiting old wallets with lots of transactions. Also security hardening, TUI improvements, and bug fixes.
+
+### Added
+
+- Add JSON-RPC batch helper to DescriptorWalletBackend to enable single-round-trip address lookups. ([7dc89c31](../../commit/7dc89c312e52cdf7d3c4a22ee7bf5ac38b42a1ef))
+- New wallet files are now encrypted with Argon2id (OWASP 2024 baseline parameters) instead of PBKDF2-HMAC-SHA256. Existing PBKDF2 wallet files continue to load unchanged. ([5e6641de](../../commit/5e6641de3e3aafa5681b77db27ae39e5c3348810))
+- Cap per-tx fee rate at 1000 sat/vB by default (configurable via wallet.max_fee_rate_sat_vb) to prevent silent fee blowups from misconfigured estimators or oversized manual overrides. ([041de9c0](../../commit/041de9c072c1cf3c7d48e8886f75476a82363d14))
+- Auto-expand descriptor scan_range on wallet setup when used addresses sit near the lookahead boundary ([76cbece3](../../commit/76cbece31dfc4a3f53f0010b692debe1ad730dad))
+- Replace the auto-expand descriptor scan_range probe and the --rescan-deep flag with a single 'jmwallet info --scan-depth N' one-shot recovery path that re-imports descriptors and rescans from genesis. The probe was unreliable for the migrated-wallet case it was meant to solve. ([5984ef60](../../commit/5984ef604640e61e7642a4ba51a7b2b435f4249a))
+- Added Raspiblitz exit handler with B menu option and dynamic ESC behavior ([8308f4f1](../../commit/8308f4f16493cbd391b9d6d2e787f9ae513ff953))
+- TUI: Add configurable log level via [tui] log_level in config.toml ([6780bc3f](../../commit/6780bc3f36d1e09817d6729b22562677c91fd96a))
+- Add jm-wallet info --scan-status and jm-wallet rescan to ([c340b993](../../commit/c340b99383af68de9070752150cdaa6367bc36bb))
+- Orderbook watcher web UI now signals which makers are ([461ef3a9](../../commit/461ef3a97bc3cc2889640b054660e1418cb332e8))
+- Redesign the jm-wallet send confirmation summary for clearer field ordering and labels ([21effc40](../../commit/21effc40eca649b93045a4c9204ab860a555694e))
+
+### Fixed
+
+- Speed up descriptor-wallet sync by replacing listaddressgroupings with listreceivedbyaddress, eliminating multi-minute hangs on wallets with many transactions or CoinJoin co-spends ([11b118bd](../../commit/11b118bd1b2412e25fe248f2d993aa883af35f1b))
+- Validate destination address checksum and network in jmwallet direct_send (fixes regression of #196) ([eb970809](../../commit/eb970809bcddc7840a80dac470cab9d06e25a6fd))
+- Require authentication on GET /api/v1/wallet/yieldgen/report so the maker earnings report is no longer readable without a bearer token. ([e4a1a5e7](../../commit/e4a1a5e71ffa5bd2dc0613d31a9433d499dca7d3))
+- Stop including fidelity bond proof in public reconnect announcements; bonds are now only sent via privmsg in response to !orderbook, matching the reference protocol. ([519ffed2](../../commit/519ffed2c99ee87d8e3c9120899fd521b323c150))
+- Fix maker incorrectly rejecting offers with 'Insufficient balance' when the dual-offer fee intersection falls in the dust band; the dominated offer is now suppressed cleanly with a clear log message ([add613fd](../../commit/add613fd9005d24c29aea2468399781bbd2f35bd))
+- Fixed history header duplication and minor TUI issues ([08230473](../../commit/0823047317455881d33e122cf68f1aa74b2be620))
+- Fixed maker menu TUI feedback and wallet info navigation ([be50f914](../../commit/be50f91478bd7ac5804a80c2643e1370b8f409cb))
+- TUI: Capitalize "Fidelity Bonds" consistently across maker bond menus, prompts, and help text ([c35df0db](../../commit/c35df0dbe7339f680c4c6d93b22ba7ba08699559))
+- TUI: Show full testnet/signet/regtest fidelity bond addresses instead of dropping the network prefix ([9ca785e7](../../commit/9ca785e7f33cf2941c5e405ea78ce720f2b84ab6))
+- Restore bonds create improvements and add multi-network regex ([94748205](../../commit/94748205c99176e4fb4ceee0a68d8f3a32461e20))
+- Fix fidelity-bond forgery where verify_bonds() did not bind the UTXO to the bond scriptPubKey ([bdbac766](../../commit/bdbac7663cbd9a1d41073c11ec24bbd0b75d76b1))
+- Honor wallet.mnemonic_password from config when loading mnemonics via --mnemonic-file or MNEMONIC_FILE env (issue #498) ([67043636](../../commit/6704363602332badae2bf4c15c1ca6b98a4bbea4))
+- Reject negative or out-of-range cjfee values in maker offers ([009e0394](../../commit/009e0394bbecfb0073a13fe5cb02b80edd50aaed))
+- Allow disabling broadcast on jm-wallet send via --no-broadcast ([55a33edb](../../commit/55a33edbefa70c47d58f225eddd7c9fa75287a02))
+- Reject malformed amounts, mixdepths and counterparty counts on the wallet daemon HTTP API ([9470db49](../../commit/9470db49c175740529b84e9a78e079e282279f6d))
+- Tighten JWT scope verification to reject cross-wallet tokens ([f5371de6](../../commit/f5371de6913c16b2ad086f64661cf776efde09b0))
+- Fix tumbler runner crashing as failed instead of cancelled when stopped during a phase retry back-off ([e6af7263](../../commit/e6af72631574925c401c26499730b3f666a57b32))
+- Fix periodic summary notification reporting inflated earnings ([42d2eeb9](../../commit/42d2eeb97e639821151975002653bc4d96a668ff))
+- jm-wallet send now persists its change address in ([b399a814](../../commit/b399a814989d55f38cd21072866c13cb371b7ce6))
+- TUI: Offer password storage for encrypted wallets in maker ([36eb8df0](../../commit/36eb8df00ca78c16f31553a992285a118fa6fd64))
+- Fix jam-ng and jmwalletd image builds broken by Debian trixie package version pins in the bookworm-based jam-builder stage ([77c2ea5d](../../commit/77c2ea5dcc8aeeeedf494ea015dfa0fedef25f16))
+- Persist used addresses to prevent reissuing a previously funded deposit address after the UTXO is spent. ([24e3e2f4](../../commit/24e3e2f4ca293cb7efe1f62036f8046784632c5e))
+- Discover all wallet-owned addresses (including change) via paginated listtransactions to prevent missing them in deposit-address selection. ([7d2cc00d](../../commit/7d2cc00dba20ce70ec32fe6c297235407408f7e7))
+- Persist spent input addresses on transaction history rows to prevent deposit-address reuse across restarts ([f98ffc5b](../../commit/f98ffc5b8f64f296bd5456b3258e65a280843690))
+- TUI: Check for duplicate wallet name before import prompts ([50d84ec1](../../commit/50d84ec1671aa385c26fadaae14ad2c4f7e1edc0))
+
 ## [0.29.0] - 2026-05-12
 
 ### Added
@@ -1356,7 +1401,8 @@ Releases prior to these changes (including 0.13.5, 0.13.6, and 0.13.7) cannot be
 - Pre-built image support for directory server compose.
 - Tor configuration instructions.
 
-[Unreleased]: ../../compare/0.29.0...HEAD
+[Unreleased]: ../../compare/0.30.0...HEAD
+[0.30.0]: ../../compare/0.29.0...0.30.0
 [0.29.0]: ../../compare/0.28.1...0.29.0
 [0.28.1]: ../../compare/0.28.0...0.28.1
 [0.28.0]: ../../compare/0.27.0...0.28.0

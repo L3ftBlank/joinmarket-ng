@@ -235,11 +235,21 @@ class UTXOMetadataStore:
 
         frozen_count = sum(1 for r in self.records.values() if r.is_frozen)
         if self.records or self.address_records:
+            # Make it clear these counts come from the on-disk persisted
+            # state (BIP-329 metadata), not from the current bitcoind
+            # sync. A wallet that has been used in the past can carry a
+            # nonzero "previously used" address count even when the
+            # current node returns zero history (e.g. transient RPC
+            # failure, pruned data, mid-rescan), and that is intentional:
+            # the persisted store is monotonic so we never re-propose a
+            # deposit address that was historically funded.
             logger.debug(
-                f"Loaded {len(self.records)} UTXO record(s) "
-                f"({frozen_count} frozen), {len(self.address_records)} used "
-                f"address(es), and {len(self.foreign_addr_lines)} foreign "
-                f"record(s) from {self.path}"
+                f"Loaded persisted wallet metadata from {self.path}: "
+                f"{len(self.records)} UTXO record(s) ({frozen_count} frozen), "
+                f"{len(self.address_records)} previously used address(es), "
+                f"and {len(self.foreign_addr_lines)} foreign record(s). "
+                f"These are read from disk and reflect historical state, "
+                f"not the result of the current bitcoind scan."
             )
 
     def save(self) -> None:

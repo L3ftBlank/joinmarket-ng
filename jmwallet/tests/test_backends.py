@@ -38,28 +38,6 @@ class TestBackendCloseReuse:
         await backend.close()
 
     @pytest.mark.asyncio
-    async def test_descriptor_wallet_close_cancels_background_rescan_task(self):
-        """Closing a DescriptorWalletBackend should cancel pending background rescans."""
-        import asyncio
-
-        from jmwallet.backends.descriptor_wallet import DescriptorWalletBackend
-
-        backend = DescriptorWalletBackend()
-
-        async def never_finishes() -> None:
-            await asyncio.sleep(60)
-
-        task = asyncio.create_task(never_finishes())
-        backend._background_rescan_task = task
-
-        await backend.close()
-
-        assert task.cancelled()
-        assert backend._background_rescan_task is None
-
-        await backend.close()
-
-    @pytest.mark.asyncio
     async def test_neutrino_backend_reusable_after_close(self):
         """Closing a NeutrinoBackend should produce a fresh httpx client and reset state."""
         backend = NeutrinoBackend(neutrino_url="http://localhost:8080")

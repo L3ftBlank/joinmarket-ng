@@ -7,6 +7,7 @@ Integration tests (marked with @pytest.mark.docker) require a running Bitcoin Co
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
@@ -1207,14 +1208,51 @@ class TestSmartScan:
 
 
 class TestBackgroundRescan:
-    """Tests for background rescan functionality."""
+    """Tests for background rescan functionality.
+
+    ``start_background_rescan`` fires ``rescanblockchain`` via a
+    short-timeout HTTP client and then polls ``getwalletinfo.scanning``
+    until Bitcoin Core reports that the scan started, or raises if it
+    never does. The scan itself is server-side, so we don't need any
+    Python-side task plumbing.
+    """
 
     @pytest.mark.asyncio
-    async def test_run_background_rescan_clears_task_reference_on_success(self) -> None:
-        backend = DescriptorWalletBackend(wallet_name="test_rescan_cleanup")
+    async def test_start_background_rescan_observes_scanning_started(self) -> None:
+        """Happy path: the RPC times out (rescan runs server-side), then we
+        observe scanning=true via getwalletinfo and return."""
+        backend = DescriptorWalletBackend(wallet_name="test_rescan_observed")
         backend._wallet_loaded = True
-        backend._background_rescan_height = 100
-        backend._background_rescan_task = AsyncMock()
+
+        observed_kick = False
+
+        async def mock_rpc(
+            method: str,
+            params: list[Any] | None = None,
+            client: Any = None,
+            use_wallet: bool = True,
+        ) -> Any:
+            nonlocal observed_kick
+            if method == "rescanblockchain":
+                observed_kick = True
+                # Simulate the long-running RPC by raising TimeoutException.
+                raise httpx.TimeoutException("simulated long-running rescan")
+            if method == "getwalletinfo":
+                return {"scanning": {"progress": 0.01, "duration": 1}}
+            return {}
+
+        backend._rpc_call = mock_rpc  # type: ignore[method-assign]
+
+        await backend.start_background_rescan(start_height=42)
+
+        assert observed_kick is True
+
+    @pytest.mark.asyncio
+    async def test_start_background_rescan_fast_path_returns_clean(self) -> None:
+        """When rescanblockchain returns synchronously (regtest / already-synced),
+        we accept that and return without polling."""
+        backend = DescriptorWalletBackend(wallet_name="test_rescan_fast")
+        backend._wallet_loaded = True
 
         async def mock_rpc(
             method: str,
@@ -1223,27 +1261,62 @@ class TestBackgroundRescan:
             use_wallet: bool = True,
         ) -> Any:
             if method == "rescanblockchain":
-                return {"start_height": 100, "stop_height": 200}
+                return {"start_height": 0, "stop_height": 100}
+            raise AssertionError(f"unexpected RPC after fast return: {method}")
+
+        backend._rpc_call = mock_rpc  # type: ignore[method-assign]
+
+        await backend.start_background_rescan(start_height=0)
+
+    @pytest.mark.asyncio
+    async def test_start_background_rescan_raises_if_never_starts(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """If Bitcoin Core never reports scanning=true within the grace
+        window, we raise so the caller can surface the failure rather than
+        pretending the rescan kicked off."""
+        backend = DescriptorWalletBackend(wallet_name="test_rescan_stuck")
+        backend._wallet_loaded = True
+
+        async def mock_rpc(
+            method: str,
+            params: list[Any] | None = None,
+            client: Any = None,
+            use_wallet: bool = True,
+        ) -> Any:
+            if method == "rescanblockchain":
+                raise httpx.TimeoutException("simulated long-running rescan")
+            if method == "getwalletinfo":
+                return {"scanning": False}
             return {}
 
         backend._rpc_call = mock_rpc  # type: ignore[method-assign]
 
-        await backend._run_background_rescan(100)
+        # Compress the 10s grace window so this test stays fast. We patch
+        # asyncio.sleep to a no-op and event_loop.time to advance quickly.
+        original_time = asyncio.get_event_loop().time()
+        ticks = iter([original_time + 0.1 * i for i in range(1000)])
 
-        assert backend._background_rescan_height is None
-        assert backend._background_rescan_task is None
+        async def fast_sleep(_: float) -> None:
+            return None
+
+        def fake_time() -> float:
+            return next(ticks)
+
+        monkeypatch.setattr(asyncio, "sleep", fast_sleep)
+        loop = asyncio.get_event_loop()
+        monkeypatch.setattr(loop, "time", fake_time)
+
+        with pytest.raises(RuntimeError, match="never reported scanning"):
+            await backend.start_background_rescan(start_height=0)
 
     @pytest.mark.asyncio
-    async def test_start_background_rescan(self) -> None:
-        """Test that background rescan is started correctly."""
-        backend = DescriptorWalletBackend(wallet_name="test_rescan")
-        backend._wallet_loaded = True
+    async def test_start_background_rescan_requires_loaded_wallet(self) -> None:
+        backend = DescriptorWalletBackend(wallet_name="test_rescan_unloaded")
+        backend._wallet_loaded = False
 
-        backend._rpc_call = make_mock_rpc({}, strict=False, default={})
-
-        await backend.start_background_rescan()
-
-        assert backend.is_background_rescan_pending() is True
+        with pytest.raises(RuntimeError, match="Wallet not loaded"):
+            await backend.start_background_rescan(start_height=0)
 
     @pytest.mark.asyncio
     async def test_rescan_status_not_scanning(self) -> None:
@@ -1288,7 +1361,7 @@ class TestBackgroundRescan:
 
     @pytest.mark.asyncio
     async def test_import_with_smart_scan_and_background_rescan(self) -> None:
-        """Test import_descriptors with smart scan and background rescan enabled."""
+        """import_descriptors triggers the rescan kick when configured."""
         backend = DescriptorWalletBackend(wallet_name="test_smart_background")
         backend._wallet_loaded = True
 
@@ -1309,11 +1382,16 @@ class TestBackgroundRescan:
                 return {"time": 1700000000}
             elif method == "importdescriptors":
                 return [{"success": True}]
+            elif method == "rescanblockchain":
+                # Simulate the long-running RPC.
+                raise httpx.TimeoutException("rescan running server-side")
+            elif method == "getwalletinfo":
+                return {"scanning": {"progress": 0.0, "duration": 0}}
             return {}
 
         backend._rpc_call = mock_rpc  # type: ignore[method-assign]
 
-        await backend.import_descriptors(
+        result = await backend.import_descriptors(
             descriptors=[
                 {
                     "desc": "wpkh([fingerprint/84'/1'/0'/0/0]xpub...)#checksum",
@@ -1326,12 +1404,12 @@ class TestBackgroundRescan:
             background_full_rescan=True,
         )
 
-        # Should have called getblockchaininfo for smart scan
+        # Should have called getblockchaininfo for smart scan and
+        # rescanblockchain to kick off the background rescan.
         method_names = [call[0] for call in rpc_calls]
         assert "getblockchaininfo" in method_names
-
-        # Background rescan should be pending
-        assert backend.is_background_rescan_pending() is True
+        assert "rescanblockchain" in method_names
+        assert result["background_rescan_started"] is True
 
     @pytest.mark.asyncio
     async def test_wait_for_rescan_complete_race_condition(self) -> None:
@@ -2045,14 +2123,17 @@ class TestAddressHistory:
         backend._wallet_loaded = True
 
         # Simulate a wallet that was set up via smart-scan: descriptors
-        # were imported with a unix timestamp one year before "now".
+        # were imported with a unix timestamp one year before "now". The
+        # wallet has one historical transaction with a blocktime older
+        # than the descriptor timestamp (e.g. a coin spent into the
+        # wallet right after descriptor import).
         one_year_ago = 1_700_000_000
+        first_tx_blocktime = one_year_ago + 7 * 24 * 3600  # 1 week later
         backend._rpc_call = make_mock_rpc(
             {
                 "getwalletinfo": {
                     "scanning": False,
                     "txcount": 42,
-                    "birthtime": one_year_ago,
                 },
                 "listdescriptors": {
                     "descriptors": [
@@ -2060,6 +2141,12 @@ class TestAddressHistory:
                         {"active": True, "timestamp": one_year_ago, "desc": "wpkh(.../1/*)"},
                         # Inactive descriptors (legacy) should be ignored.
                         {"active": False, "timestamp": 1, "desc": "old"},
+                    ]
+                },
+                "listsinceblock": {
+                    "transactions": [
+                        {"blocktime": first_tx_blocktime + 60, "txid": "b"},
+                        {"blocktime": first_tx_blocktime, "txid": "a"},
                     ]
                 },
             },
@@ -2073,9 +2160,8 @@ class TestAddressHistory:
         assert status["scan_progress"] is None
         assert status["scan_duration_s"] is None
         assert status["txcount"] == 42
-        assert status["birthtime"] == one_year_ago
+        assert status["birthtime"] == first_tx_blocktime
         assert status["oldest_descriptor_timestamp"] == one_year_ago
-        assert status["background_rescan_pending_height"] is None
 
     @pytest.mark.asyncio
     async def test_get_wallet_scan_status_in_progress(self) -> None:
@@ -2083,7 +2169,6 @@ class TestAddressHistory:
         from the ``scanning`` sub-object."""
         backend = DescriptorWalletBackend(wallet_name="test_scan_status_running")
         backend._wallet_loaded = True
-        backend._background_rescan_height = 0
 
         backend._rpc_call = make_mock_rpc(
             {
@@ -2092,6 +2177,7 @@ class TestAddressHistory:
                     "txcount": 0,
                 },
                 "listdescriptors": {"descriptors": []},
+                "listsinceblock": {"transactions": []},
             },
             strict=False,
             default={},
@@ -2102,7 +2188,9 @@ class TestAddressHistory:
         assert status["scanning_in_progress"] is True
         assert status["scan_progress"] == pytest.approx(0.42)
         assert status["scan_duration_s"] == 120
-        assert status["background_rescan_pending_height"] == 0
+        # Empty wallet -> birthtime falls back to oldest descriptor (None
+        # here because no active descriptors).
+        assert status["birthtime"] is None
 
     @pytest.mark.asyncio
     async def test_get_wallet_scan_status_wallet_not_loaded(self) -> None:

@@ -1903,7 +1903,6 @@ def test_print_scan_status_formats_idle_run(capsys: pytest.CaptureFixture) -> No
             "oldest_descriptor_timestamp": one_year_ago,
             "birthtime": one_year_ago,
             "txcount": 42,
-            "background_rescan_pending_height": None,
         }
     )
     out = capsys.readouterr().out
@@ -1919,7 +1918,7 @@ def test_print_scan_status_formats_idle_run(capsys: pytest.CaptureFixture) -> No
 
 def test_print_scan_status_formats_running_rescan(capsys: pytest.CaptureFixture) -> None:
     """When a rescan is in progress, the formatter reports progress and
-    duration and the background-rescan-triggered note when applicable."""
+    duration."""
     from jmwallet.cli.wallet import _print_scan_status
 
     _print_scan_status(
@@ -1930,12 +1929,10 @@ def test_print_scan_status_formats_running_rescan(capsys: pytest.CaptureFixture)
             "oldest_descriptor_timestamp": 1_230_768_000,  # genesis -> no hint
             "birthtime": None,
             "txcount": 0,
-            "background_rescan_pending_height": 0,
         }
     )
     out = capsys.readouterr().out
     assert "Rescan currently running:      yes (50.0%, 120s elapsed)" in out
-    assert "Background rescan triggered:   yes (from height 0)" in out
     # Coverage hint must NOT fire at the genesis boundary.
     assert "history coverage starts" not in out
 
@@ -1961,7 +1958,6 @@ def test_info_scan_status_flag_prints_diagnostics_and_exits(monkeypatch) -> None
                 "oldest_descriptor_timestamp": 1_700_000_000,
                 "birthtime": 1_700_000_000,
                 "txcount": 99,
-                "background_rescan_pending_height": None,
             }
         )
 
@@ -2017,7 +2013,6 @@ def test_rescan_blocking_invokes_rescan_blockchain(monkeypatch) -> None:
                 "oldest_descriptor_timestamp": 1_700_000_000,
                 "birthtime": None,
                 "txcount": 0,
-                "background_rescan_pending_height": None,
             },
             {
                 "scanning_in_progress": False,
@@ -2026,7 +2021,6 @@ def test_rescan_blocking_invokes_rescan_blockchain(monkeypatch) -> None:
                 "oldest_descriptor_timestamp": 1_230_768_000,
                 "birthtime": None,
                 "txcount": 5,
-                "background_rescan_pending_height": None,
             },
         ]
         mock_backend.get_wallet_scan_status = AsyncMock(side_effect=status_seq)
@@ -2053,9 +2047,11 @@ def test_rescan_blocking_invokes_rescan_blockchain(monkeypatch) -> None:
         assert "After rescan" in result.stdout
 
 
-def test_rescan_background_uses_start_background_rescan(monkeypatch) -> None:
-    """``jm-wallet rescan --background`` kicks off the rescan without
-    waiting."""
+def test_rescan_polling_interrupt_is_safe(monkeypatch) -> None:
+    """If the user Ctrl-Cs the polling loop, the CLI exits cleanly with a
+    note explaining the server-side rescan continues. The rescan itself
+    was already triggered server-side before polling started, so we don't
+    need to abort it."""
     monkeypatch.delenv("JOINMARKET_DATA_DIR", raising=False)
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -2065,6 +2061,7 @@ def test_rescan_background_uses_start_background_rescan(monkeypatch) -> None:
         mock_backend.set_wallet_creation_height = MagicMock()
         mock_backend.rescan_blockchain = AsyncMock()
         mock_backend.start_background_rescan = AsyncMock()
+        mock_backend.get_rescan_status = AsyncMock(side_effect=KeyboardInterrupt())
         mock_backend.get_wallet_scan_status = AsyncMock(
             return_value={
                 "scanning_in_progress": False,
@@ -2073,7 +2070,6 @@ def test_rescan_background_uses_start_background_rescan(monkeypatch) -> None:
                 "oldest_descriptor_timestamp": 1_700_000_000,
                 "birthtime": None,
                 "txcount": 0,
-                "background_rescan_pending_height": None,
             }
         )
 
@@ -2083,13 +2079,13 @@ def test_rescan_background_uses_start_background_rescan(monkeypatch) -> None:
                 "jmwallet.backends.descriptor_wallet.DescriptorWalletBackend",
                 _stub_backend_class(mock_backend),
             ),
+            patch("jmwallet.cli.wallet.asyncio.sleep", new=AsyncMock()),
         ):
-            result = runner.invoke(app, ["rescan", "--background"])
+            result = runner.invoke(app, ["rescan", "--start-height", "0"])
 
-        assert result.exit_code == 0, f"rescan --background failed: {result.stdout}"
+        assert result.exit_code == 0, f"rescan after Ctrl-C failed: {result.stdout}"
         mock_backend.start_background_rescan.assert_awaited_once()
-        mock_backend.rescan_blockchain.assert_not_called()
-        assert "Background rescan started" in result.stdout
+        assert "Polling interrupted" in result.stdout
 
 
 def test_rescan_errors_when_wallet_not_loaded(monkeypatch) -> None:

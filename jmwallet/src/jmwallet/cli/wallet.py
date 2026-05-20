@@ -750,10 +750,6 @@ def _print_scan_status(status: dict) -> None:
     else:
         print("  Rescan currently running:      no")
 
-    pending = status.get("background_rescan_pending_height")
-    if pending is not None:
-        print(f"  Background rescan triggered:   yes (from height {pending})")
-
     # Heuristic warning: importdescriptors sets the smart-scan boundary to
     # ~1 year ago at first setup, which is fine for "recent receives" but
     # misses older history. Bitcoin's genesis is 2009-01-03 (unix
@@ -1271,17 +1267,6 @@ def rescan(
             ),
         ),
     ] = 0,
-    wait: Annotated[
-        bool,
-        typer.Option(
-            "--wait/--background",
-            help=(
-                "Block until rescan completes (default). Use --background to "
-                "kick off the rescan and return immediately; check status "
-                "afterwards with `jm-wallet info --scan-status`."
-            ),
-        ),
-    ] = True,
     data_dir: Annotated[
         Path | None,
         typer.Option(
@@ -1302,6 +1287,11 @@ def rescan(
     when the wallet is proposing addresses you remember spending from.
     Rescans are slow (20+ minutes on mainnet from genesis) but read-only;
     no funds are at risk.
+
+    The rescan runs server-side in Bitcoin Core: this command blocks while
+    polling progress, but interrupting it with Ctrl-C only ends the
+    polling, not the rescan itself. Bitcoin Core will keep scanning, and
+    you can re-attach later via ``jm-wallet info --scan-status``.
     """
     settings = setup_cli(log_level, data_dir=data_dir)
 
@@ -1341,7 +1331,6 @@ def rescan(
             backend_settings=backend_settings,
             bip39_passphrase=resolved.bip39_passphrase,
             start_height=start_height,
-            wait=wait,
             creation_height=resolved.creation_height,
         )
     )
@@ -1352,7 +1341,6 @@ async def _run_rescan(
     backend_settings: ResolvedBackendSettings,
     bip39_passphrase: str,
     start_height: int,
-    wait: bool,
     creation_height: int | None,
 ) -> None:
     """Implementation of ``jm-wallet rescan``."""
@@ -1397,21 +1385,22 @@ async def _run_rescan(
                 f"(requested {start_height}) as the rescan floor."
             )
 
-        if wait:
-            print(f"\nRescanning from height {effective_start}. This can take a while...")
-            # Use fire-and-forget background rescan + polling instead of a
-            # single blocking RPC. A full mainnet rescan can take well over
-            # an hour and used to time out the HTTP client at exactly 30 min,
-            # crashing the CLI even though Bitcoin Core kept scanning.
-            await backend.start_background_rescan(start_height=effective_start)
+        print(f"\nRescanning from height {effective_start}. This can take a while...")
+        # Trigger the server-side rescan and poll for progress. The rescan
+        # is owned by Bitcoin Core (not this process), so Ctrl-C is safe:
+        # it ends polling without stopping the scan itself.
+        await backend.start_background_rescan(start_height=effective_start)
+        try:
             await _await_rescan_completion(backend)
-            post_status = await backend.get_wallet_scan_status()
-            print("\nAfter rescan:")
-            _print_scan_status(post_status)
-        else:
-            print(f"\nKicking off background rescan from height {effective_start}.")
-            await backend.start_background_rescan(start_height=effective_start)
-            print("Background rescan started. Check progress with `jm-wallet info --scan-status`.")
+        except KeyboardInterrupt:
+            print(
+                "\nPolling interrupted. The rescan continues in Bitcoin Core; "
+                "check status with `jm-wallet info --scan-status`."
+            )
+            return
+        post_status = await backend.get_wallet_scan_status()
+        print("\nAfter rescan:")
+        _print_scan_status(post_status)
     finally:
         await backend.close()
 

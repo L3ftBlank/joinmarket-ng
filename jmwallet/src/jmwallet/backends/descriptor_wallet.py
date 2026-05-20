@@ -137,12 +137,16 @@ class DescriptorWalletBackend(BlockchainBackend):
         self._wallet_loaded = False
         self._descriptors_imported = False
 
-        # Track background rescan status
-        self._background_rescan_height: int | None = None
-        self._background_rescan_task: asyncio.Task[None] | None = None
-
         # Wallet creation height hint (set via set_wallet_creation_height).
         self._wallet_creation_height: int | None = None
+
+        # Cache for the oldest-wallet-tx blocktime ("wallet birthtime"). We
+        # compute this from listsinceblock on demand and cache it because a
+        # new transaction can only make the result older (or stay equal),
+        # and computing it on every status call would re-paginate the whole
+        # wallet history. ``None`` means "not computed yet"; ``0`` means
+        # "computed and the wallet has no transactions".
+        self._oldest_tx_blocktime: int | None = None
 
     def set_wallet_creation_height(self, height: int | None) -> None:
         """Use wallet creation height to narrow smart scan range.
@@ -907,80 +911,87 @@ class DescriptorWalletBackend(BlockchainBackend):
 
     async def start_background_rescan(self, start_height: int = 0) -> None:
         """
-        Start a background blockchain rescan from the given height.
+        Trigger a server-side blockchain rescan and return once Bitcoin
+        Core has actually started it.
 
-        This triggers a rescan that runs asynchronously in Bitcoin Core.
-        The rescan will find any transactions that were missed by the
-        initial smart scan (which only scans recent blocks).
+        ``rescanblockchain`` is a blocking RPC, but the rescan itself runs
+        inside Bitcoin Core (not the client) and is not bound to the HTTP
+        connection: once Core accepts the call, the scan keeps running
+        even if the client disconnects (this is what ``abortrescan``
+        exists for). We exploit that by posting the RPC with a short
+        HTTP timeout, swallowing the expected ``TimeoutException``, and
+        then polling ``getwalletinfo.scanning`` to confirm the scan is
+        actually in progress before returning.
 
-        Unlike the synchronous rescan in import_descriptors, this method
-        returns immediately and the rescan continues in the background.
+        Previously this method used ``asyncio.create_task`` to run the
+        RPC in the background. That task was tied to the current event
+        loop and could be torn down before the RPC was ever sent if the
+        caller exited shortly after, so the rescan kick could be a
+        silent no-op.
 
         Args:
             start_height: Block height to start rescan from (default: 0 = genesis)
+
+        Raises:
+            RuntimeError: If Bitcoin Core does not start scanning within
+                a reasonable window (10s).
         """
         if not self._wallet_loaded:
             raise RuntimeError("Wallet not loaded. Call create_wallet() first.")
 
+        logger.info(
+            f"Triggering blockchain rescan from height {start_height}. "
+            "Bitcoin Core will keep running it server-side even if the CLI exits."
+        )
+
+        # Short-timeout client. We expect the request to time out because
+        # rescanblockchain only returns once the scan completes, which can
+        # take hours on mainnet.
+        kick_client = httpx.AsyncClient(timeout=2.0, auth=(self.rpc_user, self.rpc_password))
         try:
-            logger.info(
-                f"Starting background blockchain rescan from height {start_height}. "
-                "This will run in the background and may take several minutes on mainnet."
-            )
-
-            # rescanblockchain runs in the background when called via RPC
-            # We use a fire-and-forget approach with a short timeout client
-            # to avoid blocking on the full rescan
-            import asyncio
-
-            # Create a task that won't block the caller
-            # We don't await it - let it run in background
-            self._background_rescan_task = asyncio.create_task(
-                self._run_background_rescan(start_height)
-            )
-
-            self._background_rescan_height = start_height
-
-        except Exception as e:
-            logger.error(f"Failed to start background rescan: {e}")
-            raise
-
-    async def _run_background_rescan(self, start_height: int) -> None:
-        """
-        Internal method to run the background rescan.
-
-        This is executed as a fire-and-forget task.
-        """
-        try:
-            # Use a client with very long timeout for the background rescan
-            # 2 hours should be enough for a full mainnet rescan
-            background_client = httpx.AsyncClient(
-                timeout=7200.0,  # 2 hours
-                auth=(self.rpc_user, self.rpc_password),
-            )
             try:
-                result = await self._rpc_call(
+                await self._rpc_call(
                     "rescanblockchain",
                     [start_height],
-                    client=background_client,
+                    client=kick_client,
                 )
-                start_h = result.get("start_height", start_height)
-                stop_h = result.get("stop_height", "?")
-                logger.info(f"Background rescan completed: scanned blocks {start_h} to {stop_h}")
-            finally:
-                await background_client.aclose()
+                # If we got a clean return, the rescan was so fast (regtest /
+                # already-synced wallet) that it completed inside 2s. That is
+                # fine, nothing more to do.
+                logger.info("rescanblockchain returned synchronously (fast wallet/regtest)")
+                return
+            except httpx.TimeoutException:
+                # Expected. Bitcoin Core is now scanning server-side.
+                pass
+        finally:
+            await kick_client.aclose()
 
-            self._background_rescan_height = None
-            self._background_rescan_task = None
+        # Confirm bitcoind actually started scanning. If we never observe
+        # ``scanning`` go truthy within the grace window, something is
+        # wrong (request was rejected, wallet not loaded server-side, ...)
+        # and we should surface that rather than pretend the rescan kicked
+        # off.
+        deadline = asyncio.get_event_loop().time() + 10.0
+        while asyncio.get_event_loop().time() < deadline:
+            try:
+                info = await self._rpc_call("getwalletinfo")
+            except Exception as exc:
+                logger.debug(f"getwalletinfo while confirming rescan start: {exc}")
+                await asyncio.sleep(0.5)
+                continue
+            scanning = info.get("scanning")
+            if scanning:
+                logger.info(f"Bitcoin Core confirmed rescan in progress (scanning={scanning})")
+                return
+            # Some Bitcoin Core versions return scanning=false very briefly
+            # right after acceptance; back off a bit and re-check.
+            await asyncio.sleep(0.5)
 
-        except asyncio.CancelledError:
-            logger.info("Background rescan was cancelled")
-            self._background_rescan_height = None
-            self._background_rescan_task = None
-        except Exception as e:
-            logger.error(f"Background rescan failed: {e}")
-            self._background_rescan_height = None
-            self._background_rescan_task = None
+        raise RuntimeError(
+            "Triggered rescanblockchain but Bitcoin Core never reported "
+            "scanning=true within 10s. The wallet may not be loaded or "
+            "the RPC may have been rejected."
+        )
 
     async def get_rescan_status(self) -> dict[str, Any] | None:
         """
@@ -1011,10 +1022,6 @@ class DescriptorWalletBackend(BlockchainBackend):
             logger.debug(f"Could not get rescan status: {e}")
             return None
 
-    def is_background_rescan_pending(self) -> bool:
-        """Check if a background rescan was started and may still be running."""
-        return self._background_rescan_height is not None
-
     async def get_wallet_scan_status(self) -> dict[str, Any]:
         """Return a diagnostic snapshot of the wallet's scan/coverage state.
 
@@ -1037,13 +1044,13 @@ class DescriptorWalletBackend(BlockchainBackend):
           sets this to the smart-scan boundary (~1 year ago) at first
           setup; if no rescan from genesis was ever run, this is the
           effective lower bound of the wallet's history coverage.
-        - ``birthtime`` (int | None): Bitcoin Core's reported wallet
-          birthtime (unix timestamp), when available.
+        - ``birthtime`` (int | None): block time of the oldest
+          transaction that involves any wallet address, computed from
+          ``listsinceblock``. For empty wallets this falls back to the
+          oldest active descriptor timestamp (and ``None`` if neither
+          is available). Cached for the lifetime of the backend.
         - ``txcount`` (int): number of wallet transactions Core knows
           about.
-        - ``background_rescan_pending_height`` (int | None): if this
-          process triggered a background rescan from a given height that
-          has not completed yet, the start height; ``None`` otherwise.
         """
         result: dict[str, Any] = {
             "scanning_in_progress": False,
@@ -1052,7 +1059,6 @@ class DescriptorWalletBackend(BlockchainBackend):
             "oldest_descriptor_timestamp": None,
             "birthtime": None,
             "txcount": 0,
-            "background_rescan_pending_height": self._background_rescan_height,
         }
         if not self._wallet_loaded:
             return result
@@ -1069,7 +1075,6 @@ class DescriptorWalletBackend(BlockchainBackend):
             result["scan_progress"] = scanning.get("progress")
             result["scan_duration_s"] = scanning.get("duration")
         result["txcount"] = wallet_info.get("txcount", 0)
-        result["birthtime"] = wallet_info.get("birthtime")
 
         try:
             desc_list = await self._rpc_call("listdescriptors")
@@ -1093,7 +1098,53 @@ class DescriptorWalletBackend(BlockchainBackend):
         if timestamps:
             result["oldest_descriptor_timestamp"] = int(min(timestamps))
 
+        # Birthtime: block time of the oldest wallet transaction. Cached
+        # because listsinceblock returns the entire wallet history and is
+        # expensive for old/deep wallets.
+        result["birthtime"] = await self._compute_wallet_birthtime(
+            fallback=result["oldest_descriptor_timestamp"],
+        )
+
         return result
+
+    async def _compute_wallet_birthtime(self, fallback: int | None) -> int | None:
+        """Return the block time of the oldest wallet transaction.
+
+        The result is cached on the backend instance because new
+        transactions can only make the answer older (so a cached non-zero
+        value remains correct) or leave it unchanged. We call
+        ``listsinceblock`` with the genesis blockhash equivalent (empty
+        string) which returns every wallet transaction with its
+        ``blocktime`` so we can do a single-pass min in Python.
+
+        For an empty wallet we fall back to the oldest active descriptor
+        timestamp, which is the closest proxy Bitcoin Core has for "when
+        we expect our coins to start appearing on-chain".
+        """
+        if self._oldest_tx_blocktime is None:
+            try:
+                # confirmation depth 1, include removed, include change so
+                # nothing is filtered out. Single call: bitcoind streams
+                # the full transaction list.
+                payload = await self._rpc_call(
+                    "listsinceblock",
+                    ["", 1, True, True],
+                )
+                txs = payload.get("transactions", []) if isinstance(payload, dict) else []
+                blocktimes = [
+                    int(tx["blocktime"])
+                    for tx in txs
+                    if isinstance(tx, dict) and isinstance(tx.get("blocktime"), (int, float))
+                ]
+                self._oldest_tx_blocktime = min(blocktimes) if blocktimes else 0
+            except Exception as exc:
+                logger.debug(f"listsinceblock for birthtime failed: {exc}")
+                # Don't cache transient failures; try again next call.
+                return fallback
+
+        if self._oldest_tx_blocktime > 0:
+            return self._oldest_tx_blocktime
+        return fallback
 
     async def wait_for_rescan_complete(
         self,
@@ -1108,12 +1159,10 @@ class DescriptorWalletBackend(BlockchainBackend):
         This is useful after importing descriptors with rescan=True to ensure
         the wallet is fully synced before querying UTXOs.
 
-        There is a race condition between ``start_background_rescan()`` firing
-        the ``rescanblockchain`` RPC and Bitcoin Core updating
-        ``getwalletinfo.scanning``.  To avoid returning prematurely (before
-        the rescan actually starts), we require at least one positive
-        ``in_progress`` observation before we accept ``in_progress == False``
-        as meaning the rescan finished.
+        We require at least one positive ``in_progress`` observation before
+        accepting ``in_progress == False`` as meaning the rescan finished,
+        because ``getwalletinfo.scanning`` can momentarily report False right
+        after Bitcoin Core accepts the RPC but before it starts working.
 
         Args:
             poll_interval: How often to check rescan status (seconds)
@@ -2071,12 +2120,6 @@ class DescriptorWalletBackend(BlockchainBackend):
 
     async def close(self) -> None:
         """Close backend connections and reset clients so the backend can be reused."""
-        if self._background_rescan_task and not self._background_rescan_task.done():
-            self._background_rescan_task.cancel()
-            await asyncio.gather(self._background_rescan_task, return_exceptions=True)
-        self._background_rescan_task = None
-        self._background_rescan_height = None
-
         await self.client.aclose()
         await self._import_client.aclose()
         # Re-create fresh clients so this instance is usable again if the

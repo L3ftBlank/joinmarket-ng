@@ -1039,45 +1039,31 @@ The full CLI reference below is auto-generated from command `--help` output.
  Rescans are slow (20+ minutes on mainnet from genesis) but read-only;
  no funds are at risk.
 
+ The rescan runs server-side in Bitcoin Core: this command blocks while
+ polling progress, but interrupting it with Ctrl-C only ends the
+ polling, not the rescan itself. Bitcoin Core will keep scanning, and
+ you can re-attach later via ``jm-wallet info --scan-status``.
+
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --mnemonic-file          -f                  PATH     Path to mnemonic file  │
-│                                                       [env var:              │
-│                                                       MNEMONIC_FILE]         │
-│ --prompt-bip39-passphr…                               Prompt for BIP39       │
-│                                                       passphrase             │
-│                                                       interactively          │
-│ --network                -n                  TEXT     Bitcoin network        │
-│ --rpc-url                                    TEXT     [env var:              │
-│                                                       BITCOIN_RPC_URL]       │
-│ --start-height                               INTEGER  Block height to rescan │
-│                                                       from (default: 0 =     │
-│                                                       genesis). The wallet's │
-│                                                       recorded creation      │
-│                                                       height is used as a    │
-│                                                       floor when available,  │
-│                                                       so values below it are │
-│                                                       clamped up             │
-│                                                       automatically.         │
-│                                                       [default: 0]           │
-│ --wait                       --background             Block until rescan     │
-│                                                       completes (default).   │
-│                                                       Use --background to    │
-│                                                       kick off the rescan    │
-│                                                       and return             │
-│                                                       immediately; check     │
-│                                                       status afterwards with │
-│                                                       `jm-wallet info        │
-│                                                       --scan-status`.        │
-│                                                       [default: wait]        │
-│ --data-dir                                   PATH     Data directory         │
-│                                                       (default:              │
-│                                                       ~/.joinmarket-ng or    │
-│                                                       $JOINMARKET_DATA_DIR)  │
-│                                                       [env var:              │
-│                                                       JOINMARKET_DATA_DIR]   │
-│ --log-level              -l                  TEXT     Log level              │
-│ --help                                                Show this message and  │
-│                                                       exit.                  │
+│ --mnemonic-file            -f      PATH     Path to mnemonic file            │
+│                                             [env var: MNEMONIC_FILE]         │
+│ --prompt-bip39-passphrase                   Prompt for BIP39 passphrase      │
+│                                             interactively                    │
+│ --network                  -n      TEXT     Bitcoin network                  │
+│ --rpc-url                          TEXT     [env var: BITCOIN_RPC_URL]       │
+│ --start-height                     INTEGER  Block height to rescan from      │
+│                                             (default: 0 = genesis). The      │
+│                                             wallet's recorded creation       │
+│                                             height is used as a floor when   │
+│                                             available, so values below it    │
+│                                             are clamped up automatically.    │
+│                                             [default: 0]                     │
+│ --data-dir                         PATH     Data directory (default:         │
+│                                             ~/.joinmarket-ng or              │
+│                                             $JOINMARKET_DATA_DIR)            │
+│                                             [env var: JOINMARKET_DATA_DIR]   │
+│ --log-level                -l      TEXT     Log level                        │
+│ --help                                      Show this message and exit.      │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 

@@ -320,8 +320,9 @@ creation height as a floor):
 
 ```bash
 jm-wallet info --scan-status      # show current Core scan coverage
-jm-wallet rescan                  # blocking rescan from genesis
-jm-wallet rescan --background     # kick off rescan and return immediately
+jm-wallet rescan                  # kick off rescan and poll until complete
+                                  # (Ctrl-C is safe: the scan keeps running
+                                  # server-side; re-check with --scan-status)
 ```
 
 **Cross-check balances and UTXOs** without involving JoinMarket NG:

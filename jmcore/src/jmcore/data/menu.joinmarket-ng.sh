@@ -902,8 +902,7 @@ if [ "${RASPIBLITZ}" -eq 1 ]; then
     # SEND BITCOIN (unified: normal tx when counterparties=0, coinjoin otherwise)
     # ------------------------------------------------------------------
     S)
-      if [ -z "$CURRENT_WALLET" ]; then
-          whiptail --title " Error " --msgbox "No wallet configured.\nSet up a wallet first (W -> NEW or SEL)." 9 50
+      if ! ensure_active_wallet; then
           continue
       fi
 
@@ -999,68 +998,77 @@ if [ "${RASPIBLITZ}" -eq 1 ]; then
         "Source mixdepth|$DEFAULT_MIXDEPTH|${SEND_MIXDEPTH}" \
         "Fee rate|auto (3-block estimate)|${FEE_DISPLAY}" || continue
 
+      # Ensure password is available before entering subshell
+      if ! ensure_wallet_password "$CURRENT_WALLET"; then
+          continue
+      fi
+
       # Execute the appropriate command
       clear
-      if [ "$SEND_CP" -gt 0 ] 2>/dev/null; then
-          # CoinJoin via jm-taker
-          echo "=== CoinJoin Send ==="
-          echo ""
-          echo "Wallet: $(basename "$CURRENT_WALLET")"
-          echo "Counterparties: $SEND_CP"
-          echo "Press Ctrl+C to abort."
-          echo ""
-          echo "Connecting to peers and selecting makers -- this may take"
-          echo "several minutes.  All progress is shown below."
-          echo ""
-          echo "You will be prompted twice:"
-          echo "  1. After makers are selected (fee estimate, confirm the plan)"
-          echo "  2. Before broadcast (final on-chain fees, last chance to cancel)"
-          echo ""
+      (
+          if [ "$SEND_CP" -gt 0 ] 2>/dev/null; then
+              # CoinJoin via jm-taker
+              echo "=== CoinJoin Send ==="
+              echo ""
+              echo "Wallet: $(basename "$CURRENT_WALLET")"
+              echo "Counterparties: $SEND_CP"
+              echo "Press Ctrl+C to abort."
+              echo ""
+              echo "Connecting to peers and selecting makers -- this may take"
+              echo "several minutes.  All progress is shown below."
+              echo ""
+              echo "You will be prompted twice:"
+              echo "  1. After makers are selected (fee estimate, confirm the plan)"
+              echo "  2. Before broadcast (final on-chain fees, last chance to cancel)"
+              echo ""
 
-          TAKER_ARGS=(coinjoin -a "$SEND_AMOUNT" -m "$SEND_MIXDEPTH" -d "$SEND_DEST")
-          TAKER_ARGS+=(-n "$SEND_CP")
-          [ -n "$SEND_FEE" ] && TAKER_ARGS+=(--fee-rate "$SEND_FEE")
+              TAKER_ARGS=(coinjoin -a "$SEND_AMOUNT" -m "$SEND_MIXDEPTH" -d "$SEND_DEST")
+              TAKER_ARGS+=(-n "$SEND_CP")
+              [ -n "$SEND_FEE" ] && TAKER_ARGS+=(--fee-rate "$SEND_FEE")
 
-          jm-taker "${TAKER_ARGS[@]}"
-          TAKER_EXIT=$?
-          echo ""
-          if [ $TAKER_EXIT -eq 0 ]; then
-              echo "================================================"
-              echo " CoinJoin complete.  Check history for the txid."
-              echo "================================================"
+              jm-taker "${TAKER_ARGS[@]}"
+              TAKER_EXIT=$?
+              echo ""
+              if [ $TAKER_EXIT -eq 0 ]; then
+                  echo "================================================"
+                  echo " CoinJoin complete.  Check history for the txid."
+                  echo "================================================"
+              else
+                  echo "================================================"
+                  echo " CoinJoin failed or was cancelled."
+                  echo " See the log output above for details."
+                  echo "================================================"
+              fi
           else
-              echo "================================================"
-              echo " CoinJoin failed or was cancelled."
-              echo " See the log output above for details."
-              echo "================================================"
+              # Normal transaction via jm-wallet send
+              echo "=== Send Bitcoin ==="
+              echo ""
+              echo "Wallet: $(basename "$CURRENT_WALLET")"
+              echo ""
+
+              SEND_ARGS=(send -a "$SEND_AMOUNT" -m "$SEND_MIXDEPTH")
+              [ -n "$SEND_FEE" ] && SEND_ARGS+=(--fee-rate "$SEND_FEE")
+              SEND_ARGS+=("$SEND_DEST")
+
+              jm-wallet "${SEND_ARGS[@]}"
+              SEND_EXIT=$?
+
+              echo ""
+              if [ $SEND_EXIT -eq 0 ]; then
+                  echo "================================================"
+                  echo " Transaction sent successfully."
+                  echo "================================================"
+              else
+                  echo "================================================"
+                  echo " Transaction failed or was cancelled."
+                  echo " See the log output above for details."
+                  echo "================================================"
+              fi
           fi
-      else
-          # Normal transaction via jm-wallet send
-          echo "=== Send Bitcoin ==="
-          echo ""
-          echo "Wallet: $(basename "$CURRENT_WALLET")"
-          echo ""
 
-          SEND_ARGS=(send -a "$SEND_AMOUNT" -m "$SEND_MIXDEPTH")
-          [ -n "$SEND_FEE" ] && SEND_ARGS+=(--fee-rate "$SEND_FEE")
-          SEND_ARGS+=("$SEND_DEST")
-
-          jm-wallet "${SEND_ARGS[@]}"
-          SEND_EXIT=$?
-
-          echo ""
-          if [ $SEND_EXIT -eq 0 ]; then
-              echo "================================================"
-              echo " Transaction sent successfully."
-              echo "================================================"
-          else
-              echo "================================================"
-              echo " Transaction failed or was cancelled."
-              echo " See the log output above for details."
-              echo "================================================"
-          fi
-      fi
-      pause
+          # pause INSIDE subshell - only runs if password succeeded
+          pause
+      )
       ;;
 
     # ------------------------------------------------------------------
@@ -1435,39 +1443,39 @@ if [ "${RASPIBLITZ}" -eq 1 ]; then
           # SEED - Show Seed Words
           # --------------------------------------------------------------
           SEED)
-              if [ -z "$CURRENT_WALLET" ]; then
-                  whiptail --title " Error " --msgbox "No wallet configured.\nUse 'Select Active Wallet' or 'Create New Wallet' first." 9 50
-              else
-                  if ! whiptail --title " Security Warning " \
-                      --yesno "\n$WALLET_INFO | Maker Bot: $MAKER_STATUS\n\nYou are about to display your BIP39 seed words.\n\nWARNING: Anyone with these words can spend all your funds.\nDo not share them, photograph them, or paste them into any website.\n\nMake sure you are in a private setting!\n\nContinue?" \
-                      17 78 --defaultno 3>&1 1>&2 2>&3; then
-                      continue
-                  fi
-
-                  clear
-                  echo "=== Seed Words ==="
-                  echo ""
-                  echo "Active wallet: $(basename "$CURRENT_WALLET")"
-                  echo ""
-                  echo "Preparing your wallet, please wait..."
-                  echo ""
-
-                  # Clear any cached password from previous operations
-                  unset MNEMONIC_PASSWORD
-
-                  if ! ensure_wallet_password "$CURRENT_WALLET"; then
-                      clear
-                      continue
-                  fi
-
-                  echo ""
-                  jm-wallet showseed -f "$CURRENT_WALLET"
-                  echo ""
-                  echo ""
-                  echo "Press [Enter] to continue."
-                  read -r _
-                  clear
+              if ! ensure_active_wallet; then
+                  continue
               fi
+
+              if ! whiptail --title " Security Warning " \
+                  --yesno "\n$WALLET_INFO | Maker Bot: $MAKER_STATUS\n\nYou are about to display your BIP39 seed words.\n\nWARNING: Anyone with these words can spend all your funds.\nDo not share them, photograph them, or paste them into any website.\n\nMake sure you are in a private setting!\n\nContinue?" \
+                  17 78 --defaultno 3>&1 1>&2 2>&3; then
+                  continue
+              fi
+
+              clear
+              echo "Please wait..."
+
+              # Clear any cached password from previous operations
+              unset MNEMONIC_PASSWORD
+
+              if ! ensure_wallet_password "$CURRENT_WALLET"; then
+                  clear
+                  continue
+              fi
+
+              echo ""
+              jm-wallet showseed -f "$CURRENT_WALLET"
+              SEED_EXIT=$?
+              if [ "$SEED_EXIT" -ne 0 ]; then
+                  clear
+                  continue
+              fi
+              echo ""
+              echo ""
+              echo "Press [Enter] to continue."
+              read -r _
+              clear
               ;;
 
           # --------------------------------------------------------------

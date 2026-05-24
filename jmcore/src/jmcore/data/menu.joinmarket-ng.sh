@@ -650,7 +650,7 @@ post_wallet_create() {
         # Clear any previously stored password -- it belongs to the old wallet.
         clear_config_value "mnemonic_password"
         set_active=1
-        echo "Active wallet updated in config.toml"
+        whiptail --title " Wallet Updated " --msgbox "Active wallet updated in config.toml." 8 55
     fi
 
     # Only offer to store the password when the new wallet is now the active
@@ -684,11 +684,12 @@ post_wallet_create() {
                 whiptail --title " Password Stored " \
                     --msgbox "Password saved to config.toml." 8 55
             else
-                prompt_and_store_password "$wallet_path" || \
-                    echo "Password not stored."
+                if ! prompt_and_store_password "$wallet_path"; then
+                    whiptail --title " Password " --msgbox "Password not stored." 8 50
+                fi
             fi
         else
-            echo "Password not stored."
+            whiptail --title " Password " --msgbox "Password not stored." 8 50
         fi
     fi
 }
@@ -896,7 +897,7 @@ offer_maker_password_storage() {
 
     clear
     if ! prompt_and_store_password "$CURRENT_WALLET"; then
-        echo "Password not stored."
+        whiptail --title " Password " --msgbox "Password not stored." 8 50
     fi
 
     return 0
@@ -1180,6 +1181,7 @@ if [ "${RASPIBLITZ}" -eq 1 ]; then
                               jm-wallet info
                               pause
                           )
+                          clear
                           ;;
                       EXT)
                           clear
@@ -1193,6 +1195,7 @@ if [ "${RASPIBLITZ}" -eq 1 ]; then
                               jm-wallet info --extended
                               pause
                           )
+                          clear
                           ;;
                       BACK|"")
                           break
@@ -1268,6 +1271,7 @@ if [ "${RASPIBLITZ}" -eq 1 ]; then
                   jm-wallet history "${HIST_ARGS[@]}"
                   pause
               )
+              clear
               ;;
 
           # --------------------------------------------------------------
@@ -1292,6 +1296,7 @@ if [ "${RASPIBLITZ}" -eq 1 ]; then
                   jm-wallet freeze
                   pause
               )
+              clear
               ;;
 
           # --------------------------------------------------------------
@@ -1352,6 +1357,7 @@ if [ "${RASPIBLITZ}" -eq 1 ]; then
                   echo "Wallet creation may have failed. Check output above."
               fi
               unset NEW_PWD
+              clear
               ;;
 
           # --------------------------------------------------------------
@@ -1410,6 +1416,7 @@ if [ "${RASPIBLITZ}" -eq 1 ]; then
                   echo "Import may have failed. Check output above."
               fi
               unset NEW_PWD
+              clear
               ;;
 
           # --------------------------------------------------------------
@@ -1455,7 +1462,7 @@ if [ "${RASPIBLITZ}" -eq 1 ]; then
                       12 64 --defaultno 3>&1 1>&2 2>&3; then
 
                       prompt_and_store_password "$DATA_DIR/wallets/$WNAME" || \
-                          echo "Password not stored."
+                          whiptail --title " Password " --msgbox "Password not stored." 8 50
                       whiptail --title " Wallet Selected " --msgbox "Active wallet set to: $WNAME\n\nRestart the maker service for changes to take effect." 10 60
                   else
                       whiptail --title " Wallet Selected " --msgbox "Active wallet set to: $WNAME\n\nStored password cleared; you will be prompted\nfor the password on next use.\n\nRestart the maker service for changes to take effect." 12 60
@@ -1463,6 +1470,7 @@ if [ "${RASPIBLITZ}" -eq 1 ]; then
               else
                   whiptail --title " Error " --msgbox "File not found: $DATA_DIR/wallets/$WNAME" 8 55
               fi
+              clear
               ;;
 
           # --------------------------------------------------------------
@@ -1543,20 +1551,21 @@ if [ "${RASPIBLITZ}" -eq 1 ]; then
       case $MCHOICE in
           START)
               clear
-              if ! ensure_active_wallet; then
-                  continue
-              fi
-              offer_maker_password_storage
               echo "=== Starting Maker Bot ==="
               echo ""
               echo "Active wallet: $(basename "$CURRENT_WALLET")"
               echo "Preparing wallet..."
               echo ""
+              if ! ensure_active_wallet; then
+                  continue
+              fi
+              offer_maker_password_storage
               (
                   ensure_wallet_password "$CURRENT_WALLET" || exit 1
                   maker_start
               )
               if [ $? -ne 0 ]; then
+                  clear
                   continue
               fi
               sleep 2
@@ -1683,6 +1692,7 @@ if [ "${RASPIBLITZ}" -eq 1 ]; then
                             printf '%s\n' "$BONDS_OUT"
                             pause
                         fi
+                        clear
                         ;;
                     CREATE)
                         if ! ensure_active_wallet; then
@@ -1787,6 +1797,7 @@ if [ "${RASPIBLITZ}" -eq 1 ]; then
                                 pause
                             fi
                         )
+                        clear
                         ;;
                     BACK|"")
                         break
@@ -1830,6 +1841,11 @@ if [ "${RASPIBLITZ}" -eq 1 ]; then
       ;;
 
     U)
+      clear
+                        echo "=== Update JoinMarket-NG ==="
+                        echo ""
+                        echo "Preparing update information..."
+                        echo ""
       # Update flow (issue #451): resolve current, latest-stable and
       # latest-main identifiers up front so the menu can display concrete
       # versions/commits instead of generic labels.
@@ -1890,7 +1906,7 @@ if [ "${RASPIBLITZ}" -eq 1 ]; then
       # instead of the top-level menu (#451 point 6).
       while true; do
         check_stale_wallet
-UCHOICE=$(whiptail --title " Update JoinMarket-NG (current: ${CURRENT_LABEL}) " \
+        UCHOICE=$(whiptail --title " Update JoinMarket-NG (current: ${CURRENT_LABEL}) " \
             --menu "\n$WALLET_INFO | Maker Bot: $MAKER_STATUS\n\nChoose update channel:" \
             16 70 4 \
             "STABLE"  "Latest stable release (v${LATEST_STABLE})" \
@@ -1909,15 +1925,17 @@ UCHOICE=$(whiptail --title " Update JoinMarket-NG (current: ${CURRENT_LABEL}) " 
             ;;
           VERSION)
             TARGET_VERSION=$(whiptail --title " Specific Version " \
-                --inputbox "Enter version number (e.g. 0.27.0):" 9 50 "" 3>&1 1>&2 2>&3) || continue
-            [ -z "$TARGET_VERSION" ] && continue
+                --inputbox "Enter version number (e.g. 0.27.0):" 9 50 "" 3>&1 1>&2 2>&3) || { clear; continue; }
+            [ -z "$TARGET_VERSION" ] && { clear; continue; }
             UPDATE_ARGS="--version $TARGET_VERSION"
             TARGET_LABEL="v${TARGET_VERSION#v}"
             ;;
           BACK)
+            clear
             break
             ;;
           *)
+            clear
             continue
             ;;
         esac
@@ -2001,6 +2019,7 @@ UCHOICE=$(whiptail --title " Update JoinMarket-NG (current: ${CURRENT_LABEL}) " 
         fi
         exit 0
       done
+      clear
       ;;
 
     I)

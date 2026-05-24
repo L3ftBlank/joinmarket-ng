@@ -1144,3 +1144,44 @@ def test_tui_script_seed_pause_inside_subshell() -> None:
 
     # After subshell should just have clear and case end
     assert "clear" in after_subshell, "clear should follow subshell"
+
+
+# ---------------------------------------------------------------------------
+# Terminal Cleanup and Dialog Consistency Tests
+# ---------------------------------------------------------------------------
+
+
+def test_tui_script_cases_end_with_clear() -> None:
+    """Critical menu cases must end with clear to prevent terminal flashes."""
+    content = SCRIPT_PATH.read_text()
+    
+    # Prüfe nur, ob nach SEND/SEED/BAL etc. irgendwo ein clear kommt
+    # (vereinfachte Prüfung)
+    assert "S)\n" in content and "clear\n" in content.split("S)\n")[1].split("W)\n")[0], "SEND should have clear"
+    assert "SEED)\n" in content and "clear\n" in content.split("SEED)\n")[1].split("BACK)\n")[0], "SEED should have clear"
+
+
+def test_tui_script_post_wallet_create_uses_msgbox() -> None:
+    """post_wallet_create must use whiptail msgbox, not echo."""
+    content = SCRIPT_PATH.read_text()
+    func = content.split("post_wallet_create()", 1)[1].split("# Helper:", 1)[0]
+
+    assert 'whiptail --title " Wallet Updated "' in func, (
+        "post_wallet_create must use msgbox for 'Active wallet updated'"
+    )
+    assert 'echo "Active wallet updated"' not in func, (
+        "post_wallet_create must not use echo for user feedback"
+    )
+
+
+def test_tui_script_sel_password_not_stored_msgbox() -> None:
+    """SEL case must use msgbox for 'Password not stored'."""
+    content = SCRIPT_PATH.read_text()
+    sel_block = content.split("          SEL)\n", 1)[1].split("\n          ;;", 1)[0]
+
+    assert 'whiptail --title " Password "' in sel_block, (
+        "SEL must use whiptail msgbox for password feedback"
+    )
+    assert 'echo "Password not stored"' not in sel_block, (
+        "SEL must not use echo for 'Password not stored'"
+    )

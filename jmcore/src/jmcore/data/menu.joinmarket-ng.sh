@@ -1355,6 +1355,7 @@ if [ "${RASPIBLITZ}" -eq 1 ]; then
                   post_wallet_create "$WALLET_PATH" "$NEW_PWD"
               else
                   echo "Wallet creation may have failed. Check output above."
+                  pause
               fi
               unset NEW_PWD
               clear
@@ -1414,6 +1415,7 @@ if [ "${RASPIBLITZ}" -eq 1 ]; then
                   post_wallet_create "$WALLET_PATH" "$NEW_PWD"
               else
                   echo "Import may have failed. Check output above."
+                  pause
               fi
               unset NEW_PWD
               clear
@@ -1565,7 +1567,7 @@ if [ "${RASPIBLITZ}" -eq 1 ]; then
                   maker_start
               )
               if [ $? -ne 0 ]; then
-                  clear
+                  pause
                   continue
               fi
               sleep 2
@@ -1631,6 +1633,7 @@ if [ "${RASPIBLITZ}" -eq 1 ]; then
               RESTART_RC=$?
               clear
               if [ $RESTART_RC -ne 0 ]; then
+                  pause
                   continue
               fi
               sleep 2

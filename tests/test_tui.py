@@ -1190,3 +1190,32 @@ def test_tui_script_sel_password_not_stored_msgbox() -> None:
     assert 'echo "Password not stored"' not in sel_block, (
         "SEL must not use echo for 'Password not stored'"
     )
+
+
+def test_tui_pause_before_clear_on_cli_errors() -> None:
+    """Ensure pause is called before clear in CLI error paths (GH-507)."""
+    content = SCRIPT_PATH.read_text()
+
+    # Check Maker START error path
+    start = content.split("START)")[1].split("esac")[0]
+    err_start = start.split("if [ $? -ne 0 ]; then")[1]
+    err_block = err_start.split("fi")[0]
+    assert "pause" in err_block, "START missing pause"
+
+    # Check Maker RESTART error path
+    restart = content.split("RESTART)")[1].split("esac")[0]
+    err_restart = restart.split("if [ $RESTART_RC -ne 0 ]; then")[1]
+    err_block = err_restart.split("fi")[0]
+    assert "pause" in err_block, "RESTART missing pause"
+
+    # Check Wallet NEW error path
+    new = content.split("NEW)")[1].split(";;")[0]
+    after_res = new.split("RESULT=$?")[1]
+    else_block = after_res.split("else")[1].split("fi")[0]
+    assert "pause" in else_block, "NEW missing pause"
+
+    # Check Wallet IMP error path
+    imp = content.split("IMP)")[1].split(";;")[0]
+    after_res = imp.split("RESULT=$?")[1]
+    else_block = after_res.split("else")[1].split("fi")[0]
+    assert "pause" in else_block, "IMP missing pause"

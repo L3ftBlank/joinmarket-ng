@@ -1154,11 +1154,16 @@ def test_tui_script_seed_pause_inside_subshell() -> None:
 def test_tui_script_cases_end_with_clear() -> None:
     """Critical menu cases must end with clear to prevent terminal flashes."""
     content = SCRIPT_PATH.read_text()
-    
+
     # Prüfe nur, ob nach SEND/SEED/BAL etc. irgendwo ein clear kommt
     # (vereinfachte Prüfung)
-    assert "S)\n" in content and "clear\n" in content.split("S)\n")[1].split("W)\n")[0], "SEND should have clear"
-    assert "SEED)\n" in content and "clear\n" in content.split("SEED)\n")[1].split("BACK)\n")[0], "SEED should have clear"
+    assert (
+        "S)\n" in content and "clear\n" in content.split("S)\n")[1].split("W)\n")[0]
+    ), "SEND should have clear"
+    assert (
+        "SEED)\n" in content
+        and "clear\n" in content.split("SEED)\n")[1].split("BACK)\n")[0]
+    ), "SEED should have clear"
 
 
 def test_tui_script_post_wallet_create_uses_msgbox() -> None:

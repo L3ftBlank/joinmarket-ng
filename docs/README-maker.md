@@ -163,8 +163,11 @@ Create `/etc/systemd/system/jm-maker.service` (replace `youruser` and paths):
 ```ini
 [Unit]
 Description=JoinMarket-NG Maker
-After=network-online.target tor.service
-Wants=network-online.target
+# Make sure bitcoind and Tor are at least started before us. The unit
+# still retries forever (see Restart= below) so a slow bitcoind boot
+# (IBD, mempool rebuild, ...) does not put the service into failed state.
+After=network-online.target bitcoind.service tor.service
+Wants=network-online.target bitcoind.service tor.service
 
 [Service]
 Type=simple
@@ -173,6 +176,9 @@ ExecStart=/home/youruser/.joinmarket-ng/venv/bin/jm-maker start \
     --mnemonic-file /home/youruser/.joinmarket-ng/wallets/default.mnemonic
 Restart=on-failure
 RestartSec=30
+# Retry forever: bitcoind RPC may be unavailable for several minutes
+# after boot. Without this systemd would give up after a few attempts.
+StartLimitIntervalSec=0
 # Optional hardening
 NoNewPrivileges=true
 PrivateTmp=true
@@ -188,6 +194,12 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now jm-maker
 journalctl -u jm-maker -f         # live logs
 ```
+
+For boot auto-start to work the mnemonic password must already live
+in `~/.joinmarket-ng/config.toml` (see the next paragraph). If you do
+not want the password on disk, leave the unit disabled (drop the
+`enable` above) and start it interactively when you log in. This is
+the same trade-off the Raspiblitz integration exposes.
 
 If your mnemonic file is encrypted, the bot needs the password at startup
 and cannot prompt under systemd. Set `mnemonic_password` (the encryption

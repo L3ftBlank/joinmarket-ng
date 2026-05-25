@@ -57,7 +57,7 @@ COPY maker/requirements.txt /build/maker/requirements.txt
 
 RUN --mount=type=cache,target=/root/.cache/pip \
     if [ -n "$SOURCE_DATE_EPOCH" ]; then export SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH; fi && \
-    pip install --user \
+    pip install --prefix=/app \
         -r /build/jmcore/requirements.txt \
         -r /build/jmwallet/requirements.txt \
         -r /build/taker/requirements.txt \
@@ -80,7 +80,7 @@ COPY tumbler/pyproject.toml /build/tumbler/
 
 RUN --mount=type=cache,target=/root/.cache/pip \
     if [ -n "$SOURCE_DATE_EPOCH" ]; then export SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH; fi && \
-    pip install --user --build-constraint /build/constraints.txt \
+    pip install --prefix=/app --build-constraint /build/constraints.txt \
         /build/jmcore \
         /build/jmwallet \
         /build/taker \
@@ -89,7 +89,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 # Normalize installed Python environment mtimes for reproducible COPY layer digests
 RUN if [ -n "$SOURCE_DATE_EPOCH" ]; then \
-        find /root/.local -exec touch -d @${SOURCE_DATE_EPOCH} {} +; \
+        find /app -exec touch -d @${SOURCE_DATE_EPOCH} {} +; \
     fi
 
 # =============================================================================
@@ -120,14 +120,18 @@ RUN useradd -m -u 1000 jm && \
         sed -i "s/^jm:!:[0-9]*:/jm:!:${DAYS_SINCE_EPOCH}:/" /etc/shadow; \
     fi
 
-# Copy Python packages from builder and set ownership
-COPY --from=builder --chown=jm:jm /root/.local /home/jm/.local
+# Copy Python packages from builder and set permissions
+COPY --from=builder /app /app
+RUN chmod -R a+rX /app
 
 # Switch to non-root user
 USER jm
 
 # Make sure scripts are in PATH
-ENV PATH=/home/jm/.local/bin:$PATH
+ENV PATH=/app/bin:$PATH
+
+# Make sure packages are in Python PATH
+ENV PYTHONPATH=/app/lib/python${PYTHON_VERSION%.*}/site-packages
 
 # Create data directory for JoinMarket files
 # This includes commitment blacklist, history, and other persistent data

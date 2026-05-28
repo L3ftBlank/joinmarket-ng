@@ -18,6 +18,12 @@ It is wire-compatible with the reference JoinMarket network and supports both li
 
 1. Install (Linux/macOS):
 
+The installer needs ``curl`` to fetch itself and uses ``sudo`` to install
+system packages on Debian/Ubuntu (so on a fresh minimal image you'll
+want ``curl``, ``sudo``, and your user added to the ``sudo`` group; on
+macOS you'll want Homebrew). Everything else (``gnupg``, ``git``,
+build tools) is installed for you on first run.
+
 ```bash
 curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/main/install.sh | bash
 source ~/.joinmarket-ng/activate.sh

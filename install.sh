@@ -149,6 +149,16 @@ check_system_dependencies() {
         if ! dpkg -s git &> /dev/null 2>&1; then
             missing_deps+=("git")
         fi
+        # gnupg + curl are required for release-signature verification
+        # (see verify_release()). They are typically preinstalled but
+        # missing on minimal Debian/Ubuntu images and the resulting
+        # gpg/curl-not-found errors during --update were confusing.
+        if ! command -v gpg &> /dev/null; then
+            missing_deps+=("gnupg")
+        fi
+        if ! command -v curl &> /dev/null; then
+            missing_deps+=("curl")
+        fi
     elif [[ "$OS_TYPE" == "macos" ]]; then
         if ! command -v brew &> /dev/null; then
             print_error "Homebrew not found. Install from https://brew.sh"
@@ -162,6 +172,14 @@ check_system_dependencies() {
         fi
         if ! brew list pkg-config &> /dev/null 2>&1; then
             missing_deps+=("pkg-config")
+        fi
+        # gnupg ships with macOS as ``gpg2`` only in some installs;
+        # require Homebrew gnupg so verify_release() finds ``gpg``.
+        if ! command -v gpg &> /dev/null; then
+            missing_deps+=("gnupg")
+        fi
+        if ! command -v curl &> /dev/null; then
+            missing_deps+=("curl")
         fi
     fi
 
@@ -177,10 +195,31 @@ check_system_dependencies() {
         fi
         echo ""
 
+        # Resolve a privilege-escalation helper for apt. Running as root
+        # needs no helper. Otherwise we need ``sudo`` AND the invoking
+        # user must be allowed to run it. We do not silently fail later
+        # when ``sudo`` is missing or denied - users hit this on minimal
+        # Debian images that ship without ``sudo`` and on accounts that
+        # were never added to the sudo group.
+        local sudo_cmd=""
+        if [[ "$PKG_MANAGER" == "apt" ]]; then
+            if [[ "$EUID" -eq 0 ]]; then
+                sudo_cmd=""
+            elif command -v sudo &> /dev/null; then
+                sudo_cmd="sudo"
+            else
+                print_error "Cannot install missing dependencies: ``sudo`` is not installed"
+                print_error "and this script is not running as root."
+                print_error "Either install ``sudo`` (as root: 'apt install sudo' then add"
+                print_error "your user to the sudo group), or run this installer as root."
+                exit 1
+            fi
+        fi
+
         if [[ "$AUTO_YES" == "true" ]]; then
             print_info "Attempting to install dependencies automatically..."
             if [[ "$PKG_MANAGER" == "apt" ]]; then
-                sudo apt update && sudo apt install -y "${missing_deps[@]}" || {
+                $sudo_cmd apt update && $sudo_cmd apt install -y "${missing_deps[@]}" || {
                     print_error "Failed to install system dependencies. Please install them manually and re-run."
                     exit 1
                 }
@@ -195,7 +234,7 @@ check_system_dependencies() {
             echo
             if [[ ! $REPLY =~ ^[Nn]$ ]]; then
                 if [[ "$PKG_MANAGER" == "apt" ]]; then
-                    sudo apt update && sudo apt install -y "${missing_deps[@]}" || {
+                    $sudo_cmd apt update && $sudo_cmd apt install -y "${missing_deps[@]}" || {
                         print_error "Failed to install system dependencies. Please install them manually and re-run."
                         exit 1
                     }
@@ -441,11 +480,27 @@ verify_release_signature() {
         local pubkey_url="$raw_base/signatures/pubkeys/${fingerprint}.asc"
         local pubkey_file="$work_dir/${fingerprint}.asc"
         if curl -fsSL "$pubkey_url" -o "$pubkey_file" 2>/dev/null; then
-            if GNUPGHOME="$gnupg_home" gpg --quiet --batch --import "$pubkey_file" 2>/dev/null; then
+            # Capture gpg stderr so we can surface the real error on
+            # failure. The previous ``2>/dev/null`` made debugging
+            # impossible (users only saw ``Failed to import key`` with
+            # no context). The captured log is printed below when the
+            # import fails so users can paste it in a bug report.
+            local gpg_log="$work_dir/${fingerprint}.gpg.log"
+            if GNUPGHOME="$gnupg_home" gpg --quiet --batch --import "$pubkey_file" > "$gpg_log" 2>&1; then
                 imported_fps+=("$fingerprint")
                 print_info "Imported trusted key $fingerprint ($name)"
             else
                 print_warning "Failed to import key $fingerprint ($name)"
+                if [[ -s "$gpg_log" ]]; then
+                    print_warning "gpg said:"
+                    sed -E 's/^/    /' "$gpg_log" >&2
+                fi
+                # Also report the first bytes of the downloaded pubkey
+                # so we can tell a transport error (HTML proxy page,
+                # truncated file) apart from a genuine GnuPG failure.
+                local pubkey_head
+                pubkey_head=$(head -c 80 "$pubkey_file" 2>/dev/null | tr -d '\r' | head -1)
+                print_warning "Downloaded pubkey starts with: ${pubkey_head:-<empty>}"
             fi
         else
             print_warning "Pubkey not found in repo for $fingerprint ($name)"
@@ -1271,4 +1326,8 @@ main() {
     print_completion
 }
 
-main "$@"
+# Only run main when this file is executed directly, not when sourced.
+# Sourcing is used by tests to call individual helper functions.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

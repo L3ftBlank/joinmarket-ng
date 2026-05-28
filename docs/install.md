@@ -10,7 +10,8 @@ For day-to-day usage, continue with:
 
 ## Requirements
 
-- Linux or macOS
+- Linux or macOS (Windows is supported via a manual install, see
+  [Windows section](#windows-manual-install))
 - Python 3.11+
 - A Bitcoin backend:
   - `descriptor_wallet` (Bitcoin Core, recommended), or
@@ -418,6 +419,62 @@ rm -rf "$HOME/.bitcoin/wallets/$WALLET"
 ```
 
 On Neutrino-only installs there is no Bitcoin Core wallet to clean up.
+
+## Windows (Manual Install)
+
+`install.sh` is bash-only and targets `apt`/`brew`, so Windows users cannot
+use it directly. The supported path is a manual pip install of the
+JoinMarket NG Python components plus a Tor daemon. CI exercises this exact
+path on `windows-latest` against the public signet directory nodes; if you
+follow these steps and the smoke at the end fails, please file a bug.
+
+Prerequisites:
+
+- Windows 10 or later (or Windows Server 2022+).
+- Python 3.11+ from python.org (tick "Add Python to PATH" during install).
+- PowerShell 7+ (or built-in Windows PowerShell 5).
+- Tor (we use the Tor Project Expert Bundle; Tor Browser is not required).
+
+### 1. Install joinmarket-ng
+
+Clone the repository and install the Python components into a venv:
+
+```powershell
+git clone https://github.com/joinmarket-ng/joinmarket-ng.git
+cd joinmarket-ng
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install .\jmcore .\taker .\jmwallet
+```
+
+Add `--maker` (`pip install .\maker`) if you want to run as a maker.
+
+### 2. Install and start Tor
+
+Download the Tor Expert Bundle from
+<https://www.torproject.org/download/tor/>, extract it, and start `tor.exe`
+with the default SOCKS port (9050):
+
+```powershell
+# Example: with the bundle extracted to C:\tor
+Start-Process -FilePath C:\tor\tor\tor.exe -ArgumentList "--SocksPort","9050"
+```
+
+Wait until the log reports "Bootstrapped 100%". Keep the window open while
+you use JoinMarket NG, or install Tor as a service if you prefer.
+
+### 3. Verify connectivity
+
+Fetch the public signet orderbook over Tor (this proves that Tor is reachable
+and the installed software can speak the JoinMarket directory protocol):
+
+```powershell
+python scripts\check_signet_orderbook.py --min-offers 1
+```
+
+A successful run prints `OK: signet orderbook reachable, N offers`. Failures
+print the underlying error and exit non-zero.
 
 ## Next Docs
 

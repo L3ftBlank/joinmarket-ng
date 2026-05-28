@@ -13,8 +13,10 @@ usable, without requiring a local Bitcoin Core, wallet, or full
 CoinJoin run.
 
 Exit codes:
-    0  -- fetched at least ``--min-offers`` offers (default 1).
-    1  -- failed to reach any directory or zero offers received.
+    0  -- connected to at least one directory (offer count may be zero if
+          the signet network has no active makers right now).
+    1  -- could not connect to any directory (Tor or protocol broken), or
+          a usage/configuration error.
     2  -- usage error.
 """
 
@@ -25,12 +27,20 @@ import asyncio
 import logging
 import socket
 import sys
+from dataclasses import dataclass
 
 from jmcore.crypto import NickIdentity
 from jmcore.models import DIRECTORY_NODES_SIGNET
 from taker.multi_directory import MultiDirectoryClient
 
 logger = logging.getLogger("check_signet_orderbook")
+
+
+@dataclass
+class OrderbookResult:
+    connected: int
+    total_directories: int
+    offer_count: int
 
 
 def _socks_reachable(host: str, port: int, timeout: float = 5.0) -> bool:
@@ -50,8 +60,8 @@ async def fetch_offers(
     min_wait: float,
     max_wait: float,
     quiet_period: float,
-) -> int:
-    """Connect to ``directories`` over Tor and return total offer count."""
+) -> OrderbookResult:
+    """Connect to ``directories`` over Tor and return connection/offer counts."""
     nick_identity = NickIdentity()
     client = MultiDirectoryClient(
         directory_servers=directories,
@@ -64,14 +74,20 @@ async def fetch_offers(
         connected = await client.connect_all()
         logger.info("Connected to %d/%d directories", connected, len(directories))
         if connected == 0:
-            return 0
+            return OrderbookResult(
+                connected=0, total_directories=len(directories), offer_count=0
+            )
         offers = await client.fetch_orderbook(
             min_wait=min_wait,
             max_wait=max_wait,
             quiet_period=quiet_period,
         )
         logger.info("Received %d offers", len(offers))
-        return len(offers)
+        return OrderbookResult(
+            connected=connected,
+            total_directories=len(directories),
+            offer_count=len(offers),
+        )
     finally:
         await client.close_all()
 
@@ -93,7 +109,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--min-offers",
         type=int,
         default=1,
-        help="Minimum offer count required for success (default: 1)",
+        help=(
+            "Minimum offer count to print OK (default: 1). "
+            "Fewer offers print a warning but still exit 0 provided at least "
+            "one directory was reachable."
+        ),
     )
     parser.add_argument(
         "--min-wait",
@@ -144,7 +164,7 @@ def main(argv: list[str] | None = None) -> int:
 
     logger.info("Fetching signet orderbook from %d directories", len(directories))
     try:
-        offer_count = asyncio.run(
+        result = asyncio.run(
             fetch_offers(
                 directories=directories,
                 socks_host=args.socks_host,
@@ -158,15 +178,32 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: orderbook fetch failed: {exc}", file=sys.stderr)
         return 1
 
-    if offer_count >= args.min_offers:
-        print(f"OK: signet orderbook reachable, {offer_count} offers")
+    if result.connected == 0:
+        print(
+            f"ERROR: could not connect to any of {result.total_directories} "
+            "signet directory nodes. Tor is reachable but the JoinMarket "
+            "directory protocol or directory nodes are not responding.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if result.offer_count >= args.min_offers:
+        print(
+            f"OK: connected to {result.connected}/{result.total_directories} "
+            f"directories, {result.offer_count} offers"
+        )
         return 0
 
+    # Connected to directories but no/few offers -- signet makers may simply
+    # be offline right now, which is outside our control.
     print(
-        f"ERROR: only {offer_count} offers (need >= {args.min_offers})",
-        file=sys.stderr,
+        f"WARNING: connected to {result.connected}/{result.total_directories} "
+        f"directories but only {result.offer_count} offers "
+        f"(need >= {args.min_offers}). "
+        "Signet makers may be temporarily offline. "
+        "The install is functional."
     )
-    return 1
+    return 0
 
 
 if __name__ == "__main__":

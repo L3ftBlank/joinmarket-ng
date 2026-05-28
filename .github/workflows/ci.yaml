@@ -253,6 +253,11 @@ jobs:
           sudo systemctl status tor || true
           exit 1
       - name: Fetch signet orderbook over Tor
+        # Validates Tor, the installed binary, and the JoinMarket directory
+        # protocol end-to-end. Exits 1 if no directory could be reached
+        # (hard failure: install is broken), exits 0 with a WARNING if
+        # connected but got fewer than --min-offers (signet makers may be
+        # temporarily offline -- outside our control).
         run: |
           set -euo pipefail
           PYBIN="$HOME/.joinmarket-ng/venv/bin/python"

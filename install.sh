@@ -374,12 +374,20 @@ EOF
 
 # Get latest release version from GitHub
 get_latest_version() {
+    local version=""
     if command -v curl &> /dev/null; then
-        curl -sL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null | \
-            grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "$DEFAULT_VERSION"
-    else
-        echo "$DEFAULT_VERSION"
+        # Note: the GitHub API is rate-limited per source IP, so on shared CI
+        # runners curl can succeed but return a rate-limit JSON without a
+        # tag_name field. Fall back to DEFAULT_VERSION whenever the pipeline
+        # produces an empty string instead of relying on `|| echo`, which
+        # only fires when the final sed exits non-zero.
+        version=$(curl -sL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null | \
+            grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
     fi
+    if [ -z "$version" ]; then
+        version="$DEFAULT_VERSION"
+    fi
+    echo "$version"
 }
 
 # Resolve a version/tag/branch to a commit hash

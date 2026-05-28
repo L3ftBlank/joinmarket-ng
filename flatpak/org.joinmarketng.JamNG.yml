@@ -72,7 +72,11 @@ modules:
         sha256: ac1f394e2dd2ab0877d27d928fd0d9e86662fe3ca6afdffb9fd9b6f0f96d05de
 
   # =========================================================================
-  # Module 3: libsodium (required by coincurve / libnacl)
+  # Module 3: libsodium
+  # Historical dependency for libnacl (replaced by PyNaCl, which ships
+  # libsodium statically linked inside its wheel). Kept as a fallback for
+  # any future Python module that needs to build libsodium-backed
+  # extensions from source inside the Flatpak sandbox.
   # =========================================================================
   - name: libsodium
     buildsystem: autotools

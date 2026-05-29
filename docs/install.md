@@ -60,6 +60,30 @@ When you run `install.sh --update`, the installer:
 
 Your existing config is never modified. If new settings are available, the installer prints them so you can add them manually from `config.toml.template`.
 
+## Supply-chain Security
+
+The installer protects the two distinct parts of an install differently.
+
+JoinMarket NG's own code is verified against GPG signatures. The installer resolves the requested version to a commit hash, then refuses to proceed unless a trusted key (committed to `signatures/` in the repository) has signed a manifest whose `commit:` matches that exact hash. The install is then pinned to the verified commit, so a tag that gets repointed afterwards cannot smuggle in different code. You can bypass this with `--skip-verify` (not recommended); it is auto-enabled for `--dev` / `--version main`, which have no release signatures by design.
+
+Third-party Python dependencies use a layered model so they stay both flexible and reproducible:
+
+- Each package's `pyproject.toml` declares minimal version ranges, so a normal `pip install` keeps working across Python versions and resolves conflicts.
+- Each package ships a lock file (`requirements.txt`) generated with `pip-compile --generate-hashes`. Because `pip-compile` records hashes for every distribution file of each pinned version (all wheel tags plus the sdist), the locks are portable across Python versions and platforms.
+- By default the installer fetches the release's `requirements.txt` from the verified commit and installs dependencies with `pip --require-hashes`, so any tampered artifact is rejected. The git-based JoinMarket NG packages are then installed with `--no-deps` (pip cannot hash a git checkout).
+- Hash verification is a hard requirement: if it cannot be satisfied (for example no pre-built wheel exists for your platform/Python, forcing an un-hashable source build), the install aborts rather than silently weakening integrity. Rerun with `--no-hash-deps` to make opting out an explicit, informed choice.
+- `--no-hash-deps` skips hash verification and only version-pins (still preventing silent upstream upgrades), printing a security warning that hashes are not verified.
+
+```bash
+# default: hash-checked dependencies (no flag needed)
+curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/main/install.sh | bash
+
+# opt out of hash verification (version-pinning only)
+curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/main/install.sh | bash -s -- --no-hash-deps
+```
+
+The `requirements.txt` lock files are the single source of truth and are regenerated from `pyproject.toml` by `scripts/update-deps.sh`, so maintainers never hand-edit pins.
+
 ## Configure Backend
 
 Edit `~/.joinmarket-ng/config.toml`.

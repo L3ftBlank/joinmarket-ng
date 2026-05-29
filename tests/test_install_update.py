@@ -239,3 +239,156 @@ echo "EXIT:$?"
     # The misleading PyNaCl repair must not have run.
     assert "pynacl" not in result.stdout.lower(), result.stdout
     assert "PIP:" not in result.stdout, result.stdout
+
+
+def _run_update_with_pinning(
+    pinned_deps: bool = True,
+    fetch_ok: bool = True,
+    hash_install_ok: bool = True,
+) -> subprocess.CompletedProcess[str]:
+    """Run ``update_packages`` with dependency pinning enabled.
+
+    Unlike ``_run_update`` this leaves ``SKIP_VERIFY=false`` and provides a
+    resolved commit hash so ``prepare_dep_pinning`` is active. ``curl`` is
+    stubbed to emit a fake lock line (or fail) so we can assert the pip
+    invocations carry the right pinning arguments without any network.
+
+    ``hash_install_ok`` controls whether the stubbed ``pip
+    install --require-hashes`` succeeds; when ``False`` it fails so the
+    hard-abort path can be exercised.
+    """
+    pinned = "true" if pinned_deps else "false"
+    # Stubbed curl: succeed (writing one pin) or fail to fetch the lock.
+    curl_body = 'echo "idna==3.10"; return 0' if fetch_ok else "return 22"
+    # pip stub: optionally fail the hash-checked install so the hard-abort
+    # path is exercised; all other pip calls succeed.
+    if hash_install_ok:
+        pip_body = 'echo "PIP: $*"; return 0'
+    else:
+        pip_body = (
+            'echo "PIP: $*"; '
+            'case "$*" in '
+            "*--require-hashes*) return 1 ;; "
+            "*) return 0 ;; "
+            "esac"
+        )
+    script = f"""
+source "{INSTALL_SH}"
+set +e
+
+get_latest_version() {{ echo "v9.9.9"; }}
+resolve_to_commit_hash() {{ echo "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"; }}
+verify_release_signature() {{ return 0; }}
+
+print_header() {{ :; }}
+print_info() {{ echo "INFO: $1"; }}
+print_success() {{ echo "OK: $1"; }}
+print_warning() {{ echo "WARN: $1"; }}
+print_error() {{ echo "ERR: $1"; }}
+
+pip() {{ {pip_body}; }}
+python3() {{ return 0; }}
+# Stub curl used by prepare_dep_pinning to fetch lock files.
+curl() {{ {curl_body}; }}
+
+SKIP_VERIFY=false
+PINNED_DEPS={pinned}
+INSTALL_MAKER=false
+INSTALL_TAKER=false
+
+( update_packages )
+echo "EXIT:$?"
+"""
+    return subprocess.run(
+        ["bash", "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+
+def _pip_lines(stdout: str) -> list[str]:
+    return [
+        line[len("PIP: ") :] for line in stdout.splitlines() if line.startswith("PIP: ")
+    ]
+
+
+def test_update_default_hash_checks_dependencies() -> None:
+    """By default the update hash-checks deps then installs with --no-deps."""
+    result = _run_update_with_pinning(pinned_deps=True, fetch_ok=True)
+    assert "EXIT:0" in result.stdout, result.stdout + result.stderr
+    assert "Hash-verified dependencies installed" in result.stdout, result.stdout
+    pip_lines = _pip_lines(result.stdout)
+    assert any("--require-hashes" in line for line in pip_lines), (
+        "default mode must hash-check dependencies:\n" + "\n".join(pip_lines)
+    )
+    # Package installs that resolve deps must be --no-deps so pip never
+    # tries to hash the un-hashable git checkout.
+    resolving = [
+        line
+        for line in pip_lines
+        if "subdirectory=jmcore" in line and "--require-hashes" not in line
+    ]
+    assert resolving, "\n".join(pip_lines)
+    assert all("--no-deps" in line for line in resolving), (
+        "package installs must use --no-deps in default hash mode:\n"
+        + "\n".join(pip_lines)
+    )
+
+
+def test_update_no_hash_deps_pins_versions_only() -> None:
+    """--no-hash-deps version-pins without --require-hashes."""
+    result = _run_update_with_pinning(pinned_deps=False, fetch_ok=True)
+    assert "EXIT:0" in result.stdout, result.stdout + result.stderr
+    pip_lines = _pip_lines(result.stdout)
+    resolving = [
+        line
+        for line in pip_lines
+        if "--no-deps" not in line and "subdirectory=jmcore" in line
+    ]
+    assert resolving, "\n".join(pip_lines)
+    assert any(" -c " in line for line in resolving), (
+        "expected -c constraints on the dependency-resolving install:\n"
+        + "\n".join(pip_lines)
+    )
+    # --no-hash-deps must NOT use --require-hashes.
+    assert not any("--require-hashes" in line for line in pip_lines), (
+        "--no-hash-deps must not hash-check:\n" + "\n".join(pip_lines)
+    )
+
+
+def test_update_aborts_when_hash_check_fails() -> None:
+    """Hash checking is a hard requirement: any failure aborts with a hint.
+
+    There is no silent fallback. If ``pip install --require-hashes`` fails
+    (e.g. no compatible pre-built wheel for this platform/Python), the
+    installer must exit non-zero and point the user at ``--no-hash-deps``.
+    """
+    result = _run_update_with_pinning(
+        pinned_deps=True, fetch_ok=True, hash_install_ok=False
+    )
+    assert "EXIT:1" in result.stdout, result.stdout + result.stderr
+    assert "--no-hash-deps" in result.stdout, result.stdout
+    # It must not silently version-pin instead.
+    pip_lines = _pip_lines(result.stdout)
+    assert not any(" -c " in line for line in pip_lines), (
+        "must not fall back to version-pinning:\n" + "\n".join(pip_lines)
+    )
+
+
+def test_update_falls_back_to_unpinned_when_locks_missing() -> None:
+    """If lock files cannot be fetched, the update still proceeds unpinned."""
+    result = _run_update_with_pinning(pinned_deps=True, fetch_ok=False)
+    assert "EXIT:0" in result.stdout, result.stdout + result.stderr
+    pip_lines = _pip_lines(result.stdout)
+    assert not any(" -c " in line for line in pip_lines), (
+        "no constraints should be applied when locks are unavailable:\n"
+        + "\n".join(pip_lines)
+    )
+    assert not any("--require-hashes" in line for line in pip_lines), (
+        "no hash-checking when locks are unavailable:\n" + "\n".join(pip_lines)
+    )
+    assert any("subdirectory=jmcore" in line for line in pip_lines), (
+        "update must still install jmcore:\n" + "\n".join(pip_lines)
+    )

@@ -99,6 +99,7 @@ WORKDIR /app
 # Delete apt/dpkg logs and ldconfig cache for reproducible builds
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libsodium23=1.0.18-1+deb13u1 \
+    whiptail=0.52.25-1 \
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf /var/log/dpkg.log /var/log/apt/* \
     && rm -rf /var/cache/ldconfig/aux-cache

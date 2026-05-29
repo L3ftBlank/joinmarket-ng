@@ -1223,3 +1223,21 @@ def test_tui_pause_before_clear_on_cli_errors() -> None:
     after_res = imp.split("RESULT=$?")[1]
     else_block = after_res.split("else")[1].split("fi")[0]
     assert "pause" in else_block, "IMP missing pause"
+
+
+# ---------------------------------------------------------------------------
+# Docker image tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("component", ["maker", "taker"])
+def test_runtime_image_installs_whiptail(component: str) -> None:
+    """The maker and taker images expose the jm-ng TUI, which aborts with
+    "'whiptail' is required but not found" when whiptail is missing. The
+    production stage of each Dockerfile must install whiptail by default."""
+    dockerfile = (REPO_ROOT / component / "Dockerfile").read_text()
+    production = dockerfile.split("AS production", 1)
+    assert len(production) == 2, f"{component} Dockerfile missing production stage"
+    assert "whiptail=" in production[1], (
+        f"{component} production image must install whiptail for the jm-ng TUI"
+    )

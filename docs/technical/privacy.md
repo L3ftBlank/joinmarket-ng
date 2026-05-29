@@ -87,15 +87,18 @@ Fidelity bonds use P2WSH addresses with a timelock script:
 <locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP <pubkey> OP_CHECKSIG
 ```
 
-Generate a bond address:
+Generate a bond address (uses the active wallet configured in `config.toml`,
+falling back to `~/.joinmarket-ng/wallets/default.mnemonic`):
 
 ```bash
 jm-wallet generate-bond-address \
-  --mnemonic-file wallet.enc \
-  --prompt-password \
-  --locktime-date "2026-01-01" \
+  --locktime-date "2026-01" \
   --index 0
 ```
+
+To target a specific wallet file instead, add `--mnemonic-file <path>` (for
+example `--mnemonic-file ~/.joinmarket-ng/wallets/default.mnemonic`). The
+`--locktime-date` accepts `YYYY-MM` (or `YYYY-MM-DD` on the 1st of a month).
 
 **Bond Registry (`fidelity_bonds_<fingerprint>.json`):**
 

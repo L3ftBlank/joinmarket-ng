@@ -62,7 +62,8 @@ class ProtocolHandlersMixin:
     _orderbook_rate_limiter: OrderbookRateLimiter
     _direct_connection_rate_limiter: DirectConnectionRateLimiter
     _own_wallet_nicks: set[str]
-    _hp2_broadcast_semaphore: asyncio.Semaphore
+    _hp2_own_broadcast_semaphore: asyncio.Semaphore
+    _hp2_relay_broadcast_semaphore: asyncio.Semaphore
 
     async def _handle_message(
         self: MakerBotProtocol, message: dict[str, Any], source: str = "unknown"
@@ -646,7 +647,7 @@ class ProtocolHandlersMixin:
             add_commitment(commitment)
 
             # Broadcast via ephemeral identity (fire-and-forget)
-            asyncio.create_task(self._broadcast_commitment_ephemeral(commitment))
+            asyncio.create_task(self._broadcast_commitment_ephemeral(commitment, is_relay=True))
 
         except Exception as e:
             logger.error(f"Failed to handle !hp2 relay request: {e}")
@@ -685,14 +686,16 @@ class ProtocolHandlersMixin:
             add_commitment(commitment)
 
             # Broadcast via ephemeral identity (fire-and-forget)
-            asyncio.create_task(self._broadcast_commitment_ephemeral(commitment))
+            asyncio.create_task(self._broadcast_commitment_ephemeral(commitment, is_relay=False))
 
             logger.debug(f"Scheduled ephemeral commitment broadcast: {commitment[:16]}...")
 
         except Exception as e:
             logger.error(f"Failed to broadcast commitment: {e}")
 
-    async def _broadcast_commitment_ephemeral(self, commitment: str) -> None:
+    async def _broadcast_commitment_ephemeral(
+        self, commitment: str, *, is_relay: bool = False
+    ) -> None:
         """Open ephemeral directory connections and broadcast a commitment.
 
         Creates short-lived connections to all configured directory servers
@@ -700,29 +703,27 @@ class ProtocolHandlersMixin:
         credentials, broadcasts the commitment as a public !hp2 message, then
         tears down the connections.
 
-        Guarded by ``_hp2_broadcast_semaphore`` (max 2 concurrent) to prevent
-        a Sybil DoS where many nicks each send one relay request, causing us
-        to open excessive Tor circuits. Requests that exceed the concurrency
-        limit are silently dropped -- the commitment is already blacklisted
-        locally by the caller.
+        Concurrency is bounded by two dedicated semaphores so that a Sybil
+        flood of relayed peer requests cannot starve the maker's own
+        post-ioauth broadcasts. Own broadcasts (``is_relay=False``) queue
+        for their slot to guarantee propagation; relayed broadcasts
+        (``is_relay=True``) are dropped on contention -- the commitment is
+        already blacklisted locally by the caller.
 
         This is a background task -- errors are logged, not raised.
         """
-        acquired = self._hp2_broadcast_semaphore.locked() is False
-        if not acquired:
-            # All slots may be taken; try non-blocking acquire
+        if is_relay:
+            semaphore = self._hp2_relay_broadcast_semaphore
             try:
-                # Semaphore.acquire() with wait=False isn't available, so use
-                # a zero-timeout wait to avoid blocking.
-                await asyncio.wait_for(self._hp2_broadcast_semaphore.acquire(), timeout=0)
-                acquired = True
+                await asyncio.wait_for(semaphore.acquire(), timeout=0)
             except TimeoutError:
                 logger.debug(
-                    f"Dropping ephemeral hp2 broadcast (concurrency limit): {commitment[:16]}..."
+                    f"Dropping relayed hp2 broadcast (concurrency limit): {commitment[:16]}..."
                 )
                 return
         else:
-            await self._hp2_broadcast_semaphore.acquire()
+            semaphore = self._hp2_own_broadcast_semaphore
+            await semaphore.acquire()
 
         hp2_msg = f"hp2 {commitment}"
         ephemeral_clients: list[DirectoryClient] = []
@@ -775,7 +776,7 @@ class ProtocolHandlersMixin:
             logger.error(f"Ephemeral commitment broadcast failed: {e}")
 
         finally:
-            self._hp2_broadcast_semaphore.release()
+            semaphore.release()
             for client in ephemeral_clients:
                 try:
                     await client.close()

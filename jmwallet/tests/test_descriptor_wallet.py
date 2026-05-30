@@ -2999,6 +2999,115 @@ class TestDescriptorRangeUpgrade:
         assert result["error_count"] == 0
         assert import_calls[0]["params"][0][0]["range"] == [0, 4999]
 
+    def test_clamp_descriptor_range_helper(self) -> None:
+        """clamp_descriptor_range caps the span at Bitcoin Core's limit.
+
+        Core's ParseDescriptorRange rejects ranges where high >= low + 1000000
+        ("Range is too large"). A [0, N] range therefore allows at most
+        1,000,000 indices (high <= 999999).
+        """
+        from jmwallet.backends.descriptor_wallet import (
+            MAX_DESCRIPTOR_RANGE,
+            clamp_descriptor_range,
+        )
+
+        assert MAX_DESCRIPTOR_RANGE == 1_000_000
+        # Below the limit is untouched.
+        assert clamp_descriptor_range(0, 999) == (0, 999)
+        # Exactly the largest accepted span (high == low + 999999) is kept.
+        assert clamp_descriptor_range(0, 999_999) == (0, 999_999)
+        # One past the limit is clamped down.
+        assert clamp_descriptor_range(0, 1_000_000) == (0, 999_999)
+        assert clamp_descriptor_range(0, 5_000_000) == (0, 999_999)
+        # Clamping respects a non-zero low bound (span, not absolute index).
+        assert clamp_descriptor_range(10, 10 + 5_000_000) == (10, 10 + 999_999)
+
+    @pytest.mark.asyncio
+    async def test_import_descriptors_clamps_oversized_range(self) -> None:
+        """An oversized requested range is clamped before reaching Core.
+
+        Reproduces the "Range is too large" bug: a [0, N] range with
+        N >= 1000000 made every descriptor fail and left the wallet without
+        coverage. The fix clamps the high bound to 999999 so the import
+        succeeds at the largest range Core accepts.
+        """
+        backend = DescriptorWalletBackend(wallet_name="test_clamp_oversized")
+        backend._wallet_loaded = True
+
+        import_calls: list[dict] = []
+
+        async def mock_rpc_call(
+            method: str,
+            params: list | None = None,
+            client: Any = None,
+            use_wallet: bool = True,
+        ) -> Any:
+            if method == "getdescriptorinfo":
+                desc = params[0] if params else ""
+                return {"descriptor": f"{desc}#mockchecksum"}
+            if method == "listdescriptors":
+                return {"descriptors": []}
+            if method == "importdescriptors":
+                import_calls.append({"method": method, "params": params})
+                assert params is not None
+                return [{"success": True} for _ in params[0]]
+            raise ValueError(f"Unexpected RPC: {method}")
+
+        backend._rpc_call = mock_rpc_call  # type: ignore[method-assign]
+
+        descriptors = [{"desc": "wpkh(xpub.../0/*)", "range": [0, 9_999_999], "internal": False}]
+        result = await backend.import_descriptors(descriptors, rescan=False)
+
+        assert result["error_count"] == 0
+        assert result["success_count"] == 1
+        # The range actually sent to Core is clamped to the maximum span.
+        assert import_calls[0]["params"][0][0]["range"] == [0, 999_999]
+
+    @pytest.mark.asyncio
+    async def test_import_descriptors_clamps_after_expansion(self) -> None:
+        """Expanding to include an existing range never exceeds Core's limit.
+
+        If a descriptor's existing range plus the requested range would span
+        more than 1,000,000 indices, the result is still clamped so Core does
+        not reject the import.
+        """
+        backend = DescriptorWalletBackend(wallet_name="test_clamp_expanded")
+        backend._wallet_loaded = True
+
+        import_calls: list[dict] = []
+
+        async def mock_rpc_call(
+            method: str,
+            params: list | None = None,
+            client: Any = None,
+            use_wallet: bool = True,
+        ) -> Any:
+            if method == "getdescriptorinfo":
+                desc = params[0] if params else ""
+                return {"descriptor": f"{desc}#mockchecksum"}
+            if method == "listdescriptors":
+                # Existing range already near the limit.
+                return {
+                    "descriptors": [
+                        {"desc": "wpkh(xpub.../0/*)#mockchecksum", "range": [0, 999_999]}
+                    ]
+                }
+            if method == "importdescriptors":
+                import_calls.append({"method": method, "params": params})
+                assert params is not None
+                return [{"success": True} for _ in params[0]]
+            raise ValueError(f"Unexpected RPC: {method}")
+
+        backend._rpc_call = mock_rpc_call  # type: ignore[method-assign]
+
+        # Request a range that, expanded against the existing one, would exceed
+        # the limit.
+        descriptors = [{"desc": "wpkh(xpub.../0/*)", "range": [0, 2_000_000], "internal": False}]
+        result = await backend.import_descriptors(descriptors, rescan=False)
+
+        assert result["error_count"] == 0
+        assert import_calls[0]["params"][0][0]["range"] == [0, 999_999]
+
     @pytest.mark.asyncio
     async def test_check_and_upgrade_descriptor_range_no_upgrade_needed(self) -> None:
         """Test that no upgrade happens when range is sufficient."""

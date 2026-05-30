@@ -159,9 +159,11 @@
 
 # Initial descriptor scan range (max address index per branch) imported into
 # Bitcoin Core's descriptor wallet. Defaults to 1000 and auto-expands as
-# addresses are used. To widen the range for an already-imported wallet (e.g.
-# migrated from legacy joinmarket-clientserver), run `jm-wallet rescan
-# --scan-depth N` once. See docs/technical/wallet-scanning.md.
+# addresses are used. Capped at 1000000, which is Bitcoin Core's per-descriptor
+# range limit (larger values are rejected with "Range is too large"). To widen
+# the range for an already-imported wallet (e.g. migrated from legacy
+# joinmarket-clientserver), run `jm-wallet rescan --scan-depth N` once.
+# See docs/technical/wallet-scanning.md.
 # scan_range = 1000
 
 # Dust threshold in satoshis

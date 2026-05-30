@@ -1791,11 +1791,32 @@ def _make_descriptor_info_mock_backend() -> MagicMock:
     return mock_backend
 
 
+def _make_rescan_scan_depth_backend() -> MagicMock:
+    """Descriptor backend mock for the ``rescan --scan-depth`` path."""
+    mock_backend = _make_descriptor_info_mock_backend()
+    mock_backend.is_wallet_setup = AsyncMock(return_value=True)
+    mock_backend.set_wallet_creation_height = MagicMock()
+    mock_backend.start_background_rescan = AsyncMock()
+    mock_backend.get_rescan_status = AsyncMock(return_value={"in_progress": False})
+    mock_backend.get_wallet_scan_status = AsyncMock(
+        return_value={
+            "scanning_in_progress": False,
+            "scan_progress": None,
+            "scan_duration_s": None,
+            "oldest_descriptor_timestamp": 1_230_768_000,
+            "birthtime": None,
+            "txcount": 0,
+        }
+    )
+    return mock_backend
+
+
 def test_rescan_scan_depth_reimports_at_wider_range(monkeypatch) -> None:
     """``rescan --scan-depth N`` must re-import descriptors at the wider
-    range via ``setup_descriptor_wallet`` (index-coverage repair), with
-    ``check_existing=False`` and ``smart_scan=False`` so the full re-import +
-    genesis rescan runs even when the wallet is already loaded (issue #475).
+    range via ``setup_descriptor_wallet`` (index-coverage repair) with
+    ``check_existing=False``, then drive an explicit block rescan. The
+    widening import uses ``rescan=False`` so it only registers the new
+    addresses; the rescan is run separately so ``--start-height`` is honored.
     """
     monkeypatch.delenv("JOINMARKET_DATA_DIR", raising=False)
 
@@ -1803,19 +1824,7 @@ def test_rescan_scan_depth_reimports_at_wider_range(monkeypatch) -> None:
 
     with tempfile.TemporaryDirectory() as tmpdir:
         _make_default_wallet(tmpdir)
-        mock_backend = _make_descriptor_info_mock_backend()
-        mock_backend.is_wallet_setup = AsyncMock(return_value=True)
-        mock_backend.set_wallet_creation_height = MagicMock()
-        mock_backend.get_wallet_scan_status = AsyncMock(
-            return_value={
-                "scanning_in_progress": False,
-                "scan_progress": None,
-                "scan_duration_s": None,
-                "oldest_descriptor_timestamp": 1_230_768_000,
-                "birthtime": None,
-                "txcount": 0,
-            }
-        )
+        mock_backend = _make_rescan_scan_depth_backend()
 
         from jmwallet.wallet.service import WalletService
 
@@ -1834,12 +1843,81 @@ def test_rescan_scan_depth_reimports_at_wider_range(monkeypatch) -> None:
         assert setup_mock.await_args is not None
         kwargs = setup_mock.await_args.kwargs
         assert kwargs["scan_range"] == 8000
-        assert kwargs["rescan"] is True
+        # Widening import does not scan; the rescan is driven separately.
+        assert kwargs["rescan"] is False
         assert kwargs["check_existing"] is False
         assert kwargs["smart_scan"] is False
         assert kwargs["background_full_rescan"] is False
-        # Plain block rescan path must not be used when widening the range.
-        mock_backend.start_background_rescan.assert_not_awaited()
+        # The block rescan runs from genesis when no --start-height is given.
+        mock_backend.start_background_rescan.assert_awaited_once()
+        assert mock_backend.start_background_rescan.await_args.kwargs["start_height"] == 0
+
+
+def test_rescan_scan_depth_honors_start_height(monkeypatch) -> None:
+    """``rescan --scan-depth N --start-height H`` must widen the range and
+    rescan from H, not genesis (regression: --start-height was ignored when
+    combined with --scan-depth, always restarting from block 0).
+    """
+    monkeypatch.delenv("JOINMARKET_DATA_DIR", raising=False)
+
+    setup_mock = AsyncMock()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        _make_default_wallet(tmpdir)
+        mock_backend = _make_rescan_scan_depth_backend()
+
+        from jmwallet.wallet.service import WalletService
+
+        with (
+            patch.object(Path, "home", return_value=Path(tmpdir)),
+            patch(
+                "jmwallet.backends.descriptor_wallet.DescriptorWalletBackend",
+                _stub_backend_class(mock_backend),
+            ),
+            patch.object(WalletService, "setup_descriptor_wallet", setup_mock),
+        ):
+            result = runner.invoke(
+                app, ["rescan", "--scan-depth", "8000", "--start-height", "200000"]
+            )
+
+        assert result.exit_code == 0, f"rescan failed: {result.stdout}"
+        assert setup_mock.await_count == 1
+        # The rescan must start from the requested height, not 0.
+        mock_backend.start_background_rescan.assert_awaited_once()
+        assert mock_backend.start_background_rescan.await_args.kwargs["start_height"] == 200000
+
+
+def test_rescan_scan_depth_capped_at_core_limit(monkeypatch) -> None:
+    """``rescan --scan-depth N`` must cap N at Bitcoin Core's per-descriptor
+    range limit (1,000,000). Larger values would otherwise be rejected by
+    importdescriptors with "Range is too large", failing the whole import.
+    """
+    monkeypatch.delenv("JOINMARKET_DATA_DIR", raising=False)
+
+    setup_mock = AsyncMock()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        _make_default_wallet(tmpdir)
+        mock_backend = _make_rescan_scan_depth_backend()
+
+        from jmwallet.wallet.service import WalletService
+
+        with (
+            patch.object(Path, "home", return_value=Path(tmpdir)),
+            patch(
+                "jmwallet.backends.descriptor_wallet.DescriptorWalletBackend",
+                _stub_backend_class(mock_backend),
+            ),
+            patch.object(WalletService, "setup_descriptor_wallet", setup_mock),
+        ):
+            result = runner.invoke(app, ["rescan", "--scan-depth", "5000000"])
+
+        assert result.exit_code == 0, f"rescan failed: {result.stdout}"
+        assert setup_mock.await_count == 1
+        assert setup_mock.await_args is not None
+        kwargs = setup_mock.await_args.kwargs
+        # Capped to Bitcoin Core's 1,000,000 limit, not the requested 5,000,000.
+        assert kwargs["scan_range"] == 1_000_000
 
 
 def test_info_default_scan_range_uses_wallet_scan_range(monkeypatch) -> None:

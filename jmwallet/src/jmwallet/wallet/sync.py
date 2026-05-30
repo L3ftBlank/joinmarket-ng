@@ -18,7 +18,11 @@ from loguru import logger
 from jmwallet.backends.base import BlockchainBackend
 from jmwallet.backends.descriptor_wallet import DescriptorWalletBackend
 from jmwallet.wallet.bip32 import HDKey
-from jmwallet.wallet.constants import DEFAULT_SCAN_RANGE, FIDELITY_BOND_BRANCH
+from jmwallet.wallet.constants import (
+    DEFAULT_SCAN_RANGE,
+    FIDELITY_BOND_BRANCH,
+    MAX_DESCRIPTOR_RANGE,
+)
 from jmwallet.wallet.models import UTXOInfo
 
 
@@ -909,6 +913,16 @@ class WalletSyncMixin:
         Returns:
             List of descriptor dicts for importdescriptors
         """
+        if scan_range > MAX_DESCRIPTOR_RANGE:
+            logger.warning(
+                f"Requested scan_range {scan_range} exceeds Bitcoin Core's "
+                f"per-descriptor range limit of {MAX_DESCRIPTOR_RANGE}; "
+                f"clamping to {MAX_DESCRIPTOR_RANGE}. Bitcoin Core would "
+                "otherwise reject importdescriptors with 'Range is too large'. "
+                "See docs/technical/wallet-scanning.md."
+            )
+            scan_range = MAX_DESCRIPTOR_RANGE
+
         descriptors = []
 
         for mixdepth in range(self.mixdepth_count):
@@ -1374,6 +1388,21 @@ class WalletSyncMixin:
 
         # Calculate required range
         required_range = highest_used + gap_limit + 1
+
+        # Bitcoin Core rejects descriptor ranges spanning more than
+        # MAX_DESCRIPTOR_RANGE indices ("Range is too large"). If a wallet has
+        # used addresses beyond that, we can only track up to the limit; clamp
+        # so the upgrade succeeds rather than failing wholesale.
+        if required_range > MAX_DESCRIPTOR_RANGE:
+            logger.warning(
+                f"Required descriptor range {required_range} (highest used "
+                f"{highest_used} + gap_limit {gap_limit}) exceeds Bitcoin Core's "
+                f"limit of {MAX_DESCRIPTOR_RANGE}; clamping to "
+                f"{MAX_DESCRIPTOR_RANGE}. Addresses beyond index "
+                f"{MAX_DESCRIPTOR_RANGE - 1} cannot be tracked. See "
+                "docs/technical/wallet-scanning.md."
+            )
+            required_range = MAX_DESCRIPTOR_RANGE
 
         if required_range <= current_range:
             logger.debug(

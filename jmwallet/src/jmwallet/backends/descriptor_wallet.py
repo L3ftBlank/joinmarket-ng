@@ -71,8 +71,38 @@ DEFAULT_GAP_LIMIT = 1000
 # Bitcoin averages ~144 blocks/day * 365 days ≈ 52,560 blocks
 DEFAULT_SCAN_LOOKBACK_BLOCKS = 52_560
 
+# Bitcoin Core's ``importdescriptors``/``ParseDescriptorRange`` rejects any
+# descriptor range whose span exceeds 1,000,000 indices with the error
+# "Range is too large" (src/rpc/util.cpp: ``if (high >= low + 1000000)``).
+# A range expressed as ``[0, N]`` therefore allows at most 1,000,000 indices
+# (0..999_999), so the largest usable ``scan_range`` per branch is 1,000,000.
+# Requests beyond this are clamped down to the limit before they reach Core,
+# otherwise the whole import fails and the wallet is left without coverage.
+# This is the canonical definition; ``jmwallet.wallet.constants`` re-exports it
+# (defined here so the backend module has no dependency on the wallet package).
+MAX_DESCRIPTOR_RANGE = 1_000_000
+
 # Environment variable to enable sensitive logging (descriptors, addresses, etc.)
 SENSITIVE_LOGGING = os.environ.get("SENSITIVE_LOGGING", "").lower() in ("1", "true", "yes")
+
+
+def clamp_descriptor_range(low: int, high: int) -> tuple[int, int]:
+    """Clamp a descriptor ``[low, high]`` range to Bitcoin Core's limit.
+
+    Bitcoin Core's ``importdescriptors`` rejects any range whose span exceeds
+    ``MAX_DESCRIPTOR_RANGE`` indices with the error "Range is too large"
+    (``ParseDescriptorRange``: ``high >= low + 1000000``). When the whole
+    import is rejected the wallet ends up without any descriptor coverage, so
+    we clamp the high bound down to the largest value Core accepts instead of
+    letting the request fail.
+
+    Returns the (possibly clamped) ``(low, high)`` tuple. Callers should warn
+    the user when the result differs from the request.
+    """
+    max_high = low + MAX_DESCRIPTOR_RANGE - 1
+    if high > max_high:
+        return low, max_high
+    return low, high
 
 
 class DescriptorWalletBackend(BlockchainBackend):
@@ -809,7 +839,24 @@ class DescriptorWalletBackend(BlockchainBackend):
                     "active": is_ranged,  # Only ranged descriptors can be active
                 }
                 if "range" in desc:
-                    request["range"] = _expanded_range(desc_with_checksum, desc["range"])
+                    expanded = _expanded_range(desc_with_checksum, desc["range"])
+                    clamped_low, clamped_high = clamp_descriptor_range(expanded[0], expanded[1])
+                    if clamped_high != expanded[1]:
+                        logger.warning(
+                            "Descriptor range [%d, %d] exceeds Bitcoin Core's "
+                            "limit of %d indices per descriptor; clamping to "
+                            "[%d, %d]. Bitcoin Core would otherwise reject the "
+                            "import with 'Range is too large'. Indices beyond "
+                            "%d cannot be tracked in a single descriptor. See "
+                            "docs/technical/wallet-scanning.md.",
+                            expanded[0],
+                            expanded[1],
+                            MAX_DESCRIPTOR_RANGE,
+                            clamped_low,
+                            clamped_high,
+                            clamped_high,
+                        )
+                    request["range"] = [clamped_low, clamped_high]
                 if "internal" in desc:
                     request["internal"] = desc["internal"]
                 import_requests.append(request)

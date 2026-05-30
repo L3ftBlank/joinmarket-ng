@@ -37,6 +37,25 @@ one.
 grows; `scan_lookback_blocks` is about initial time coverage. For normal
 use the defaults are fine and you never touch them.
 
+### The 1,000,000 index limit
+
+Bitcoin Core's `importdescriptors` rejects any descriptor whose range spans
+more than 1,000,000 indices with the error `Range is too large`. A range of
+`[0, N]` therefore allows at most 1,000,000 addresses per branch (indices
+0 through 999,999), so `scan_range` and `--scan-depth` are capped at
+1,000,000.
+
+JoinMarket NG enforces this cap for you: values above the limit (whether in
+`[wallet].scan_range`, via `jm-wallet rescan --scan-depth`, or through
+automatic range expansion) are clamped down to 1,000,000 with a warning
+rather than being sent to Core and failing the whole import. Earlier versions
+forwarded oversized ranges unchanged, so every descriptor came back with
+`Range is too large` and the wallet was left without any new coverage.
+
+If a wallet genuinely has coins beyond index 999,999 on a single branch, a
+single descriptor cannot track them. This is extremely unlikely in practice;
+reach out before attempting a workaround.
+
 ### Diagnosing and repairing coverage
 
 When the wallet proposes an address you have already used, or a known
@@ -57,8 +76,13 @@ jm-wallet rescan --start-height H # from a known height
 
 # Index-coverage repair: widen the address range, then rescan from genesis.
 # Use this once for wallets migrated from legacy joinmarket-clientserver
-# whose used addresses sit beyond the default range.
+# whose used addresses sit beyond the default range. Capped at 1,000,000
+# (Bitcoin Core's per-descriptor range limit).
 jm-wallet rescan --scan-depth 10000
+
+# Widen the range but only rescan from a known height to save time. Use
+# this when you know all your coins are no older than block H.
+jm-wallet rescan --scan-depth 10000 --start-height H
 ```
 
 Rescans are read-only and run server-side in Bitcoin Core, so they are

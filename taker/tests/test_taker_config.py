@@ -184,6 +184,19 @@ class TestTakerConfig:
         with pytest.raises(ValidationError):
             TakerConfig(mnemonic=sample_mnemonic, scan_range=50)
 
+    def test_scan_range_maximum_is_core_limit(self, sample_mnemonic: str) -> None:
+        """``scan_range`` is capped at Bitcoin Core's per-descriptor limit.
+
+        Core's importdescriptors rejects ranges spanning more than 1,000,000
+        indices with "Range is too large", so the config must reject values
+        above that rather than letting the import fail wholesale at runtime.
+        """
+        config = TakerConfig(mnemonic=sample_mnemonic, scan_range=1_000_000)
+        assert config.scan_range == 1_000_000
+
+        with pytest.raises(ValidationError):
+            TakerConfig(mnemonic=sample_mnemonic, scan_range=1_000_001)
+
     def test_rescan_interval_default(self, sample_mnemonic: str) -> None:
         """Test default rescan interval is 600 seconds (10 minutes)."""
         config = TakerConfig(mnemonic=sample_mnemonic)

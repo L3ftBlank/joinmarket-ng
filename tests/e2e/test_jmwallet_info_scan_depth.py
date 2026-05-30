@@ -297,3 +297,60 @@ async def test_deep_wallet_recovers_with_scan_depth(
         )
     finally:
         await backend.close()
+
+
+@pytest.mark.asyncio
+async def test_core_range_limit_matches_constant(
+    bitcoin_rpc_config: dict[str, str],
+    ensure_blockchain_ready: None,
+) -> None:
+    """Pin ``MAX_DESCRIPTOR_RANGE`` to Bitcoin Core's actual range limit.
+
+    Regression test for the "Range is too large" bug. Core's
+    ``ParseDescriptorRange`` rejects a descriptor whose range span exceeds
+    1,000,000 indices with ``code -8 "Range is too large"`` (the rejection is
+    fast: it happens before any keypool expansion). JoinMarket NG clamps
+    requested ranges down to ``MAX_DESCRIPTOR_RANGE - 1`` so the import is
+    never rejected wholesale (which previously left the wallet without any
+    coverage).
+
+    Here we verify directly against a real node that ``high ==
+    MAX_DESCRIPTOR_RANGE`` is exactly the first value Core rejects, locking
+    our constant to Core's behavior. We deliberately do not assert the
+    accept path at ``high == MAX_DESCRIPTOR_RANGE - 1``: Core would accept it,
+    but expanding the 1,000,000-entry keypool takes well over a minute per
+    descriptor, which is covered cheaply by the unit tests instead.
+    """
+    from jmwallet.backends.descriptor_wallet import MAX_DESCRIPTOR_RANGE
+
+    mnemonic = _make_unique_mnemonic()
+    wallet, backend = await _new_jm_wallet(bitcoin_rpc_config, mnemonic)
+    try:
+        await backend.create_wallet(disable_private_keys=True)
+        xpub = wallet.get_account_xpub(0)
+        info = await backend._rpc_call(
+            "getdescriptorinfo", [f"wpkh({xpub}/0/*)"], use_wallet=False
+        )
+        desc = info["descriptor"]
+
+        # high == MAX_DESCRIPTOR_RANGE is one past the largest accepted span
+        # and must be rejected with the exact "Range is too large" error.
+        result = await backend._rpc_call(
+            "importdescriptors",
+            [
+                [
+                    {
+                        "desc": desc,
+                        "range": [0, MAX_DESCRIPTOR_RANGE],
+                        "timestamp": "now",
+                        "active": False,
+                    }
+                ]
+            ],
+        )
+        assert result[0]["success"] is False
+        assert "Range is too large" in result[0]["error"]["message"], (
+            f"unexpected error for over-limit range: {result[0]}"
+        )
+    finally:
+        await backend.close()

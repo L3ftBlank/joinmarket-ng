@@ -370,13 +370,18 @@ class WalletSettings(BaseModel):
     scan_range: int = Field(
         default=1000,
         ge=100,
+        # Bitcoin Core's importdescriptors rejects ranges spanning more than
+        # 1,000,000 indices with "Range is too large", so this is the hard cap.
+        le=1_000_000,
         description=(
             "Initial descriptor scan range: the max address index per branch "
             "imported into Bitcoin Core's descriptor wallet (default 1000, "
             "matching Core's keypool lookahead). It auto-expands as addresses "
-            "are used. To widen the range for an already-imported wallet (e.g. "
-            "one migrated from legacy joinmarket-clientserver with deep "
-            "addresses), run ``jm-wallet rescan --scan-depth N`` once. See "
+            "are used. Capped at 1,000,000, which is Bitcoin Core's "
+            "per-descriptor range limit (larger values are rejected with "
+            "'Range is too large'). To widen the range for an already-imported "
+            "wallet (e.g. one migrated from legacy joinmarket-clientserver with "
+            "deep addresses), run ``jm-wallet rescan --scan-depth N`` once. See "
             "docs/technical/wallet-scanning.md."
         ),
     )

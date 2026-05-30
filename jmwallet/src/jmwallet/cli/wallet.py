@@ -1242,7 +1242,8 @@ def rescan(
             help=(
                 "Block height to rescan from (default: 0 = genesis). The "
                 "wallet's recorded creation height is used as a floor when "
-                "available, so values below it are clamped up automatically."
+                "available, so values below it are clamped up automatically. "
+                "Honored both on its own and together with --scan-depth."
             ),
         ),
     ] = 0,
@@ -1281,6 +1282,8 @@ def rescan(
     - Index coverage: a used address sits beyond the imported address range
       (common for wallets migrated from legacy joinmarket-clientserver). Pass
       `--scan-depth N` to widen the range to N per branch, then rescan.
+      `--scan-depth` can be combined with `--start-height H` to widen the
+      range and only rescan from height H (defaults to genesis).
 
     Rescans are slow (20+ minutes on mainnet from genesis) but read-only. The
     scan runs server-side in Bitcoin Core, so Ctrl-C only stops the progress
@@ -1344,11 +1347,11 @@ async def _run_rescan(
     """Implementation of ``jm-wallet rescan``.
 
     When ``scan_depth`` is set, descriptors are first re-imported at the
-    wider range (index-coverage repair) and a full rescan from genesis is
-    driven by ``setup_descriptor_wallet``; ``start_height`` is ignored in
-    that case because widening the range requires scanning from block 0.
-    Otherwise a plain block rescan from ``start_height`` is run against the
-    current descriptor range (time-coverage repair).
+    wider range without scanning (index-coverage repair), then a block
+    rescan from ``start_height`` is run so a user-supplied ``--start-height``
+    is honored (it defaults to 0 = genesis). Otherwise a plain block rescan
+    from ``start_height`` is run against the current descriptor range
+    (time-coverage repair).
     """
     from jmwallet.backends.descriptor_wallet import (
         DescriptorWalletBackend,
@@ -1382,18 +1385,49 @@ async def _run_rescan(
         print("Before rescan:")
         _print_scan_status(pre_status)
 
+        # Clamp to wallet creation height when it is more recent than the
+        # requested start, mirroring what setup_descriptor_wallet does.
+        effective_start = max(start_height, creation_height or 0)
+
         if scan_depth is not None:
-            # Index-coverage repair: re-import descriptors at the wider range
-            # and rescan from genesis. This is the path for wallets whose
-            # used addresses sit beyond the imported range (e.g. migrated
-            # from legacy joinmarket-clientserver). smart_scan=False and
-            # background_full_rescan=False force a synchronous scan from
-            # block 0 so coverage is complete when the command returns.
+            # Index-coverage repair: re-import descriptors at the wider range,
+            # then rescan. This is the path for wallets whose used addresses
+            # sit beyond the imported range (e.g. migrated from legacy
+            # joinmarket-clientserver).
+            #
+            # The widening import itself uses rescan=False (timestamp="now"),
+            # so it only registers the new addresses without scanning. The
+            # actual rescan is then driven from ``effective_start`` so that a
+            # user-supplied ``--start-height`` is honored (it was previously
+            # ignored, forcing a full genesis scan). Without ``--start-height``
+            # this still scans from genesis (start_height defaults to 0).
+            from jmwallet.wallet.constants import MAX_DESCRIPTOR_RANGE
             from jmwallet.wallet.service import WalletService
 
+            # Bitcoin Core rejects descriptor ranges spanning more than
+            # MAX_DESCRIPTOR_RANGE indices with "Range is too large". Cap the
+            # requested depth so the import succeeds instead of failing wholesale
+            # and leaving the wallet without coverage.
+            if scan_depth > MAX_DESCRIPTOR_RANGE:
+                logger.warning(
+                    f"--scan-depth {scan_depth} exceeds Bitcoin Core's "
+                    f"per-descriptor range limit of {MAX_DESCRIPTOR_RANGE}; "
+                    f"capping to {MAX_DESCRIPTOR_RANGE}. Addresses beyond index "
+                    f"{MAX_DESCRIPTOR_RANGE - 1} cannot be tracked in a single "
+                    "descriptor. See docs/technical/wallet-scanning.md."
+                )
+                scan_depth = MAX_DESCRIPTOR_RANGE
+
+            if effective_start != start_height:
+                print(
+                    f"\nUsing wallet creation height {effective_start} "
+                    f"(requested {start_height}) as the rescan floor."
+                )
+            start_desc = "genesis" if effective_start == 0 else f"height {effective_start}"
             print(
                 f"\nWidening descriptor range to [0, {scan_depth - 1}] per branch "
-                "and rescanning from genesis. This may take 20+ minutes on mainnet."
+                f"and rescanning from {start_desc}. This may take 20+ minutes "
+                "on mainnet when scanning from genesis."
             )
             wallet = WalletService(
                 mnemonic=mnemonic,
@@ -1405,21 +1439,30 @@ async def _run_rescan(
                 passphrase=bip39_passphrase,
                 data_dir=backend_settings.data_dir,
             )
+            # Register the wider range without scanning (rescan=False), then
+            # run an explicit block rescan from the requested height below.
             await wallet.setup_descriptor_wallet(
                 scan_range=scan_depth,
-                rescan=True,
+                rescan=False,
                 check_existing=False,
                 smart_scan=False,
                 background_full_rescan=False,
             )
+            await backend.start_background_rescan(start_height=effective_start)
+            try:
+                await _await_rescan_completion(backend)
+            except KeyboardInterrupt:
+                print(
+                    "\nPolling interrupted. The rescan continues in Bitcoin Core; "
+                    "check status with `jm-wallet info --scan-status`."
+                )
+                return
             post_status = await backend.get_wallet_scan_status()
             print("\nAfter rescan:")
             _print_scan_status(post_status)
             return
 
-        # Clamp to wallet creation height when it is more recent than the
-        # requested start, mirroring what setup_descriptor_wallet does.
-        effective_start = max(start_height, creation_height or 0)
+        # Time-coverage repair: plain block rescan against the current range.
         if effective_start != start_height:
             print(
                 f"\nUsing wallet creation height {effective_start} "

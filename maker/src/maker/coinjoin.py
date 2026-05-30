@@ -127,38 +127,50 @@ class CoinJoinSession:
 
     def validate_channel(self, source: str) -> bool:
         """
-        Validate that message comes from the same channel TYPE as the session.
+        Record the channel a message arrived on (always accepts the message).
 
-        We only check that "direct" vs "directory" are not mixed. Messages arriving
-        from different directory servers (dir:serverA vs dir:serverB) are expected
-        because takers broadcast to ALL directory servers.
+        We track "direct" vs "directory" only for diagnostics. Switching between
+        them mid-session is legitimate: the reference implementation routes each
+        privmsg opportunistically (``jmdaemon/onionmc.py::_privmsg``). A taker
+        typically sends ``!fill`` via a directory while a direct connection is
+        still being established, then sends ``!auth``/``!tx`` over the direct
+        connection once it handshakes. This is normal, not an attack.
 
-        Mixing channel types (e.g., !fill via directory, !auth via direct) could indicate:
-        - Session confusion attack
-        - Accidental misconfiguration
-        - Network issues causing routing inconsistency
+        Mixing channel types is harmless here because:
+        - Anti-replay protection signs every privmsg with a fixed
+          ``hostid="onion-network"`` (the reference implementation treats all
+          onion channels as one host), so signatures are not bound to a single
+          transport and cannot be replayed across an attacker-chosen channel.
+        - The maker fans its own responses out over all directories regardless
+          of ``comm_channel``, so the recorded channel never gates routing.
+
+        Messages from different directory servers (dir:serverA vs dir:serverB)
+        are likewise expected because takers broadcast to ALL directory servers.
 
         Args:
             source: Message source ("direct" or "dir:<node_id>")
 
         Returns:
-            True if channel is valid, False if it violates consistency
+            Always True. The return type is preserved for backward
+            compatibility with callers that branch on the result.
         """
         source_type = self._get_channel_type(source)
 
         if not self.comm_channel:
-            # First message - record the channel type
+            # First message - record the channel type.
             self.comm_channel = source_type
             logger.debug(f"Session with {self.taker_nick} established on channel: {source_type}")
             return True
 
         if self.comm_channel != source_type:
-            logger.warning(
-                f"Channel consistency violation for {self.taker_nick}: "
+            # Legitimate opportunistic channel switch (e.g. directory -> direct).
+            # Log at debug level and follow the taker to its new channel.
+            logger.debug(
+                f"Channel switch for {self.taker_nick}: "
                 f"session started on '{self.comm_channel}', "
-                f"received message on '{source_type}'"
+                f"now receiving on '{source_type}' (accepted)"
             )
-            return False
+            self.comm_channel = source_type
 
         return True
 

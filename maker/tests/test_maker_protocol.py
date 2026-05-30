@@ -212,11 +212,13 @@ async def test_multiple_maker_sessions():
 
 @pytest.mark.asyncio
 async def test_channel_consistency_validation():
-    """Test CoinJoinSession enforces channel consistency.
+    """CoinJoinSession records the channel without rejecting switches.
 
-    Channel consistency only checks "direct" vs "directory" channel TYPES.
-    Messages from different directory servers are allowed because the JoinMarket
-    protocol broadcasts to all directories, but mixing direct and directory is not.
+    Different directory servers (dir:serverA vs dir:serverB) are expected because
+    takers broadcast to all directories. A direct<->directory switch mid-session
+    is also legitimate: the reference taker routes each privmsg opportunistically,
+    so !fill may arrive via a directory while a direct connection is still being
+    established, and !auth/!tx then arrive directly (issue #515).
     """
     from unittest.mock import MagicMock
 
@@ -256,14 +258,19 @@ async def test_channel_consistency_validation():
     assert session.validate_channel("dir:node2") is True  # Different server is OK!
     assert session.comm_channel == "directory"
 
-    # Message from different channel TYPE should fail
-    assert session.validate_channel("direct") is False
-    assert session.comm_channel == "directory"  # Channel unchanged
+    # Switching to direct mid-session is accepted (opportunistic direct connect),
+    # and the recorded channel follows the taker to its new transport.
+    assert session.validate_channel("direct") is True
+    assert session.comm_channel == "direct"
+
+    # Switching back to directory is likewise accepted.
+    assert session.validate_channel("dir:node1") is True
+    assert session.comm_channel == "directory"
 
 
 @pytest.mark.asyncio
 async def test_channel_consistency_direct_first():
-    """Test channel consistency when direct connection is established first."""
+    """Channel recording when a direct connection is established first."""
     from unittest.mock import MagicMock
 
     from jmcore.models import Offer, OfferType
@@ -295,10 +302,14 @@ async def test_channel_consistency_direct_first():
     assert session.validate_channel("direct") is True
     assert session.comm_channel == "direct"
 
-    # All subsequent messages must also be direct
+    # Subsequent direct messages keep the channel recorded as direct.
     assert session.validate_channel("direct") is True
-    assert session.validate_channel("dir:node1") is False
-    assert session.comm_channel == "direct"  # Unchanged
+    assert session.comm_channel == "direct"
+
+    # A later message via a directory is accepted (taker fell back to relay),
+    # and the recorded channel follows it.
+    assert session.validate_channel("dir:node1") is True
+    assert session.comm_channel == "directory"
 
 
 @pytest.mark.asyncio

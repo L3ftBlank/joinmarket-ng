@@ -147,10 +147,9 @@ class MakerSession:
         """
         taker_nick = self.taker_nick
         try:
-            if not self.validate_channel(source):
-                logger.error(f"Channel consistency violation for !auth from {taker_nick}")
-                bot.active_sessions.pop(taker_nick, None)
-                return
+            # Record the channel (always accepted; takers may switch
+            # direct<->directory mid-session, see validate_channel).
+            self.validate_channel(source)
 
             if self.state != CoinJoinState.PUBKEY_SENT:
                 logger.debug(
@@ -285,10 +284,9 @@ class MakerSession:
         """
         taker_nick = self.taker_nick
         try:
-            if not self.validate_channel(source):
-                logger.error(f"Channel consistency violation for !tx from {taker_nick}")
-                bot.active_sessions.pop(taker_nick, None)
-                return
+            # Record the channel (always accepted; takers may switch
+            # direct<->directory mid-session, see validate_channel).
+            self.validate_channel(source)
 
             if self.state != CoinJoinState.IOAUTH_SENT:
                 logger.debug(

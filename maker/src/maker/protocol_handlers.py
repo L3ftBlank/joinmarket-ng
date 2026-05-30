@@ -458,10 +458,10 @@ class ProtocolHandlersMixin:
             )
             session = MakerSession(inner=session_inner)
 
-            # Validate channel consistency (first message records the channel)
-            if not session.validate_channel(source):
-                logger.error(f"Channel consistency violation for !fill from {taker_nick}")
-                return
+            # Record the channel this !fill arrived on (always accepted; a
+            # taker may switch direct<->directory mid-session, see
+            # CoinJoinSession.validate_channel).
+            session.validate_channel(source)
 
             # Pass the taker's NaCl pubkey for setting up encryption
             success, response = await session.handle_fill(amount, commitment, taker_pk)

@@ -31,7 +31,7 @@ Primary goals:
 
 - use multiple directory servers where possible
 - prefer direct maker/taker channels when available
-- enforce channel/session consistency during CoinJoin flow
+- enforce per-message signatures and a strict session state machine during the CoinJoin flow (takers may switch transport mid-session)
 
 ## Neutrino Notes
 

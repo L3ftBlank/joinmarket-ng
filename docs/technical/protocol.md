@@ -132,8 +132,8 @@ JoinMarket supports two routing modes:
 - Higher latency, directory sees metadata
 - Reliable fallback for restrictive networks
 
-**Channel Consistency:**
-Once a channel is established for a session, all subsequent messages must use the same channel. This prevents session confusion attacks.
+**Channel Selection:**
+A taker pins a single channel per maker before sending `!fill` and reuses it for the whole session. The reference taker, however, routes each message opportunistically: it sends `!fill` via a directory while a direct connection is still being established, then sends `!auth`/`!tx` over the direct connection once it handshakes. Makers therefore track the channel for diagnostics but accept such switches rather than aborting the session. Replay across channels is prevented by signing every message with a fixed `hostid` (`onion-network`) shared by all onion transports, not by pinning the transport.
 
 ### Handshake Protocol
 

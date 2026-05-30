@@ -130,11 +130,17 @@ funds; backups and mnemonic hygiene are out of scope here and live in
 - **Threat**: A peer or relay tries to mix messages from different
   CoinJoin sessions or replay messages from another channel.
 - **Mitigations**:
-    - **Channel stickiness.** Once a session establishes a channel, all
-      subsequent messages must use that channel
-      ([Protocol](protocol.md)).
+    - **Signature binding.** Every private message is signed by the
+      sender's nick key, and the maker enforces a strict state machine
+      so out-of-order or replayed messages are dropped. Anti-replay uses
+      a fixed `hostid` (`onion-network`) shared by all onion transports,
+      so a relay cannot replay a message onto an attacker-chosen channel.
     - **Strict state machine.** Makers only accept the expected message
       for the current session state.
+    - **Transport flexibility.** A taker may legitimately switch between
+      directory relay and a direct connection mid-session (the reference
+      taker routes each message opportunistically), so the maker tracks
+      but does not reject such switches ([Protocol](protocol.md)).
 
 ### Network-Level Identity Linkage
 

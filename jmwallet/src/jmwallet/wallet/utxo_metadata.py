@@ -36,13 +36,25 @@ from __future__ import annotations
 
 import json
 import tempfile
-from collections.abc import Iterable
+import time
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from loguru import logger
 
+try:
+    import fcntl  # POSIX advisory locks; absent on Windows.
+except ImportError:  # pragma: no cover - non-POSIX platforms
+    fcntl = None  # type: ignore[assignment]
+
 USED_LABEL_PREFIX = "jm:used"
+
+# Default lifetime of a temporary CoinJoin UTXO lock. A round that fails,
+# crashes, or is killed without releasing its locks will have them auto-expire
+# after this many seconds, so funds are never blocked permanently.
+DEFAULT_COINJOIN_LOCK_TTL = 600.0
 
 
 @dataclass
@@ -59,23 +71,47 @@ class OutputRecord:
     ref: str
     spendable: bool | None = None
     label: str | None = None
+    lock_until: float | None = None
 
     @property
     def is_frozen(self) -> bool:
         """Whether this UTXO is frozen (not spendable)."""
         return self.spendable is False
 
-    def to_dict(self) -> dict[str, str | bool]:
-        """Serialize to a BIP-329 JSON dict."""
-        d: dict[str, str | bool] = {"type": "output", "ref": self.ref}
+    def is_locked(self, now: float) -> bool:
+        """Whether this UTXO holds a non-expired temporary CoinJoin lock.
+
+        A lock is a *time-limited* reservation (distinct from a user freeze):
+        it is set while an input is committed to an in-flight CoinJoin so that
+        another concurrent round (in this or another process, maker or taker)
+        does not select the same UTXO and create a conflicting transaction. It
+        auto-expires after ``lock_until`` so a crashed/killed round never blocks
+        funds forever.
+        """
+        return self.lock_until is not None and self.lock_until > now
+
+    @property
+    def has_metadata(self) -> bool:
+        """Whether this record carries any state worth persisting."""
+        return self.spendable is not None or self.label is not None or self.lock_until is not None
+
+    def to_dict(self) -> dict[str, str | bool | float]:
+        """Serialize to a BIP-329 JSON dict.
+
+        ``jm_lock_until`` is a JoinMarket extension (other BIP-329 consumers
+        ignore unknown keys); it carries the temporary CoinJoin lock expiry.
+        """
+        d: dict[str, str | bool | float] = {"type": "output", "ref": self.ref}
         if self.spendable is not None:
             d["spendable"] = self.spendable
         if self.label is not None:
             d["label"] = self.label
+        if self.lock_until is not None:
+            d["jm_lock_until"] = self.lock_until
         return d
 
     @classmethod
-    def from_dict(cls, d: dict[str, str | bool]) -> OutputRecord | None:
+    def from_dict(cls, d: dict[str, str | bool | float]) -> OutputRecord | None:
         """Deserialize from a BIP-329 JSON dict.
 
         Returns None if the record is not a valid output record.
@@ -91,7 +127,13 @@ class OutputRecord:
         label = d.get("label")
         if label is not None and not isinstance(label, str):
             label = str(label)
-        return cls(ref=ref, spendable=spendable, label=label)
+        lock_until_raw = d.get("jm_lock_until")
+        lock_until: float | None
+        if isinstance(lock_until_raw, (int, float)) and not isinstance(lock_until_raw, bool):
+            lock_until = float(lock_until_raw)
+        else:
+            lock_until = None
+        return cls(ref=ref, spendable=spendable, label=label, lock_until=lock_until)
 
 
 @dataclass
@@ -266,9 +308,7 @@ class UTXOMetadataStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
         # Filter out output records that carry no useful metadata
-        outputs_to_write = [
-            r for r in self.records.values() if r.spendable is not None or r.label is not None
-        ]
+        outputs_to_write = [r for r in self.records.values() if r.has_metadata]
         outputs_to_write.sort(key=lambda r: r.ref)
 
         addr_records_to_write = sorted(self.address_records.values(), key=lambda r: r.ref)
@@ -352,8 +392,8 @@ class UTXOMetadataStore:
             # Already unfrozen (no record means spendable)
             return
 
-        if record.label is not None:
-            # Keep the record for the label, just mark as spendable
+        if record.label is not None or record.lock_until is not None:
+            # Keep the record for the label / active CoinJoin lock.
             record.spendable = True
         else:
             # No other metadata -- remove entirely
@@ -377,6 +417,115 @@ class UTXOMetadataStore:
         else:
             self.freeze(outpoint)
             return True
+
+    # -- Temporary CoinJoin locks --------------------------------------------
+    #
+    # A lock is a *time-limited* reservation on an input that is committed to an
+    # in-flight CoinJoin. It is persisted in the same JSONL file (via
+    # ``jm_lock_until``) so that other processes -- another taker round, or a
+    # maker serving a different taker -- re-read it right before coin selection
+    # and never pick the same UTXO. Picking the same input twice produces
+    # conflicting, mutually double-spending transactions; the one broadcast
+    # second is rejected ("insufficient fee, rejecting replacement"). Locks
+    # auto-expire (``lock_until``) so a crashed or killed round cannot block
+    # funds forever, and acquisition is serialized across processes with an
+    # advisory file lock so two processes cannot both win the same UTXO.
+
+    @property
+    def _flock_path(self) -> Path:
+        return self.path.with_suffix(".lock")
+
+    @contextmanager
+    def _exclusive_file_lock(self) -> Iterator[None]:
+        """Serialize lock acquisition/release across processes.
+
+        Uses a POSIX advisory lock on a sidecar ``.lock`` file. The metadata
+        file itself is replaced via rename on every save, which would break a
+        lock held on its inode, so we lock a stable sidecar path instead. On
+        platforms without ``fcntl`` this degrades to a no-op (atomic rename
+        still prevents corruption; only the rare lost-update race remains).
+        """
+        if fcntl is None:  # pragma: no cover - non-POSIX platforms
+            yield
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self._flock_path, "w", encoding="utf-8") as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+
+    def _prune_expired_locks(self, now: float) -> None:
+        """Clear expired ``lock_until`` markers and drop now-empty records."""
+        for ref in list(self.records.keys()):
+            record = self.records[ref]
+            if record.lock_until is not None and record.lock_until <= now:
+                record.lock_until = None
+                if not record.has_metadata:
+                    del self.records[ref]
+
+    def get_locked_outpoints(self, now: float | None = None) -> set[str]:
+        """Return outpoints currently holding a non-expired CoinJoin lock.
+
+        Note: reads in-memory state. Call :meth:`load` first to observe locks
+        written by other processes.
+        """
+        if now is None:
+            now = time.time()
+        return {ref for ref, record in self.records.items() if record.is_locked(now)}
+
+    def try_lock_outpoints(
+        self, outpoints: Iterable[str], ttl: float = DEFAULT_COINJOIN_LOCK_TTL
+    ) -> bool:
+        """Atomically lock ``outpoints`` for ``ttl`` seconds.
+
+        Reloads on-disk state under an exclusive file lock so concurrent
+        processes cannot both acquire the same UTXO. Fails (returning False,
+        locking nothing) if any requested outpoint is frozen or already locked
+        by another in-flight round.
+
+        Returns:
+            True if all outpoints were locked; False on conflict.
+        """
+        wanted = set(outpoints)
+        if not wanted:
+            return True
+        with self._exclusive_file_lock():
+            self.load()
+            now = time.time()
+            self._prune_expired_locks(now)
+            for ref in wanted:
+                record = self.records.get(ref)
+                if record is not None and (record.is_frozen or record.is_locked(now)):
+                    return False
+            for ref in wanted:
+                record = self.records.get(ref)
+                if record is None:
+                    record = OutputRecord(ref=ref)
+                    self.records[ref] = record
+                record.lock_until = now + ttl
+            self.save()
+        return True
+
+    def release_outpoints(self, outpoints: Iterable[str]) -> None:
+        """Clear CoinJoin locks on ``outpoints`` (no-op for unlocked ones)."""
+        wanted = set(outpoints)
+        if not wanted:
+            return
+        with self._exclusive_file_lock():
+            self.load()
+            changed = False
+            for ref in wanted:
+                record = self.records.get(ref)
+                if record is not None and record.lock_until is not None:
+                    record.lock_until = None
+                    changed = True
+                    if not record.has_metadata:
+                        del self.records[ref]
+            self._prune_expired_locks(time.time())
+            if changed:
+                self.save()
 
     def set_label(self, outpoint: str, label: str | None) -> None:
         """Set or clear the label for a UTXO and persist.

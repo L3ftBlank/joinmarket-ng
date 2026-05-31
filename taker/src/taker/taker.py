@@ -252,6 +252,20 @@ class Taker(TakerMonitoringMixin):
         await self.sync_wallet()
         await self.connect()
 
+    def release_input_locks(self) -> None:
+        """Release persisted CoinJoin locks held on this round's taker inputs.
+
+        Call on failure so the inputs become selectable again immediately
+        instead of waiting for the lock TTL. On success the inputs are spent,
+        so locks are left to auto-expire. Safe to call when nothing is reserved.
+        """
+        if self._session and self._session.reserved_inputs:
+            try:
+                self.wallet.release_coinjoin_inputs(self._session.reserved_inputs)
+            except Exception as e:  # pragma: no cover - best-effort cleanup
+                logger.debug(f"Failed to release taker input locks: {e}")
+            self._session.reserved_inputs = set()
+
     async def stop(self, *, close_wallet: bool = True) -> None:
         """Stop the taker and close connections.
 
@@ -768,10 +782,16 @@ class Taker(TakerMonitoringMixin):
                     )
                     estimated_required = self._session.cj_amount + total_fee + estimated_tx_fee
 
-                    # Pre-select UTXOs for the CoinJoin
+                    # Pre-select UTXOs for the CoinJoin, skipping any inputs
+                    # locked by another in-flight round (this or another process
+                    # on the same wallet) so we don't build a conflicting tx.
+                    locked_inputs = self.wallet.get_locked_input_outpoints()
                     try:
                         self._session.preselected_utxos = self.wallet.select_utxos(
-                            mixdepth, estimated_required, self.config.taker_utxo_age
+                            mixdepth,
+                            estimated_required,
+                            self.config.taker_utxo_age,
+                            exclude=locked_inputs,
                         )
                         preselected = self._session.preselected_utxos
                         logger.info(
@@ -795,6 +815,23 @@ class Taker(TakerMonitoringMixin):
                         self._session.last_failure_reason = reason
                         self.state = TakerState.FAILED
                         return None
+
+            # "Block first, then continue": persist a lock on our chosen inputs
+            # before negotiating with makers, so a concurrent round on the same
+            # wallet cannot pick the same UTXO and produce a conflicting
+            # transaction. The lock auto-expires (and is released on failure),
+            # so a crash never blocks these funds permanently.
+            to_reserve = {(u.txid, u.vout) for u in self._session.preselected_utxos}
+            if not self.wallet.reserve_coinjoin_inputs(to_reserve):
+                reason = (
+                    "Selected UTXOs are locked by another in-flight CoinJoin on "
+                    "this wallet (avoid running concurrent rounds on one wallet)."
+                )
+                logger.error(reason)
+                self._session.last_failure_reason = reason
+                self.state = TakerState.FAILED
+                return None
+            self._session.reserved_inputs |= to_reserve
 
             # Initialize maker sessions - neutrino_compat will be detected during handshake
             # when we receive the !pubkey response with features field

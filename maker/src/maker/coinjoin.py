@@ -240,7 +240,11 @@ class CoinJoinSession:
             return False, {"error": str(e)}
 
     async def handle_auth(
-        self, commitment: str, revelation: dict[str, Any], kphex: str
+        self,
+        commitment: str,
+        revelation: dict[str, Any],
+        kphex: str,
+        exclude_utxos: set[tuple[str, int]] | None = None,
     ) -> tuple[bool, dict[str, Any]]:
         """
         Handle !auth message from taker.
@@ -251,6 +255,9 @@ class CoinJoinSession:
             commitment: PoDLE commitment (should match from !fill)
             revelation: PoDLE revelation data
             kphex: Encryption key (hex)
+            exclude_utxos: ``(txid, vout)`` outpoints already committed to other
+                in-flight sessions; never selected as our inputs (see
+                :meth:`_select_our_utxos`).
 
         Returns:
             (success, response_data with UTXOs or error)
@@ -391,7 +398,9 @@ class CoinJoinSession:
                 f"value={taker_utxo_value} sats, confirmations={taker_utxo_confirmations}"
             )
 
-            utxos_dict, cj_addr, change_addr, mixdepth = await self._select_our_utxos()
+            utxos_dict, cj_addr, change_addr, mixdepth = await self._select_our_utxos(
+                exclude_utxos=exclude_utxos
+            )
 
             if not utxos_dict:
                 return False, {"error": "Failed to select UTXOs"}
@@ -527,6 +536,7 @@ class CoinJoinSession:
 
     async def _select_our_utxos(
         self,
+        exclude_utxos: set[tuple[str, int]] | None = None,
     ) -> tuple[dict[tuple[str, int], UTXOInfo], str, str, int]:
         """
         Select our UTXOs for the CoinJoin.
@@ -536,6 +546,13 @@ class CoinJoinSession:
         - gradual: +1 additional UTXO
         - greedy: ALL UTXOs from the mixdepth
         - random: +0 to +2 additional UTXOs
+
+        Args:
+            exclude_utxos: ``(txid, vout)`` outpoints that must not be selected
+                because another concurrent session has already committed them.
+                Without this, two overlapping sessions could pick the same UTXO
+                and produce conflicting transactions; the one broadcast second is
+                rejected (e.g. "insufficient fee, rejecting replacement").
 
         Returns:
             (utxos_dict, cj_address, change_address, mixdepth)
@@ -572,6 +589,13 @@ class CoinJoinSession:
 
             max_mixdepth = max(eligible_mixdepths, key=lambda md: eligible_mixdepths[md])
 
+            # Exclude inputs already committed to another in-flight CoinJoin
+            # (this process or another, maker or taker): re-read the persisted
+            # locks right before choosing so we never sign the same UTXO into
+            # two concurrent transactions (which would double-spend each other).
+            exclude = set(exclude_utxos or set())
+            exclude |= self.wallet.get_locked_input_outpoints()
+
             # Use merge algorithm for UTXO selection
             # Makers can consolidate UTXOs "for free" since takers pay all fees
             selected = self.wallet.select_utxos_with_merge(
@@ -580,9 +604,24 @@ class CoinJoinSession:
                 self.min_confirmations,
                 merge_algorithm=self.merge_algorithm,
                 restrict_md0=self.restrict_md0,
+                exclude=exclude,
             )
 
             utxos_dict = {(utxo.txid, utxo.vout): utxo for utxo in selected}
+
+            # "Block first, then continue": persist a lock on the chosen inputs
+            # before revealing them to the taker. Acquisition is atomic across
+            # processes; on conflict (a racing round grabbed one first) decline
+            # this session rather than risk a conflicting transaction. The lock
+            # auto-expires, so a crashed round never blocks these funds forever.
+            if not self.wallet.reserve_coinjoin_inputs(
+                set(utxos_dict.keys()), ttl=self.session_timeout_sec
+            ):
+                logger.warning(
+                    "Selected UTXOs were locked by a concurrent session; "
+                    "declining this CoinJoin to avoid a conflicting transaction"
+                )
+                return {}, "", "", -1
 
             cj_output_mixdepth = (max_mixdepth + 1) % self.wallet.mixdepth_count
             cj_index = self.wallet.get_next_address_index(cj_output_mixdepth, 1)

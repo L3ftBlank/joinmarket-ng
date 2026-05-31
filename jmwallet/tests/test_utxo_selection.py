@@ -294,6 +294,101 @@ class TestGetAllUtxos:
         assert len(all_utxos) == 0
 
 
+class TestServiceCoinJoinLocks:
+    """WalletService-level reserve/release of CoinJoin input locks.
+
+    Verifies the persisted lock excludes inputs from real coin selection so
+    two concurrent rounds can't pick the same UTXO (the maker/taker incident
+    where conflicting transactions were built and the second was rejected).
+    """
+
+    def _attach_store(self, ws, tmp_path):
+        from jmwallet.wallet.utxo_metadata import UTXOMetadataStore
+
+        ws.metadata_store = UTXOMetadataStore(path=tmp_path / "wallet_metadata.jsonl")
+        ws.metadata_store.load()
+
+    def test_reserve_then_excluded_from_selection(self, wallet_service, tmp_path):
+        self._attach_store(wallet_service, tmp_path)
+        # Reserve the largest md1 UTXO (f=100k).
+        assert wallet_service.reserve_coinjoin_inputs({("f" * 64, 0)}) is True
+        assert wallet_service.get_locked_input_outpoints() == {("f" * 64, 0)}
+
+        locked = wallet_service.get_locked_input_outpoints()
+        selected = wallet_service.select_utxos_with_merge(
+            1, 90_000, min_confirmations=1, exclude=locked
+        )
+        assert ("f" * 64, 0) not in {(u.txid, u.vout) for u in selected}
+
+    def test_reserve_conflict(self, wallet_service, tmp_path):
+        self._attach_store(wallet_service, tmp_path)
+        assert wallet_service.reserve_coinjoin_inputs({("f" * 64, 0)}) is True
+        # A second reservation of the same outpoint conflicts.
+        assert wallet_service.reserve_coinjoin_inputs({("f" * 64, 0)}) is False
+
+    def test_release(self, wallet_service, tmp_path):
+        self._attach_store(wallet_service, tmp_path)
+        wallet_service.reserve_coinjoin_inputs({("f" * 64, 0), ("g" * 64, 0)})
+        wallet_service.release_coinjoin_inputs({("f" * 64, 0)})
+        assert wallet_service.get_locked_input_outpoints() == {("g" * 64, 0)}
+
+    def test_no_store_is_noop(self, wallet_service):
+        # No metadata store (no data dir): locking is best-effort, returns True.
+        wallet_service.metadata_store = None
+        assert wallet_service.reserve_coinjoin_inputs({("f" * 64, 0)}) is True
+        assert wallet_service.get_locked_input_outpoints() == set()
+        wallet_service.release_coinjoin_inputs({("f" * 64, 0)})  # no raise
+
+
+class TestSelectUtxosExclude:
+    """``exclude`` on the basic select_utxos() (taker path)."""
+
+    def test_exclude_skips_outpoint(self, wallet_service: WalletService):
+        selected = wallet_service.select_utxos(
+            1, 90_000, min_confirmations=1, exclude={("f" * 64, 0)}
+        )
+        assert ("f" * 64, 0) not in {(u.txid, u.vout) for u in selected}
+        assert sum(u.value for u in selected) >= 90_000
+
+
+class TestSelectUtxosWithMergeExclude:
+    """Tests for the ``exclude`` parameter of select_utxos_with_merge().
+
+    Makers pass UTXOs that are already committed to another in-flight CoinJoin
+    session so the same input is never signed into two concurrent transactions
+    (which would double-spend each other; the one broadcast second is rejected
+    with "insufficient fee, rejecting replacement"). See the maker incident
+    where rounds 2215 and 2216 shared five inputs.
+    """
+
+    def test_exclude_skips_committed_utxo(self, wallet_service: WalletService):
+        """An excluded outpoint is never selected, even though it would fit."""
+        # md1: f=100k (largest). Exclude it; 90k must then come from g/h/i.
+        excluded = {("f" * 64, 0)}
+        selected = wallet_service.select_utxos_with_merge(
+            1, 90_000, min_confirmations=1, exclude=excluded
+        )
+        outpoints = {(u.txid, u.vout) for u in selected}
+        assert ("f" * 64, 0) not in outpoints
+        assert sum(u.value for u in selected) >= 90_000
+
+    def test_exclude_none_selects_normally(self, wallet_service: WalletService):
+        """Without exclusions the largest UTXO is selected as before."""
+        selected = wallet_service.select_utxos_with_merge(1, 90_000, min_confirmations=1)
+        assert ("f" * 64, 0) in {(u.txid, u.vout) for u in selected}
+
+    def test_exclude_can_make_selection_insufficient(self, wallet_service: WalletService):
+        """If all but small UTXOs are committed elsewhere, selection fails cleanly.
+
+        Failing (rather than reusing a committed UTXO) is the desired behaviour:
+        the maker declines the second concurrent fill instead of double-spending.
+        """
+        # md1 total = 210k. Commit everything except j=10k, then ask for 50k.
+        excluded = {(c * 64, 0) for c in ("f", "g", "h", "i")}
+        with pytest.raises(ValueError):
+            wallet_service.select_utxos_with_merge(1, 50_000, min_confirmations=1, exclude=excluded)
+
+
 # ---------------------------------------------------------------------------
 # Mixdepth 0 CoinJoin output exemption tests
 # ---------------------------------------------------------------------------

@@ -740,6 +740,10 @@ class MakerBot(BackgroundTasksMixin, ProtocolHandlersMixin, DirectConnectionMixi
         ]
         for sid in dead_sessions:
             logger.debug("Cleaning up timed out session: {}", sid)
+            # A timed-out session never completed: free its committed inputs so
+            # they can be re-offered (the persisted lock would otherwise hold
+            # them until its TTL).
+            self.active_sessions[sid].release_input_locks()
             del self.active_sessions[sid]
 
         # Ensure rate limiters are cleaned up periodically

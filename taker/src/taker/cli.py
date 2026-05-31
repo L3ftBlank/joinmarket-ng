@@ -650,6 +650,9 @@ async def _run_coinjoin(
             logger.info(f"CoinJoin successful! txid: {txid}")
         else:
             logger.error("CoinJoin failed")
+            # Free our reserved inputs immediately so a retry can reuse them
+            # (otherwise they stay locked until the TTL expires).
+            taker.release_input_locks()
             raise typer.Exit(1)
 
     finally:

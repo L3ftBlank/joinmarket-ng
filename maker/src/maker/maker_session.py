@@ -92,6 +92,19 @@ class MakerSession:
     def our_utxos(self) -> dict[tuple[str, int], UTXOInfo]:
         return self.inner.our_utxos
 
+    def release_input_locks(self) -> None:
+        """Release the persisted CoinJoin locks on our committed inputs.
+
+        Called on terminal *failure* paths so the inputs become selectable
+        again promptly instead of waiting for the lock TTL to expire. On
+        success the inputs are spent, so the lock is left to auto-expire after
+        the broadcast propagates. Safe to call when nothing was reserved.
+        """
+        try:
+            self.inner.wallet.release_coinjoin_inputs(set(self.our_utxos.keys()))
+        except Exception as e:  # pragma: no cover - best-effort cleanup
+            logger.debug(f"Failed to release input locks for {self.taker_nick}: {e}")
+
     @property
     def cj_address(self) -> str:
         return self.inner.cj_address
@@ -128,9 +141,15 @@ class MakerSession:
         return await self.inner.handle_fill(amount, commitment, taker_pk)
 
     async def handle_auth(
-        self, commitment: str, revelation: dict[str, Any], kphex: str
+        self,
+        commitment: str,
+        revelation: dict[str, Any],
+        kphex: str,
+        exclude_utxos: set[tuple[str, int]] | None = None,
     ) -> tuple[bool, dict[str, Any]]:
-        return await self.inner.handle_auth(commitment, revelation, kphex)
+        return await self.inner.handle_auth(
+            commitment, revelation, kphex, exclude_utxos=exclude_utxos
+        )
 
     async def handle_tx(self, tx_hex: str) -> tuple[bool, dict[str, Any]]:
         return await self.inner.handle_tx(tx_hex)
@@ -217,6 +236,11 @@ class MakerSession:
             commitment = self.commitment.hex()
             kphex = ""
 
+            # UTXO selection excludes inputs already committed to other
+            # in-flight rounds via persisted, self-expiring locks (see
+            # WalletService.reserve_coinjoin_inputs / CoinJoinSession.
+            # _select_our_utxos), so the same input is never signed into two
+            # concurrent CoinJoins.
             success, response = await self.handle_auth(commitment, revelation, kphex)
 
             if success:
@@ -271,6 +295,7 @@ class MakerSession:
                         error_msg,
                     )
                 )
+                self.release_input_locks()
                 bot.active_sessions.pop(taker_nick, None)
 
         except Exception as e:
@@ -391,6 +416,8 @@ class MakerSession:
                         taker_nick, "TX verification failed", response.get("error", "")
                     )
                 )
+                # CoinJoin failed: free our inputs now (don't wait for the TTL).
+                self.release_input_locks()
                 bot.active_sessions.pop(taker_nick, None)
 
         except Exception as e:

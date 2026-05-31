@@ -27,6 +27,7 @@ class CoinSelectionMixin:
         include_fidelity_bonds: bool = False,
         *,
         restrict_md0: bool = True,
+        exclude: set[tuple[str, int]] | None = None,
     ) -> list[UTXOInfo]:
         """
         Select UTXOs for spending from a mixdepth.
@@ -44,6 +45,10 @@ class CoinSelectionMixin:
                           restricted to a single UTXO.  CoinJoin outputs (label
                           ``"cj-out"``) are exempt and can be merged.  Set to False
                           to disable the restriction.
+            exclude: ``(txid, vout)`` outpoints that must not be selected. Used to
+                     skip inputs already locked by another in-flight CoinJoin round
+                     (this or another process) so concurrent rounds never pick the
+                     same UTXO and build conflicting transactions.
         """
         utxos = self.utxo_cache.get(mixdepth, [])
 
@@ -51,6 +56,10 @@ class CoinSelectionMixin:
 
         # Filter out frozen UTXOs (never auto-selected)
         eligible = [utxo for utxo in eligible if not utxo.frozen]
+
+        # Filter out UTXOs locked by another in-flight CoinJoin round.
+        if exclude:
+            eligible = [utxo for utxo in eligible if (utxo.txid, utxo.vout) not in exclude]
 
         # Filter out fidelity bond UTXOs by default
         if not include_fidelity_bonds:
@@ -202,6 +211,7 @@ class CoinSelectionMixin:
         include_fidelity_bonds: bool = False,
         *,
         restrict_md0: bool = True,
+        exclude: set[tuple[str, int]] | None = None,
     ) -> list[UTXOInfo]:
         """
         Select UTXOs with merge algorithm for maker UTXO consolidation.
@@ -226,6 +236,10 @@ class CoinSelectionMixin:
                           restricted to a single UTXO.  CoinJoin outputs (label
                           ``"cj-out"``) are exempt and can be merged.  Set to False
                           to disable the restriction.
+            exclude: ``(txid, vout)`` outpoints that must not be selected. Used by
+                     makers to avoid committing the same UTXO to two concurrent
+                     CoinJoin sessions (which would create conflicting, mutually
+                     double-spending transactions).
 
         Returns:
             List of selected UTXOs
@@ -238,6 +252,10 @@ class CoinSelectionMixin:
 
         # Filter out frozen UTXOs (never auto-selected)
         eligible = [utxo for utxo in eligible if not utxo.frozen]
+
+        # Filter out UTXOs already committed to another in-flight session.
+        if exclude:
+            eligible = [utxo for utxo in eligible if (utxo.txid, utxo.vout) not in exclude]
 
         # Filter out fidelity bond UTXOs by default
         if not include_fidelity_bonds:

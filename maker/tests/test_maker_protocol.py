@@ -523,5 +523,127 @@ async def test_neutrino_maker_accepts_neutrino_compat_taker_auth():
     mock_backend.get_utxo.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_select_our_utxos_forwards_exclude_to_wallet():
+    """_select_our_utxos forwards committed outpoints to the wallet selector.
+
+    Regression guard for the concurrent-session double-spend: a maker handling
+    two overlapping CoinJoins must not pick the same input twice (the second
+    transaction would be rejected, e.g. "insufficient fee, rejecting
+    replacement"). The exclusion set originates from other active sessions and
+    must reach select_utxos_with_merge.
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    from jmcore.models import Offer, OfferType
+    from jmwallet.wallet.models import UTXOInfo
+
+    from maker.coinjoin import CoinJoinSession
+
+    mock_wallet = MagicMock()
+    mock_wallet.mixdepth_count = 5
+    mock_wallet.get_balance_for_offers = AsyncMock(return_value=10_000_000)
+    mock_wallet.get_next_address_index.return_value = 0
+    mock_wallet.get_change_address.return_value = "bcrt1qcjorchange"
+    # No inputs locked by other rounds; reservation of our chosen inputs succeeds.
+    mock_wallet.get_locked_input_outpoints.return_value = set()
+    mock_wallet.reserve_coinjoin_inputs.return_value = True
+    selected_utxo = UTXOInfo(
+        txid="ab" * 32,
+        vout=1,
+        value=5_000_000,
+        address="bcrt1qmakerinput",
+        confirmations=10,
+        scriptpubkey="0014" + "ab" * 20,
+        path="m/84'/0'/1'/0/0",
+        mixdepth=1,
+    )
+    mock_wallet.select_utxos_with_merge.return_value = [selected_utxo]
+
+    mock_backend = MagicMock()
+    mock_backend.requires_neutrino_metadata.return_value = False
+
+    offer = Offer(
+        counterparty="J5ExcludeMaker",
+        ordertype=OfferType.SW0_RELATIVE,
+        oid=0,
+        minsize=10_000,
+        maxsize=100_000_000,
+        txfee=1000,
+        cjfee="0.0003",
+    )
+    session = CoinJoinSession(
+        taker_nick="J5SomeTaker",
+        offer=offer,
+        wallet=mock_wallet,
+        backend=mock_backend,
+    )
+    session.amount = 1_000_000
+
+    committed_elsewhere = {("cd" * 32, 0), ("ef" * 32, 3)}
+    utxos_dict, _, _, mixdepth = await session._select_our_utxos(exclude_utxos=committed_elsewhere)
+
+    assert mixdepth >= 0  # selection succeeded
+    assert (("ab" * 32), 1) in utxos_dict
+    # The committed-elsewhere outpoints were passed straight to the selector.
+    assert mock_wallet.select_utxos_with_merge.call_args.kwargs["exclude"] == (committed_elsewhere)
+
+
+@pytest.mark.asyncio
+async def test_select_our_utxos_declines_on_lock_conflict():
+    """If our chosen inputs were locked by a racing round, decline the session.
+
+    Declining (returning no UTXOs) is correct: signing an input already
+    committed elsewhere would create a conflicting transaction.
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    from jmcore.models import Offer, OfferType
+    from jmwallet.wallet.models import UTXOInfo
+
+    from maker.coinjoin import CoinJoinSession
+
+    mock_wallet = MagicMock()
+    mock_wallet.mixdepth_count = 5
+    mock_wallet.get_balance_for_offers = AsyncMock(return_value=10_000_000)
+    mock_wallet.get_next_address_index.return_value = 0
+    mock_wallet.get_change_address.return_value = "bcrt1qcjorchange"
+    mock_wallet.get_locked_input_outpoints.return_value = set()
+    mock_wallet.select_utxos_with_merge.return_value = [
+        UTXOInfo(
+            txid="ab" * 32,
+            vout=1,
+            value=5_000_000,
+            address="bcrt1qmakerinput",
+            confirmations=10,
+            scriptpubkey="0014" + "ab" * 20,
+            path="m/84'/0'/1'/0/0",
+            mixdepth=1,
+        )
+    ]
+    # A concurrent round grabbed the input between selection and our reserve.
+    mock_wallet.reserve_coinjoin_inputs.return_value = False
+
+    mock_backend = MagicMock()
+    mock_backend.requires_neutrino_metadata.return_value = False
+    offer = Offer(
+        counterparty="J5ConflictMaker",
+        ordertype=OfferType.SW0_RELATIVE,
+        oid=0,
+        minsize=10_000,
+        maxsize=100_000_000,
+        txfee=1000,
+        cjfee="0.0003",
+    )
+    session = CoinJoinSession(
+        taker_nick="J5SomeTaker", offer=offer, wallet=mock_wallet, backend=mock_backend
+    )
+    session.amount = 1_000_000
+
+    utxos_dict, _, _, mixdepth = await session._select_our_utxos()
+    assert utxos_dict == {}
+    assert mixdepth == -1
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

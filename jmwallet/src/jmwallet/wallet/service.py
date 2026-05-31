@@ -19,7 +19,11 @@ from jmwallet.wallet.constants import DEFAULT_SCAN_RANGE, FIDELITY_BOND_BRANCH
 from jmwallet.wallet.display import WalletDisplayMixin
 from jmwallet.wallet.models import UTXOInfo
 from jmwallet.wallet.sync import WalletSyncMixin
-from jmwallet.wallet.utxo_metadata import UTXOMetadataStore, load_metadata_store
+from jmwallet.wallet.utxo_metadata import (
+    DEFAULT_COINJOIN_LOCK_TTL,
+    UTXOMetadataStore,
+    load_metadata_store,
+)
 
 # Re-export constants so external code importing from service.py still works
 __all__ = [
@@ -797,6 +801,49 @@ class WalletService(WalletSyncMixin, CoinSelectionMixin, WalletDisplayMixin):
                 if utxo.outpoint == outpoint:
                     utxo.frozen = False
                     return
+
+    # -- Temporary CoinJoin input locks (cross-process) ----------------------
+
+    def get_locked_input_outpoints(self) -> set[tuple[str, int]]:
+        """Return ``(txid, vout)`` inputs currently locked by any in-flight round.
+
+        Re-reads the on-disk metadata so locks written by other processes
+        (another taker round, or a maker serving a different taker) are visible
+        right before coin selection. Returns an empty set when no metadata store
+        is configured (no data directory).
+        """
+        if self.metadata_store is None:
+            return set()
+        self.metadata_store.load()
+        locked: set[tuple[str, int]] = set()
+        for ref in self.metadata_store.get_locked_outpoints():
+            txid, _, vout = ref.rpartition(":")
+            if txid and vout.isdigit():
+                locked.add((txid, int(vout)))
+        return locked
+
+    def reserve_coinjoin_inputs(
+        self,
+        outpoints: set[tuple[str, int]],
+        ttl: float = DEFAULT_COINJOIN_LOCK_TTL,
+    ) -> bool:
+        """Atomically lock ``outpoints`` for an in-flight CoinJoin.
+
+        Returns True if all were locked, False on conflict (another round
+        already holds one of them). When no metadata store is configured the
+        call is a no-op that returns True (locking is best-effort persistence).
+        """
+        if self.metadata_store is None or not outpoints:
+            return True
+        refs = [f"{txid}:{vout}" for txid, vout in outpoints]
+        return self.metadata_store.try_lock_outpoints(refs, ttl=ttl)
+
+    def release_coinjoin_inputs(self, outpoints: set[tuple[str, int]]) -> None:
+        """Release CoinJoin locks held on ``outpoints`` (no-op if none)."""
+        if self.metadata_store is None or not outpoints:
+            return
+        refs = [f"{txid}:{vout}" for txid, vout in outpoints]
+        self.metadata_store.release_outpoints(refs)
 
     def toggle_freeze_utxo(self, outpoint: str) -> bool:
         """Toggle frozen state of a UTXO by outpoint (persisted to disk).

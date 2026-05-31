@@ -874,3 +874,124 @@ class TestPerWalletPartitioning:
         assert store.get_used_addresses() == set()
         # Per-wallet file is not created until a save happens.
         assert not (tmp_path / f"wallet_metadata_{self.FP_A}.jsonl").exists()
+
+
+# ---------------------------------------------------------------------------
+# Temporary CoinJoin lock tests
+# ---------------------------------------------------------------------------
+
+
+class TestCoinJoinLocks:
+    """Tests for the persisted, self-expiring CoinJoin UTXO locks.
+
+    These prevent two concurrent rounds (maker or taker, same or different
+    process) from committing the same input and producing conflicting,
+    mutually double-spending transactions.
+    """
+
+    @pytest.fixture
+    def store_path(self, tmp_path):
+        return tmp_path / "wallet_metadata.jsonl"
+
+    @pytest.fixture
+    def a(self):
+        return "aa" * 32 + ":0"
+
+    @pytest.fixture
+    def b(self):
+        return "bb" * 32 + ":1"
+
+    @pytest.fixture
+    def c(self):
+        return "cc" * 32 + ":2"
+
+    def test_lock_and_query(self, store_path, a, b):
+        store = UTXOMetadataStore(path=store_path)
+        store.load()
+        assert store.try_lock_outpoints([a, b], ttl=100) is True
+        assert store.get_locked_outpoints() == {a, b}
+
+    def test_lock_is_cross_process_visible(self, store_path, a):
+        s1 = UTXOMetadataStore(path=store_path)
+        s1.load()
+        assert s1.try_lock_outpoints([a], ttl=100) is True
+        # A separate store instance (simulating another process) sees the lock.
+        s2 = UTXOMetadataStore(path=store_path)
+        s2.load()
+        assert s2.get_locked_outpoints() == {a}
+
+    def test_lock_conflict_on_already_locked(self, store_path, a):
+        s1 = UTXOMetadataStore(path=store_path)
+        s1.load()
+        assert s1.try_lock_outpoints([a], ttl=100) is True
+        s2 = UTXOMetadataStore(path=store_path)
+        s2.load()
+        assert s2.try_lock_outpoints([a]) is False
+
+    def test_lock_conflict_on_frozen(self, store_path, c):
+        store = UTXOMetadataStore(path=store_path)
+        store.load()
+        store.freeze(c)
+        assert store.try_lock_outpoints([c]) is False
+
+    def test_lock_is_all_or_nothing(self, store_path, a, b):
+        s1 = UTXOMetadataStore(path=store_path)
+        s1.load()
+        assert s1.try_lock_outpoints([a], ttl=100) is True
+        s2 = UTXOMetadataStore(path=store_path)
+        s2.load()
+        # b is free but a is locked -> the whole request fails, b stays free.
+        assert s2.try_lock_outpoints([a, b]) is False
+        s3 = UTXOMetadataStore(path=store_path)
+        s3.load()
+        assert b not in s3.get_locked_outpoints()
+
+    def test_release(self, store_path, a, b):
+        store = UTXOMetadataStore(path=store_path)
+        store.load()
+        store.try_lock_outpoints([a, b], ttl=100)
+        store.release_outpoints([a])
+        reloaded = UTXOMetadataStore(path=store_path)
+        reloaded.load()
+        assert reloaded.get_locked_outpoints() == {b}
+
+    def test_lock_auto_expires(self, store_path, a):
+        store = UTXOMetadataStore(path=store_path)
+        store.load()
+        # Expire in the past.
+        store.try_lock_outpoints([a], ttl=-1)
+        assert store.get_locked_outpoints() == set()
+        # Expired lock can be re-acquired.
+        assert store.try_lock_outpoints([a], ttl=100) is True
+
+    def test_freeze_survives_lock_expiry(self, store_path, c):
+        store = UTXOMetadataStore(path=store_path)
+        store.load()
+        store.freeze(c)
+        store.try_lock_outpoints([c], ttl=100)  # no-op: frozen -> conflict
+        # Even an expired lock elsewhere must never clear a user freeze.
+        store.records[c].lock_until = 1.0  # already expired
+        store._prune_expired_locks(now=2.0)
+        assert store.is_frozen(c)
+
+    def test_lock_only_record_persisted_and_reloaded(self, store_path, a):
+        store = UTXOMetadataStore(path=store_path)
+        store.load()
+        store.try_lock_outpoints([a], ttl=100)
+        # A record carrying only a lock (no freeze/label) must round-trip.
+        reloaded = UTXOMetadataStore(path=store_path)
+        reloaded.load()
+        assert a in reloaded.get_locked_outpoints()
+        assert reloaded.records[a].spendable is None
+        assert reloaded.records[a].label is None
+
+    def test_lock_field_is_bip329_extension(self, store_path, a):
+        import json as _json
+
+        store = UTXOMetadataStore(path=store_path)
+        store.load()
+        store.try_lock_outpoints([a], ttl=100)
+        lines = [_json.loads(line) for line in store_path.read_text().splitlines() if line.strip()]
+        rec = next(r for r in lines if r.get("ref") == a)
+        assert rec["type"] == "output"
+        assert "jm_lock_until" in rec

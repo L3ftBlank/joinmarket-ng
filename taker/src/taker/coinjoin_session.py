@@ -117,6 +117,12 @@ class CoinJoinSession:
         self.preselected_utxos: list[UTXOInfo] = []
         self.selected_utxos: list[UTXOInfo] = []
 
+        # ``(txid, vout)`` inputs we hold a persisted CoinJoin lock on for this
+        # round, so a concurrent round (this or another process) won't reuse
+        # them and build a conflicting transaction. Released on failure; left to
+        # auto-expire on success (the inputs are then spent).
+        self.reserved_inputs: set[tuple[str, int]] = set()
+
         # Counterparty nicks selected during this call (initial + replacements).
         # Tumbler reads this on the Taker to exclude reused makers across phases.
         self.last_used_nicks: set[str] = set()
@@ -164,6 +170,15 @@ class CoinJoinSession:
         self.txid = ""
         self.preselected_utxos = []
         self.selected_utxos = []
+        # Defensively release any locks left over from a prior round before
+        # starting a new one (normal paths release on failure / let them expire
+        # on success; this guards against an orphaned lock).
+        if self.reserved_inputs:
+            try:
+                self.wallet.release_coinjoin_inputs(self.reserved_inputs)
+            except Exception:
+                pass
+            self.reserved_inputs = set()
         self.last_used_nicks = set()
         self.last_failure_reason = None
         self.cj_destination = ""
@@ -912,16 +927,31 @@ class CoinJoinSession:
                         f"Pre-selected UTXOs insufficient: have {preselected_total:,}, "
                         f"need {required:,}. Selecting additional UTXOs..."
                     )
+                    # Skip inputs locked by another in-flight round; our own
+                    # already-reserved preselected UTXOs are force-included.
+                    locked_inputs = self.wallet.get_locked_input_outpoints()
                     selected_utxos = self.wallet.select_utxos(
                         mixdepth,
                         required,
                         self.config.taker_utxo_age,
                         include_utxos=self.preselected_utxos,  # Include pre-selected (PoDLE UTXO)
+                        exclude=locked_inputs,
                     )
 
             if not selected_utxos:
                 logger.error("Failed to select enough UTXOs")
                 return False
+
+            # Lock any inputs added beyond the already-reserved preselection so a
+            # concurrent round can't grab them; on conflict, fail this round.
+            extra_inputs = {(u.txid, u.vout) for u in selected_utxos} - self.reserved_inputs
+            if extra_inputs and not self.wallet.reserve_coinjoin_inputs(extra_inputs):
+                logger.error(
+                    "Additional UTXOs are locked by another in-flight CoinJoin; "
+                    "aborting to avoid a conflicting transaction"
+                )
+                return False
+            self.reserved_inputs |= extra_inputs
 
             # Store selected UTXOs for signing later
             self.selected_utxos = selected_utxos

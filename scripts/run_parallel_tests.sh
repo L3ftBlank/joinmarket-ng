@@ -40,9 +40,30 @@ log_warning() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 log_error()   { echo -e "${RED}[ERROR]${NC} $*"; }
 log_suite()   { echo -e "${CYAN}[SUITE]${NC} $*"; }
 
-# Directory for per-suite logs and override files
-PARALLEL_DIR="${PROJECT_ROOT}/tmp/parallel-tests"
+# Test instance id. Lets multiple concurrent invocations (for example from two
+# different worktrees/branches) coexist by giving each its own Compose project
+# names, container-name prefixes, host port band, and log/override directory.
+# Override with --instance N or JM_TEST_INSTANCE; defaults to 0.
+INSTANCE="${JM_TEST_INSTANCE:-0}"
+PROJECT_PREFIX="jmpt-i${INSTANCE}"
+CONTAINER_PREFIX="jm-i${INSTANCE}"
+
+# Skip the shared image build (set by --no-build / SKIP_BUILD=1). Useful for a
+# second concurrent instance that reuses images already built by another run.
+SKIP_BUILD="${SKIP_BUILD:-0}"
+
+# Directory for per-suite logs and override files (namespaced per instance).
+PARALLEL_DIR="${PROJECT_ROOT}/tmp/parallel-tests/i${INSTANCE}"
 mkdir -p "$PARALLEL_DIR"
+
+# Re-derive the instance-scoped globals after argument parsing may have changed
+# INSTANCE. Idempotent; safe to call multiple times.
+apply_instance() {
+    PROJECT_PREFIX="jmpt-i${INSTANCE}"
+    CONTAINER_PREFIX="jm-i${INSTANCE}"
+    PARALLEL_DIR="${PROJECT_ROOT}/tmp/parallel-tests/i${INSTANCE}"
+    mkdir -p "$PARALLEL_DIR"
+}
 
 # Track background PIDs and results
 declare -A SUITE_PIDS
@@ -66,65 +87,81 @@ default_cpu_cap() {
 MAX_CONCURRENT="${MAX_CONCURRENT:-$(default_cpu_cap)}"
 
 # =============================================================================
-# Port allocation per suite
-# Each suite gets a unique port range to avoid conflicts.
-# Base port = OFFSET + standard port.
+# Host port allocation
+#
+# Container-internal ports are unchanged (bitcoind still listens on 18443 etc.).
+# Only the HOST side of each published port is remapped so that every
+# (instance, suite, service) tuple gets a unique host port. Because the host
+# port number is fully parameterized everywhere (override file + pytest env),
+# its absolute value is arbitrary as long as it is unique.
+#
+# Layout: each instance owns a contiguous band of INSTANCE_STRIDE ports starting
+# at PORT_BAND_BASE; within a band each suite owns SUITE_STRIDE ports; within a
+# suite each service occupies one fixed slot. This keeps every concurrent run on
+# disjoint host ports and scales to ~20 instances under 65535.
 # =============================================================================
-#
-# Standard ports:
-#   18443 - Bitcoin RPC (main)
-#   18444 - Bitcoin P2P (main)
-#   18445 - Bitcoin RPC (JAM)
-#   18446 - Bitcoin P2P (JAM)
-#   5222  - Directory server
-#   5223  - Directory server 2
-#   8080  - Orderbook watcher
-#   8334  - Neutrino API
-#   28183 - jmwalletd API
-#   29183 - jam-playwright
-#   19050 - Tor SOCKS
-#   19051 - Tor control
-#   28332 - ZMQ block
-#   28333 - ZMQ tx
-#
-# Port offsets per suite (each suite adds this to standard ports).
-# The gap (1001) must exceed the largest difference between any two base
-# ports (29183 - 28183 = 1000) to avoid inter-suite port collisions.
-declare -A PORT_OFFSETS=(
+PORT_BAND_BASE="${JM_TEST_PORT_BASE:-20000}"
+INSTANCE_STRIDE=2000   # host ports reserved per instance
+SUITE_STRIDE=64        # host ports reserved per suite within an instance
+
+# Suite slot index (also the canonical list of Docker-backed suites).
+declare -A SUITE_SLOT=(
     [e2e]=0
-    [playwright]=1001
-    [jmwallet]=2002
-    [reference-interop]=5005
-    [reference-legacy]=6006
-    [neutrino-functional]=7007
-    [neutrino-coinjoin]=8008
-    [neutrino-reference]=9009
-    [reference-maker]=10010
-    [tumbler]=11011
+    [playwright]=1
+    [jmwallet]=2
+    [reference-interop]=3
+    [reference-legacy]=4
+    [neutrino-functional]=5
+    [neutrino-coinjoin]=6
+    [neutrino-reference]=7
+    [reference-maker]=8
+    [tumbler]=9
 )
+
+# Service slot index within a suite's port window.
+declare -A SVC_SLOT=(
+    [btc_rpc]=0
+    [btc_p2p]=1
+    [btc_jam_rpc]=2
+    [btc_jam_p2p]=3
+    [dir]=4
+    [dir2]=5
+    [obwatch]=6
+    [neutrino]=7
+    [walletd]=8
+    [jam_pw]=9
+    [tor_socks]=10
+    [tor_ctrl]=11
+)
+
+# Compute the host port for a given suite/service in the current instance.
+host_port() {
+    local suite=$1 svc=$2
+    local s=${SUITE_SLOT[$suite]} v=${SVC_SLOT[$svc]}
+    echo $((PORT_BAND_BASE + INSTANCE * INSTANCE_STRIDE + s * SUITE_STRIDE + v))
+}
 
 # =============================================================================
 # Generate Docker Compose override file for a suite
 # =============================================================================
 generate_override() {
     local suite=$1
-    local offset=${PORT_OFFSETS[$suite]}
-    local prefix="jm-${suite}"
+    local prefix="${CONTAINER_PREFIX}-${suite}"
     local override_file="${PARALLEL_DIR}/docker-compose.${suite}.override.yml"
 
-    # Calculate ports
-    local btc_rpc=$((18443 + offset))
-    local btc_p2p=$((18444 + offset))
-    local btc_jam_rpc=$((18445 + offset))
-    local btc_jam_p2p=$((18446 + offset))
-    local dir_port=$((5222 + offset))
-    local dir2_port=$((5223 + offset))
-    local obwatch_port=$((8080 + offset))
-    local neutrino_port=$((8334 + offset))
-    local walletd_port=$((28183 + offset))
-    local jam_pw_port=$((29183 + offset))
-    local tor_socks=$((19050 + offset))
-    local tor_ctrl=$((19051 + offset))
+    # Calculate host ports for this instance/suite.
+    local btc_rpc=$(host_port "$suite" btc_rpc)
+    local btc_p2p=$(host_port "$suite" btc_p2p)
+    local btc_jam_rpc=$(host_port "$suite" btc_jam_rpc)
+    local btc_jam_p2p=$(host_port "$suite" btc_jam_p2p)
+    local dir_port=$(host_port "$suite" dir)
+    local dir2_port=$(host_port "$suite" dir2)
+    local obwatch_port=$(host_port "$suite" obwatch)
+    local neutrino_port=$(host_port "$suite" neutrino)
+    local walletd_port=$(host_port "$suite" walletd)
+    local jam_pw_port=$(host_port "$suite" jam_pw)
+    local tor_socks=$(host_port "$suite" tor_socks)
+    local tor_ctrl=$(host_port "$suite" tor_ctrl)
     local shared_dir="${PARALLEL_DIR}/shared/${suite}"
 
     mkdir -p "$shared_dir"
@@ -381,7 +418,7 @@ YAML
 compose_cmd() {
     local suite=$1
     shift
-    local project="jmpt-${suite}"
+    local project="${PROJECT_PREFIX}-${suite}"
     local override_file="${PARALLEL_DIR}/docker-compose.${suite}.override.yml"
 
     docker compose \
@@ -407,7 +444,7 @@ wait_for_bitcoin_rpc() {
     local suite=$1
     local port=$2
     local max_attempts=${3:-60}
-    local prefix="jm-${suite}"
+    local prefix="${CONTAINER_PREFIX}-${suite}"
 
     # Step 1: bitcoind responsive inside the container
     local internal_ready=0
@@ -524,7 +561,7 @@ wait_for_jam_makers() {
 wait_for_neutrino() {
     local suite=$1
     local port=$2
-    local prefix="jm-${suite}"
+    local prefix="${CONTAINER_PREFIX}-${suite}"
 
     local token
     token=$(docker exec "${prefix}-neutrino" cat /data/neutrino/auth_token 2>/dev/null || true)
@@ -552,7 +589,7 @@ wait_for_neutrino() {
 # =============================================================================
 restart_makers() {
     local suite=$1
-    local prefix="jm-${suite}"
+    local prefix="${CONTAINER_PREFIX}-${suite}"
     for maker in "${prefix}-maker1" "${prefix}-maker2" "${prefix}-maker3" "${prefix}-maker4" "${prefix}-maker5" "${prefix}-maker-neutrino"; do
         docker exec "$maker" sh -c \
             "rm -rf /home/jm/.joinmarket-ng/cmtdata/commitmentlist" 2>/dev/null || true
@@ -576,18 +613,21 @@ cleanup_suite() {
 # Cleanup all suites
 # =============================================================================
 cleanup_all() {
-    log_info "Cleaning up all parallel test suites..."
-    for suite in "${!PORT_OFFSETS[@]}"; do
+    log_info "Cleaning up parallel test suites for instance ${INSTANCE}..."
+    for suite in "${!SUITE_SLOT[@]}"; do
         cleanup_suite "$suite" 2>/dev/null &
     done
     wait
 
-    # Also clean up the default project
-    docker compose --profile e2e --profile reference --profile neutrino --profile reference-maker down -v 2>/dev/null || true
-    docker compose down --remove-orphans -v 2>/dev/null || true
-    docker volume prune -f >/dev/null 2>&1 || true
+    # Also clean up this instance's default project (legacy non-isolated runs).
+    # Note: we intentionally do NOT run a global `docker volume prune` here, as
+    # that would delete volumes belonging to other concurrently-running
+    # instances. Each project's volumes are already removed via `down -v`.
+    docker compose -p "${PROJECT_PREFIX}-default" --profile e2e --profile reference \
+        --profile neutrino --profile reference-maker down -v 2>/dev/null || true
+    docker compose -p "${PROJECT_PREFIX}-default" down --remove-orphans -v 2>/dev/null || true
 
-    log_success "All parallel suites cleaned up"
+    log_success "Parallel suites cleaned up (instance ${INSTANCE})"
 }
 
 # =============================================================================
@@ -621,6 +661,10 @@ setup_reference_implementation() {
 # Build Docker images (shared across all suites)
 # =============================================================================
 build_images() {
+    if [ "${SKIP_BUILD:-0}" = "1" ]; then
+        log_info "Skipping image build (SKIP_BUILD/--no-build); reusing existing images"
+        return 0
+    fi
     log_info "Building Docker images (shared across suites)..."
     # Use --profile all so profile-gated services (e.g. jam-playwright,
     # neutrino*, reference, maker) are built too. Without this, profile
@@ -653,10 +697,10 @@ run_suite_unit() {
 run_suite_e2e() {
     local suite="e2e"
     local log="${PARALLEL_DIR}/${suite}.log"
-    local offset=${PORT_OFFSETS[$suite]}
-    local btc_rpc=$((18443 + offset))
-    local dir_port=$((5222 + offset))
-    local prefix="jm-${suite}"
+    local btc_rpc=$(host_port "$suite" btc_rpc)
+    local dir_port=$(host_port "$suite" dir)
+    local walletd_port=$(host_port "$suite" walletd)
+    local prefix="${CONTAINER_PREFIX}-${suite}"
 
     log_suite "Starting: E2E Tests ($suite)"
     local rc=0
@@ -678,10 +722,10 @@ run_suite_e2e() {
         BITCOIN_RPC_URL="http://127.0.0.1:${btc_rpc}" \
         BITCOIN_RPC_USER=test \
         BITCOIN_RPC_PASSWORD=test \
-        JMWALLETD_URL="https://127.0.0.1:$((28183 + offset))" \
+        JMWALLETD_URL="https://127.0.0.1:${walletd_port}" \
         DIRECTORY_PORT="${dir_port}" \
         JM_CONTAINER_PREFIX="${prefix}" \
-        COMPOSE_PROJECT_NAME="jmpt-${suite}" \
+        COMPOSE_PROJECT_NAME="${PROJECT_PREFIX}-${suite}" \
         COVERAGE_FILE=".coverage.${suite}" \
         pytest -c pytest.ini -m "e2e and not tumbler_e2e" --fail-on-skip \
             -lv --timeout=300 --reruns=1 --reruns-delay=10 \
@@ -694,7 +738,7 @@ run_suite_e2e() {
         BITCOIN_RPC_PASSWORD=test \
         DIRECTORY_PORT="${dir_port}" \
         JM_CONTAINER_PREFIX="${prefix}" \
-        COMPOSE_PROJECT_NAME="jmpt-${suite}" \
+        COMPOSE_PROJECT_NAME="${PROJECT_PREFIX}-${suite}" \
         COVERAGE_FILE=".coverage.${suite}-docker" \
         pytest -c pytest.ini -m "docker and not e2e and not reference and not neutrino and not reference_maker" --fail-on-skip \
             -lv --timeout=300 \
@@ -708,11 +752,10 @@ run_suite_e2e() {
 run_suite_tumbler() {
     local suite="tumbler"
     local log="${PARALLEL_DIR}/${suite}.log"
-    local offset=${PORT_OFFSETS[$suite]}
-    local btc_rpc=$((18443 + offset))
-    local dir_port=$((5222 + offset))
-    local walletd_port=$((28183 + offset))
-    local prefix="jm-${suite}"
+    local btc_rpc=$(host_port "$suite" btc_rpc)
+    local dir_port=$(host_port "$suite" dir)
+    local walletd_port=$(host_port "$suite" walletd)
+    local prefix="${CONTAINER_PREFIX}-${suite}"
 
     log_suite "Starting: Tumbler E2E Tests ($suite)"
     local rc=0
@@ -742,7 +785,7 @@ run_suite_tumbler() {
         JMWALLETD_URL="https://127.0.0.1:${walletd_port}" \
         DIRECTORY_PORT="${dir_port}" \
         JM_CONTAINER_PREFIX="${prefix}" \
-        COMPOSE_PROJECT_NAME="jmpt-${suite}" \
+        COMPOSE_PROJECT_NAME="${PROJECT_PREFIX}-${suite}" \
         COVERAGE_FILE=".coverage.${suite}" \
         pytest -c pytest.ini -m tumbler_e2e --fail-on-skip \
             -lv --timeout=1800 \
@@ -762,7 +805,7 @@ run_suite_tumbler() {
             for svc in jmwalletd maker1 maker2 maker3 maker4 maker5 bitcoin miner directory directory2; do
                 echo
                 echo "----- ${svc} -----"
-                COMPOSE_PROJECT_NAME="jmpt-${suite}" \
+                COMPOSE_PROJECT_NAME="${PROJECT_PREFIX}-${suite}" \
                     compose_cmd "$suite" logs --tail=200 "$svc" 2>&1 || true
             done
         } >> "$log" 2>&1 || true
@@ -774,11 +817,10 @@ run_suite_tumbler() {
 run_suite_playwright() {
     local suite="playwright"
     local log="${PARALLEL_DIR}/${suite}.log"
-    local offset=${PORT_OFFSETS[$suite]}
-    local btc_rpc=$((18443 + offset))
-    local dir_port=$((5222 + offset))
-    local jam_pw_port=$((29183 + offset))
-    local prefix="jm-${suite}"
+    local btc_rpc=$(host_port "$suite" btc_rpc)
+    local dir_port=$(host_port "$suite" dir)
+    local jam_pw_port=$(host_port "$suite" jam_pw)
+    local prefix="${CONTAINER_PREFIX}-${suite}"
 
     log_suite "Starting: Playwright Tests ($suite)"
     local rc=0
@@ -810,7 +852,7 @@ run_suite_playwright() {
         # the collaborative-send playwright tests have enough counterparties.
         # The maker minimum the JAM UI accepts is 4. We poll the orderbook
         # watcher and time out after ~3 minutes.
-        local obwatch_port=$((8080 + offset))
+        local obwatch_port=$(host_port "$suite" obwatch)
         for i in $(seq 1 90); do
             local n_offers
             n_offers=$(curl -sf "http://127.0.0.1:${obwatch_port}/orderbook.json" 2>/dev/null \
@@ -833,7 +875,7 @@ run_suite_playwright() {
         BITCOIN_RPC_PASS=test \
         DIRECTORY_PORT="${dir_port}" \
         JM_CONTAINER_PREFIX="${prefix}" \
-        COMPOSE_PROJECT_NAME="jmpt-${suite}" \
+        COMPOSE_PROJECT_NAME="${PROJECT_PREFIX}-${suite}" \
         NODE_TLS_REJECT_UNAUTHORIZED=0 \
         bash -c "cd '${PW_DIR}' && npx playwright test"
     } > "$log" 2>&1 || rc=$?
@@ -844,10 +886,9 @@ run_suite_playwright() {
 run_suite_jmwallet() {
     local suite="jmwallet"
     local log="${PARALLEL_DIR}/${suite}.log"
-    local offset=${PORT_OFFSETS[$suite]}
-    local btc_rpc=$((18443 + offset))
-    local dir_port=$((5222 + offset))
-    local prefix="jm-${suite}"
+    local btc_rpc=$(host_port "$suite" btc_rpc)
+    local dir_port=$(host_port "$suite" dir)
+    local prefix="${CONTAINER_PREFIX}-${suite}"
 
     log_suite "Starting: jmwallet Docker Tests ($suite)"
     local rc=0
@@ -866,7 +907,7 @@ run_suite_jmwallet() {
         BITCOIN_RPC_PASSWORD=test \
         DIRECTORY_PORT="${dir_port}" \
         JM_CONTAINER_PREFIX="${prefix}" \
-        COMPOSE_PROJECT_NAME="jmpt-${suite}" \
+        COMPOSE_PROJECT_NAME="${PROJECT_PREFIX}-${suite}" \
         COVERAGE_FILE=".coverage.${suite}" \
         pytest -c pytest.ini -m "docker and not neutrino" --fail-on-skip \
             -lv --timeout=300 \
@@ -880,10 +921,9 @@ run_suite_jmwallet() {
 run_suite_reference_interop() {
     local suite="reference-interop"
     local log="${PARALLEL_DIR}/${suite}.log"
-    local offset=${PORT_OFFSETS[$suite]}
-    local btc_rpc=$((18443 + offset))
-    local dir_port=$((5222 + offset))
-    local prefix="jm-${suite}"
+    local btc_rpc=$(host_port "$suite" btc_rpc)
+    local dir_port=$(host_port "$suite" dir)
+    local prefix="${CONTAINER_PREFIX}-${suite}"
 
     log_suite "Starting: Reference Interop Tests ($suite)"
     local rc=0
@@ -907,7 +947,7 @@ run_suite_reference_interop() {
         BITCOIN_RPC_PASSWORD=test \
         DIRECTORY_PORT="${dir_port}" \
         JM_CONTAINER_PREFIX="${prefix}" \
-        COMPOSE_PROJECT_NAME="jmpt-${suite}" \
+        COMPOSE_PROJECT_NAME="${PROJECT_PREFIX}-${suite}" \
         COVERAGE_FILE=".coverage.${suite}" \
         pytest -c pytest.ini -m reference --fail-on-skip \
             -lv --timeout=300 --reruns=1 --reruns-delay=10 \
@@ -921,10 +961,9 @@ run_suite_reference_interop() {
 run_suite_reference_legacy() {
     local suite="reference-legacy"
     local log="${PARALLEL_DIR}/${suite}.log"
-    local offset=${PORT_OFFSETS[$suite]}
-    local btc_rpc=$((18443 + offset))
-    local dir_port=$((5222 + offset))
-    local prefix="jm-${suite}"
+    local btc_rpc=$(host_port "$suite" btc_rpc)
+    local dir_port=$(host_port "$suite" dir)
+    local prefix="${CONTAINER_PREFIX}-${suite}"
 
     log_suite "Starting: Reference Legacy Tests ($suite)"
     local rc=0
@@ -948,7 +987,7 @@ run_suite_reference_legacy() {
         BITCOIN_RPC_PASSWORD=test \
         DIRECTORY_PORT="${dir_port}" \
         JM_CONTAINER_PREFIX="${prefix}" \
-        COMPOSE_PROJECT_NAME="jmpt-${suite}" \
+        COMPOSE_PROJECT_NAME="${PROJECT_PREFIX}-${suite}" \
         COVERAGE_FILE=".coverage.${suite}" \
         pytest -c pytest.ini -m reference --fail-on-skip \
             -lv --timeout=300 --reruns=1 --reruns-delay=10 \
@@ -962,11 +1001,10 @@ run_suite_reference_legacy() {
 run_suite_neutrino_functional() {
     local suite="neutrino-functional"
     local log="${PARALLEL_DIR}/${suite}.log"
-    local offset=${PORT_OFFSETS[$suite]}
-    local btc_rpc=$((18443 + offset))
-    local dir_port=$((5222 + offset))
-    local neutrino_port=$((8334 + offset))
-    local prefix="jm-${suite}"
+    local btc_rpc=$(host_port "$suite" btc_rpc)
+    local dir_port=$(host_port "$suite" dir)
+    local neutrino_port=$(host_port "$suite" neutrino)
+    local prefix="${CONTAINER_PREFIX}-${suite}"
 
     log_suite "Starting: Neutrino Functional Tests ($suite)"
     local rc=0
@@ -988,7 +1026,7 @@ run_suite_neutrino_functional() {
         NEUTRINO_URL="https://127.0.0.1:${neutrino_port}" \
         DIRECTORY_PORT="${dir_port}" \
         JM_CONTAINER_PREFIX="${prefix}" \
-        COMPOSE_PROJECT_NAME="jmpt-${suite}" \
+        COMPOSE_PROJECT_NAME="${PROJECT_PREFIX}-${suite}" \
         COVERAGE_FILE=".coverage.${suite}" \
         pytest -c pytest.ini -m neutrino -k "not test_coinjoin" --fail-on-skip \
             -lv --timeout=300 --reruns=1 --reruns-delay=10 \
@@ -1002,11 +1040,10 @@ run_suite_neutrino_functional() {
 run_suite_neutrino_coinjoin() {
     local suite="neutrino-coinjoin"
     local log="${PARALLEL_DIR}/${suite}.log"
-    local offset=${PORT_OFFSETS[$suite]}
-    local btc_rpc=$((18443 + offset))
-    local dir_port=$((5222 + offset))
-    local neutrino_port=$((8334 + offset))
-    local prefix="jm-${suite}"
+    local btc_rpc=$(host_port "$suite" btc_rpc)
+    local dir_port=$(host_port "$suite" dir)
+    local neutrino_port=$(host_port "$suite" neutrino)
+    local prefix="${CONTAINER_PREFIX}-${suite}"
 
     log_suite "Starting: Neutrino CoinJoin Tests ($suite)"
     local rc=0
@@ -1031,7 +1068,7 @@ run_suite_neutrino_coinjoin() {
         NEUTRINO_URL="https://127.0.0.1:${neutrino_port}" \
         DIRECTORY_PORT="${dir_port}" \
         JM_CONTAINER_PREFIX="${prefix}" \
-        COMPOSE_PROJECT_NAME="jmpt-${suite}" \
+        COMPOSE_PROJECT_NAME="${PROJECT_PREFIX}-${suite}" \
         COVERAGE_FILE=".coverage.${suite}" \
         pytest -c pytest.ini -m neutrino -k "test_coinjoin" --fail-on-skip \
             -lv --timeout=300 --reruns=2 --reruns-delay=15 \
@@ -1045,11 +1082,10 @@ run_suite_neutrino_coinjoin() {
 run_suite_neutrino_reference() {
     local suite="neutrino-reference"
     local log="${PARALLEL_DIR}/${suite}.log"
-    local offset=${PORT_OFFSETS[$suite]}
-    local btc_rpc=$((18443 + offset))
-    local dir_port=$((5222 + offset))
-    local neutrino_port=$((8334 + offset))
-    local prefix="jm-${suite}"
+    local btc_rpc=$(host_port "$suite" btc_rpc)
+    local dir_port=$(host_port "$suite" dir)
+    local neutrino_port=$(host_port "$suite" neutrino)
+    local prefix="${CONTAINER_PREFIX}-${suite}"
 
     log_suite "Starting: Neutrino Reference Tests ($suite)"
     local rc=0
@@ -1075,7 +1111,7 @@ run_suite_neutrino_reference() {
         NEUTRINO_URL="https://127.0.0.1:${neutrino_port}" \
         DIRECTORY_PORT="${dir_port}" \
         JM_CONTAINER_PREFIX="${prefix}" \
-        COMPOSE_PROJECT_NAME="jmpt-${suite}" \
+        COMPOSE_PROJECT_NAME="${PROJECT_PREFIX}-${suite}" \
         COVERAGE_FILE=".coverage.${suite}" \
         pytest -c pytest.ini -m neutrino_reference --fail-on-skip \
             -lv --timeout=900 --reruns=1 --reruns-delay=10 \
@@ -1089,10 +1125,9 @@ run_suite_neutrino_reference() {
 run_suite_reference_maker() {
     local suite="reference-maker"
     local log="${PARALLEL_DIR}/${suite}.log"
-    local offset=${PORT_OFFSETS[$suite]}
-    local btc_jam_rpc=$((18445 + offset))
-    local dir_port=$((5222 + offset))
-    local prefix="jm-${suite}"
+    local btc_jam_rpc=$(host_port "$suite" btc_jam_rpc)
+    local dir_port=$(host_port "$suite" dir)
+    local prefix="${CONTAINER_PREFIX}-${suite}"
 
     log_suite "Starting: Reference Maker Tests ($suite)"
     local rc=0
@@ -1120,7 +1155,7 @@ run_suite_reference_maker() {
         BITCOIN_RPC_PASSWORD=test \
         DIRECTORY_PORT="${dir_port}" \
         JM_CONTAINER_PREFIX="${prefix}" \
-        COMPOSE_PROJECT_NAME="jmpt-${suite}" \
+        COMPOSE_PROJECT_NAME="${PROJECT_PREFIX}-${suite}" \
         COVERAGE_FILE=".coverage.${suite}" \
         pytest -c pytest.ini -m reference_maker --fail-on-skip \
             -lv --timeout=300 --reruns=1 --reruns-delay=10 \
@@ -1325,7 +1360,7 @@ main() {
         log_error "Some suites failed. Check logs in ${PARALLEL_DIR}/"
         log_info "To re-run a single suite:"
         log_info "  $0 --suite <suite-name>"
-        log_info "Available suites: ${!PORT_OFFSETS[*]}"
+        log_info "Available suites: ${!SUITE_SLOT[*]}"
         exit 1
     fi
 
@@ -1337,8 +1372,8 @@ main() {
 # Argument handling
 # =============================================================================
 
-# Pre-parse global flags that may precede the subcommand. Currently only
-# --max-concurrent (alias --jobs / -j) and its --max-concurrent=N form.
+# Pre-parse global flags that may precede the subcommand: --max-concurrent
+# (alias --jobs / -j), --instance (alias -i), and --no-build, plus their =N forms.
 while [ $# -gt 0 ]; do
     case "$1" in
         --max-concurrent|--jobs|-j)
@@ -1353,6 +1388,22 @@ while [ $# -gt 0 ]; do
             MAX_CONCURRENT="${1#*=}"
             shift
             ;;
+        --instance|-i)
+            if [ -z "${2:-}" ]; then
+                log_error "Option $1 requires an integer instance id"
+                exit 1
+            fi
+            INSTANCE="$2"
+            shift 2
+            ;;
+        --instance=*)
+            INSTANCE="${1#*=}"
+            shift
+            ;;
+        --no-build)
+            SKIP_BUILD=1
+            shift
+            ;;
         *)
             break
             ;;
@@ -1364,6 +1415,14 @@ if ! [[ "$MAX_CONCURRENT" =~ ^[0-9]+$ ]]; then
     exit 1
 fi
 
+if ! [[ "$INSTANCE" =~ ^[0-9]+$ ]]; then
+    log_error "Instance id must be a non-negative integer (got '$INSTANCE')"
+    exit 1
+fi
+
+# Re-derive instance-scoped globals now that INSTANCE is final.
+apply_instance
+
 case "${1:-}" in
     --cleanup|--cleanup-only)
         cleanup_all
@@ -1373,7 +1432,7 @@ case "${1:-}" in
         suite="${2:-}"
         if [ -z "$suite" ]; then
             log_error "Usage: $0 --suite <suite-name>"
-            log_info "Available suites: ${!PORT_OFFSETS[*]}"
+            log_info "Available suites: ${!SUITE_SLOT[*]}"
             exit 1
         fi
         GLOBAL_START_TIME=$(date +%s)
@@ -1401,7 +1460,7 @@ case "${1:-}" in
             tumbler)               run_suite_tumbler ;;
             *)
                 log_error "Unknown suite: $suite"
-                log_info "Available suites: ${!PORT_OFFSETS[*]}"
+                log_info "Available suites: ${!SUITE_SLOT[*]}"
                 exit 1
                 ;;
         esac
@@ -1417,15 +1476,26 @@ Each suite gets its own containers, ports, network, and volumes.
 Usage:
   $0                              Run all suites in parallel
   $0 --suite <name>               Run a single suite
+  $0 --instance <N>               Isolation id for concurrent runs (default 0)
+  $0 --no-build                   Reuse existing images (skip the shared build)
   $0 --max-concurrent <N>         Limit concurrent suites (0 = unlimited;
                                    default = max(1, CPU cores / 2))
   $0 --jobs <N>                   Alias for --max-concurrent
-  $0 --cleanup                    Clean up all parallel test resources
+  $0 --cleanup                    Clean up this instance's test resources
   $0 --cleanup-only               Alias for --cleanup
   $0 --help                       Show this help
 
 Environment:
   MAX_CONCURRENT=<N>              Same as --max-concurrent
+  JM_TEST_INSTANCE=<N>            Same as --instance
+  JM_TEST_PORT_BASE=<port>        First host port of instance 0 (default 20000)
+  SKIP_BUILD=1                    Same as --no-build
+
+Running two suites at once:
+  Give each invocation a distinct instance id so their Compose projects,
+  container names, host ports, and logs do not collide. For example:
+    ./scripts/run_parallel_tests.sh --instance 0
+    ./scripts/run_parallel_tests.sh --instance 1 --no-build
 
 Available suites:
   unit                  Unit tests (no Docker)
@@ -1440,12 +1510,14 @@ Available suites:
   reference-maker       Reference maker tests (JAM makers + our taker)
   tumbler               Tumbler end-to-end tests
 
-Logs are written to: tmp/parallel-tests/<suite>.log
+Logs are written to: tmp/parallel-tests/i<instance>/<suite>.log
 
 How it works:
   Each Docker-dependent suite runs in an isolated Docker Compose project
-  with unique container names, port mappings, networks, and volumes.
-  This mirrors CI where each job runs on a separate VM.
+  with unique container names, host port mappings, networks, and volumes.
+  Distinct --instance ids further isolate concurrent invocations onto
+  separate Compose projects and disjoint host port bands. This mirrors CI
+  where each job runs on a separate VM.
 
 EOF
         exit 0

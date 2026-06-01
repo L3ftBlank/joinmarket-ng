@@ -190,4 +190,17 @@ intentionally guarded by a `y/N` confirmation; pass `--yes` to skip it in
 scripts. Seed words give full control of the funds: only run the command in
 a private setting, and never paste the output anywhere.
 
+### Transaction Signing
+
+All private-key access used to produce transaction signatures is centralized in
+the wallet via `WalletService.sign_input`. Higher-level components (the taker
+and maker CoinJoin sessions, the reusable `direct_send` helper, and the
+`jm-wallet send` command) select inputs and assemble transactions, then ask the
+wallet to sign each input. They receive a `SignedInput` (signature, public key,
+and witness stack) and never read private keys directly.
+
+Keeping signing in one place narrows the security-critical surface: P2WPKH and
+timelocked P2WSH (fidelity bond) signing logic lives in a single audited method
+instead of being duplicated across callers.
+
 ---

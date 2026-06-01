@@ -193,6 +193,13 @@ class TestTakerSigning:
             return None
 
         wallet.get_key_for_address = get_key_for_address
+        # Wire the real centralized signer (issue #518) on top of the mocked
+        # key lookup so tests exercise WalletService.sign_input behavior.
+        from jmwallet.wallet.signer import WalletSigningMixin
+
+        wallet.sign_input = lambda tx, idx, utxo: WalletSigningMixin.sign_input(
+            wallet, tx, idx, utxo
+        )
         return wallet
 
     @pytest.fixture
@@ -448,6 +455,11 @@ class TestEdgeCases:
         wallet = MagicMock()
         wallet.get_key_for_address = MagicMock(return_value=None)
         wallet.wallet_fingerprint = "deadbeef"
+        from jmwallet.wallet.signer import WalletSigningMixin
+
+        wallet.sign_input = lambda tx, idx, utxo: WalletSigningMixin.sign_input(
+            wallet, tx, idx, utxo
+        )
 
         utxos = [
             UTXOInfo(

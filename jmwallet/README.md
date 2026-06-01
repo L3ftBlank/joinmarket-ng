@@ -39,6 +39,8 @@ For full documentation, see [jmwallet Documentation](https://joinmarket-ng.githu
 │                              address.                                        │
 │ import-bond                  Manually import a fidelity bond into the        │
 │                              registry.                                       │
+│ sync-bonds                   Refresh funded status of bonds already in the   │
+│                              registry (fast).                                │
 │ recover-bonds                Recover fidelity bonds by scanning all 960      │
 │                              possible timelocks.                             │
 │ create-bond-address          Create a fidelity bond address from a public    │
@@ -92,11 +94,11 @@ For full documentation, see [jmwallet Documentation](https://joinmarket-ng.githu
  generate-bond-address or import-bond but not yet funded) are shown with an
  UNFUNDED status. Funded status and values reflect the last on-chain sync.
 
- To discover bonds on-chain and refresh the registry, use
- 'jm-wallet recover-bonds'. The per-wallet registry is selected by the
- fingerprint derived from --mnemonic-file, taken from --wallet-fingerprint,
- the configured wallet, or auto-detected when only one wallet's registry
- exists in the data dir.
+ To refresh funded status from the blockchain, use 'jm-wallet sync-bonds'
+ (fast, known bonds) or 'jm-wallet recover-bonds' (full discovery scan). The
+ per-wallet registry is selected by the fingerprint derived from
+ --mnemonic-file, taken from --wallet-fingerprint, the configured wallet, or
+ auto-detected when only one wallet's registry exists in the data dir.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
 │ --mnemonic-file            -f      PATH  Select the per-wallet bond registry │
@@ -199,6 +201,41 @@ For full documentation, see [jmwallet Documentation](https://joinmarket-ng.githu
 │                                             [env var: JOINMARKET_DATA_DIR]   │
 │ --log-level                -l      TEXT     Log level                        │
 │ --help                                      Show this message and exit.      │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+</details>
+
+<details>
+<summary><code>jm-wallet sync-bonds --help</code></summary>
+
+```
+
+ Usage: jm-wallet sync-bonds [OPTIONS]
+
+ Refresh funded status of bonds already in the registry (fast).
+
+ Syncs only the bond addresses already recorded in the per-wallet registry
+ and updates their on-chain UTXO info (value, confirmations). Unlike
+ recover-bonds, this does NOT scan all 960 possible timelocks, so it is the
+ quick way to reflect a funding transaction after creating a bond with
+ generate-bond-address. Use recover-bonds instead when you need to discover
+ bonds whose addresses are not yet in the registry.
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --mnemonic-file            -f      PATH  [env var: MNEMONIC_FILE]            │
+│ --prompt-bip39-passphrase                Prompt for BIP39 passphrase         │
+│ --network                  -n      TEXT  Bitcoin network                     │
+│ --backend                  -b      TEXT  Backend: descriptor_wallet |        │
+│                                          neutrino                            │
+│ --rpc-url                          TEXT  [env var: BITCOIN_RPC_URL]          │
+│ --neutrino-url                     TEXT  [env var: NEUTRINO_URL]             │
+│ --data-dir                         PATH  Data directory (default:            │
+│                                          ~/.joinmarket-ng or                 │
+│                                          $JOINMARKET_DATA_DIR)               │
+│                                          [env var: JOINMARKET_DATA_DIR]      │
+│ --log-level                -l      TEXT  Log level                           │
+│ --help                                   Show this message and exit.         │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -480,7 +517,7 @@ For full documentation, see [jmwallet Documentation](https://joinmarket-ng.githu
 
  REQUIREMENTS:
  - The bond must exist in the registry (created with 'create-bond-address')
- - The bond must be funded (use 'jm-wallet recover-bonds'
+ - The bond must be funded (use 'jm-wallet sync-bonds'
    to update UTXO info), unless using --test-unfunded for a dry-run signer test
  - The locktime must have expired (or be close enough for your use case)
 

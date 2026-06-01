@@ -1,5 +1,6 @@
 """
-Fidelity bond commands: list-bonds, generate-bond-address, recover-bonds.
+Fidelity bond commands: list-bonds, generate-bond-address, sync-bonds,
+recover-bonds.
 """
 
 from __future__ import annotations
@@ -7,7 +8,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from jmcore.cli_common import (
@@ -87,11 +88,11 @@ def list_bonds(
     generate-bond-address or import-bond but not yet funded) are shown with an
     UNFUNDED status. Funded status and values reflect the last on-chain sync.
 
-    To discover bonds on-chain and refresh the registry, use
-    'jm-wallet recover-bonds'. The per-wallet registry is selected by the
-    fingerprint derived from --mnemonic-file, taken from --wallet-fingerprint,
-    the configured wallet, or auto-detected when only one wallet's registry
-    exists in the data dir.
+    To refresh funded status from the blockchain, use 'jm-wallet sync-bonds'
+    (fast, known bonds) or 'jm-wallet recover-bonds' (full discovery scan). The
+    per-wallet registry is selected by the fingerprint derived from
+    --mnemonic-file, taken from --wallet-fingerprint, the configured wallet, or
+    auto-detected when only one wallet's registry exists in the data dir.
     """
     settings = setup_cli(log_level, data_dir=data_dir)
     resolved_data_dir = data_dir if data_dir else settings.get_data_dir()
@@ -192,7 +193,7 @@ def _list_bonds_offline(
         print(f"\nBest bond for advertising: {best.address[:20]}...{best.address[-8:]}")
         print(f"  Value: {best.value:,} sats, Unlock in: {best.time_until_unlock:,}s")
 
-    print("\nNote: Values are from the last sync. Use 'jm-wallet recover-bonds' to refresh.")
+    print("\nNote: Values are from the last sync. Use 'jm-wallet sync-bonds' to refresh.")
 
 
 @app.command("generate-bond-address")
@@ -584,6 +585,206 @@ def import_bond(
         "      Run 'jm-wallet info' to trigger a sync."
     )
     print("=" * 80 + "\n")
+
+
+@app.command("sync-bonds")
+def sync_bonds(
+    mnemonic_file: Annotated[
+        Path | None, typer.Option("--mnemonic-file", "-f", envvar="MNEMONIC_FILE")
+    ] = None,
+    prompt_bip39_passphrase: Annotated[
+        bool, typer.Option("--prompt-bip39-passphrase", help="Prompt for BIP39 passphrase")
+    ] = False,
+    network: Annotated[str | None, typer.Option("--network", "-n", help="Bitcoin network")] = None,
+    backend_type: Annotated[
+        str | None,
+        typer.Option("--backend", "-b", help="Backend: descriptor_wallet | neutrino"),
+    ] = None,
+    rpc_url: Annotated[str | None, typer.Option("--rpc-url", envvar="BITCOIN_RPC_URL")] = None,
+    neutrino_url: Annotated[
+        str | None, typer.Option("--neutrino-url", envvar="NEUTRINO_URL")
+    ] = None,
+    data_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--data-dir",
+            envvar="JOINMARKET_DATA_DIR",
+            help="Data directory (default: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR)",
+        ),
+    ] = None,
+    log_level: Annotated[
+        str | None,
+        typer.Option("--log-level", "-l", help="Log level"),
+    ] = None,
+) -> None:
+    """
+    Refresh funded status of bonds already in the registry (fast).
+
+    Syncs only the bond addresses already recorded in the per-wallet registry
+    and updates their on-chain UTXO info (value, confirmations). Unlike
+    recover-bonds, this does NOT scan all 960 possible timelocks, so it is the
+    quick way to reflect a funding transaction after creating a bond with
+    generate-bond-address. Use recover-bonds instead when you need to discover
+    bonds whose addresses are not yet in the registry.
+    """
+    settings = setup_cli(log_level, data_dir=data_dir)
+
+    try:
+        resolved = resolve_mnemonic(
+            settings,
+            mnemonic_file=mnemonic_file,
+            prompt_bip39_passphrase=prompt_bip39_passphrase,
+        )
+        if not resolved:
+            raise ValueError("No mnemonic provided")
+        resolved_mnemonic = resolved.mnemonic
+        resolved_bip39_passphrase = resolved.bip39_passphrase
+        resolved_creation_height = resolved.creation_height
+    except (FileNotFoundError, ValueError) as e:
+        logger.error(str(e))
+        raise typer.Exit(1)
+
+    backend_settings = resolve_backend_settings(
+        settings,
+        network=network,
+        backend_type=backend_type,
+        rpc_url=rpc_url,
+        neutrino_url=neutrino_url,
+        data_dir=data_dir,
+    )
+
+    asyncio.run(
+        _sync_bonds_async(
+            resolved_mnemonic,
+            backend_settings,
+            resolved_bip39_passphrase,
+            creation_height=resolved_creation_height,
+        )
+    )
+
+
+async def _sync_bonds_async(
+    mnemonic: str,
+    backend_settings: ResolvedBackendSettings,
+    bip39_passphrase: str = "",
+    *,
+    creation_height: int | None = None,
+) -> None:
+    """Sync only the bond addresses already present in the registry."""
+    from jmcore.bitcoin import format_amount
+
+    from jmwallet.backends.descriptor_wallet import (
+        DescriptorWalletBackend,
+        generate_wallet_name,
+        get_mnemonic_fingerprint,
+    )
+    from jmwallet.backends.neutrino import NeutrinoBackend
+    from jmwallet.wallet.bond_registry import (
+        get_registry_path,
+        load_registry,
+        save_registry,
+    )
+    from jmwallet.wallet.service import WalletService
+
+    network = backend_settings.network
+    data_dir = backend_settings.data_dir
+
+    # Create backend based on type
+    backend: DescriptorWalletBackend | NeutrinoBackend
+    if backend_settings.backend_type == "neutrino":
+        backend = NeutrinoBackend(
+            neutrino_url=backend_settings.neutrino_url,
+            network=network,
+            scan_start_height=backend_settings.scan_start_height,
+            add_peers=backend_settings.neutrino_add_peers,
+            tls_cert_path=backend_settings.neutrino_tls_cert,
+            auth_token=backend_settings.neutrino_auth_token,
+        )
+        logger.info("Waiting for neutrino to sync...")
+        synced = await backend.wait_for_sync(timeout=300.0)
+        if not synced:
+            logger.error("Neutrino sync timeout")
+            return
+    elif backend_settings.backend_type == "descriptor_wallet":
+        fingerprint = get_mnemonic_fingerprint(mnemonic, bip39_passphrase)
+        wallet_name = generate_wallet_name(fingerprint, network)
+        backend = DescriptorWalletBackend(
+            rpc_url=backend_settings.rpc_url,
+            rpc_user=backend_settings.rpc_user,
+            rpc_password=backend_settings.rpc_password,
+            wallet_name=wallet_name,
+        )
+        await backend.create_wallet()
+    else:
+        raise ValueError(f"Unknown backend type: {backend_settings.backend_type}")
+
+    if creation_height is not None:
+        backend.set_wallet_creation_height(creation_height)
+
+    wallet = WalletService(
+        mnemonic=mnemonic,
+        backend=backend,
+        network=network,
+        mixdepth_count=5,
+        passphrase=bip39_passphrase,
+        data_dir=data_dir,
+    )
+
+    try:
+        # Migration ran at wallet open; disable the legacy fallback so foreign
+        # bonds are never copied into this wallet's file on save (#492).
+        registry = load_registry(data_dir, wallet.wallet_fingerprint, allow_legacy_fallback=False)
+        network_bonds = [bond for bond in registry.bonds if bond.network == network]
+
+        if not network_bonds:
+            print("\nNo fidelity bonds in the registry for this network to sync.")
+            print("Use 'jm-wallet generate-bond-address' to create one,")
+            print("or 'jm-wallet recover-bonds' to discover bonds on-chain.")
+            return
+
+        fidelity_bond_addresses = [
+            (bond.address, bond.locktime, bond.index) for bond in network_bonds
+        ]
+        print(f"\nSyncing {len(fidelity_bond_addresses)} registered bond address(es)...")
+        await wallet.sync_all(fidelity_bond_addresses)
+
+        # Map each bond address to its highest-value UTXO. Per the reference
+        # implementation only the single largest UTXO at an address is used.
+        best_utxo_by_address: dict[str, Any] = {}
+        for utxos_list in wallet.utxo_cache.values():
+            for utxo in utxos_list:
+                current = best_utxo_by_address.get(utxo.address)
+                if current is None or utxo.value > current.value:
+                    best_utxo_by_address[utxo.address] = utxo
+
+        funded = 0
+        for bond in network_bonds:
+            bond_utxo = best_utxo_by_address.get(bond.address)
+            if bond_utxo is not None:
+                registry.update_utxo_info(
+                    address=bond.address,
+                    txid=bond_utxo.txid,
+                    vout=bond_utxo.vout,
+                    value=bond_utxo.value,
+                    confirmations=bond_utxo.confirmations,
+                )
+                funded += 1
+
+        save_registry(registry, data_dir, wallet.wallet_fingerprint)
+
+        print("-" * 60)
+        print(f"Funded bonds:   {funded}")
+        print(f"Unfunded bonds: {len(network_bonds) - funded}")
+        for bond in sorted(network_bonds, key=lambda b: b.locktime):
+            bond_utxo = best_utxo_by_address.get(bond.address)
+            status = format_amount(bond_utxo.value) if bond_utxo is not None else "UNFUNDED"
+            print(f"  {bond.address}  {status}")
+        print("-" * 60)
+        print(f"Registry updated: {get_registry_path(data_dir, wallet.wallet_fingerprint)}")
+        print("Run 'jm-wallet list-bonds' to view the refreshed registry.")
+
+    finally:
+        await wallet.close()
 
 
 @app.command("recover-bonds")

@@ -121,6 +121,7 @@ Stores bond metadata including:
 
 Commands:
 - `jm-wallet list-bonds` - List all bonds from the registry with status (offline)
+- `jm-wallet sync-bonds` - Refresh funded status of registered bonds from the blockchain (fast)
 - `jm-wallet recover-bonds` - Scan the blockchain to discover bonds and refresh the registry
 - `jm-wallet registry-show <address>` - Show bond details
 

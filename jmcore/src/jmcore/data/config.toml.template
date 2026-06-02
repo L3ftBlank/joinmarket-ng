@@ -235,6 +235,10 @@
 # component_name is set automatically by each component (Maker, Taker, etc.)
 # include_amounts = true
 # include_txids = false
+# When include_txids is enabled, set a block explorer base URL to turn txids
+# into clickable links (e.g. "https://mempool.space/signet" -> ".../tx/<txid>").
+# Leave empty to show the bare txid instead.
+# mempool_url = ""
 # include_nick = true
 # use_tor = true
 

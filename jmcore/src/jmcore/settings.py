@@ -467,6 +467,15 @@ class NotificationSettings(BaseModel):
         default=False,
         description="Include transaction IDs in notifications (privacy risk)",
     )
+    mempool_url: str = Field(
+        default="",
+        description=(
+            "Base URL of a mempool/block explorer. When set (and include_txids is "
+            "enabled), CoinJoin notifications render the full txid as a clickable "
+            "link '<mempool_url>/tx/<txid>' instead of a bare id. Example: "
+            "'https://mempool.space' (mainnet) or 'https://mempool.space/signet'."
+        ),
+    )
     include_nick: bool = Field(
         default=True,
         description="Include peer nicks in notifications",

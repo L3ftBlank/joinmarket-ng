@@ -288,14 +288,29 @@ class TestNotifier:
         assert notifier._format_nick("alice") == "[hidden]"
 
     def test_format_txid(self) -> None:
-        """Test txid formatting."""
+        """Full txid is shown when enabled (a truncated prefix is useless)."""
         config = NotificationConfig(include_txids=True)
         notifier = Notifier(config)
 
         txid = "a" * 64
         formatted = notifier._format_txid(txid)
-        assert "..." in formatted
-        assert len(formatted) < len(txid)
+        assert formatted == txid
+        assert "..." not in formatted
+
+    def test_format_txid_mempool_link(self) -> None:
+        """A configured explorer base turns the txid into a clickable link."""
+        txid = "b" * 64
+        config = NotificationConfig(include_txids=True, mempool_url="https://mempool.space/signet")
+        assert Notifier(config)._format_txid(txid) == f"https://mempool.space/signet/tx/{txid}"
+
+        # Trailing slashes are normalized so the link never doubles up.
+        config_slash = NotificationConfig(include_txids=True, mempool_url="https://mempool.space/")
+        assert Notifier(config_slash)._format_txid(txid) == f"https://mempool.space/tx/{txid}"
+
+    def test_format_txid_link_suppressed_when_hidden(self) -> None:
+        """mempool_url never overrides the privacy switch."""
+        config = NotificationConfig(include_txids=False, mempool_url="https://mempool.space")
+        assert Notifier(config)._format_txid("c" * 64) == "[hidden]"
 
     def test_format_txid_hidden(self) -> None:
         """Test txid formatting when privacy enabled."""
@@ -1301,6 +1316,22 @@ class TestConvertSettingsToNotificationConfig:
         assert config.include_amounts is False
         assert config.include_txids is True
         assert config.include_nick is False
+
+    def test_convert_mempool_url(self) -> None:
+        """The explorer base URL must flow from settings into the config."""
+        from jmcore.settings import JoinMarketSettings, NotificationSettings
+
+        settings = JoinMarketSettings(
+            notifications=NotificationSettings(
+                urls=["gotify://host/token"],
+                include_txids=True,
+                mempool_url="https://mempool.space/signet",
+            )
+        )
+
+        config = convert_settings_to_notification_config(settings)
+
+        assert config.mempool_url == "https://mempool.space/signet"
 
     def test_convert_event_toggles(self) -> None:
         """Test converting per-event notification toggles."""

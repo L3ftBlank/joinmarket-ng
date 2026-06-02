@@ -416,6 +416,14 @@ class NotificationConfig(BaseModel):
         default=False,
         description="Include transaction IDs in notifications (privacy risk)",
     )
+    mempool_url: str = Field(
+        default="",
+        description=(
+            "Base URL of a mempool/block explorer. When set (and include_txids is "
+            "enabled), txids in notifications become clickable '<mempool_url>/tx/<txid>' "
+            "links instead of bare ids (e.g. 'https://mempool.space/signet')."
+        ),
+    )
     include_nick: bool = Field(
         default=True,
         description="Include peer nicks in notifications",
@@ -584,6 +592,7 @@ def convert_settings_to_notification_config(
         include_amounts=ns.include_amounts,
         include_txids=ns.include_txids,
         include_nick=ns.include_nick,
+        mempool_url=ns.mempool_url,
         use_tor=ns.use_tor,
         tor_socks_host=settings.tor.socks_host,
         tor_socks_port=settings.tor.socks_port,
@@ -894,10 +903,20 @@ class Notifier:
         return nick
 
     def _format_txid(self, txid: str) -> str:
-        """Format txid for display."""
+        """Format txid for display.
+
+        Privacy default (``include_txids=False``) hides it entirely. When
+        enabled, the *full* txid is shown: a 16-char prefix is not enough to
+        look the transaction up, so truncation made the field useless. When a
+        ``mempool_url`` explorer base is configured, render a clickable link to
+        the transaction so operators can open it directly.
+        """
         if not self.config.include_txids:
             return "[hidden]"
-        return f"{txid[:16]}..."
+        base = self.config.mempool_url.strip().rstrip("/")
+        if base:
+            return f"{base}/tx/{txid}"
+        return txid
 
     # =========================================================================
     # Typed-event seam

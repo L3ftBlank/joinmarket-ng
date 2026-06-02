@@ -183,6 +183,90 @@ def _read_csv_header(history_path: Path) -> list[str] | None:
         return None
 
 
+# Networks a history row's ``network`` column may legitimately hold. Used to
+# tell a correctly-aligned row from one whose columns were shifted by a stale
+# reordered header (see ``_rewrite_reordered_history``).
+_KNOWN_NETWORKS = frozenset({"mainnet", "testnet", "testnet4", "signet", "regtest"})
+
+
+def _looks_like_fingerprint(value: str) -> bool:
+    """True for an empty or 8-char-hex wallet fingerprint."""
+    fp = value.strip().lower()
+    if fp == "":
+        return True
+    if len(fp) != 8:
+        return False
+    try:
+        bytes.fromhex(fp)
+    except ValueError:
+        return False
+    return True
+
+
+def _row_fields_consistent(row: Mapping[str, str]) -> bool:
+    """Heuristic: do this row's anchor cells make sense for their columns?
+
+    Used to disambiguate which header order a raw row was written in. The
+    ``network`` and ``wallet_fingerprint`` columns are good anchors because
+    their value spaces (a small known-network set; empty-or-8-hex) barely
+    overlap with the addresses / nicks / amounts that land in them when the
+    columns are shifted by one position.
+    """
+    net = (row.get("network") or "").strip()
+    net_ok = net == "" or net in _KNOWN_NETWORKS
+    return net_ok and _looks_like_fingerprint(row.get("wallet_fingerprint") or "")
+
+
+def _reconcile_row_order(
+    cells: list[str], actual: list[str], expected: list[str]
+) -> dict[str, str]:
+    """Map a raw CSV row's cells to column names, picking the right order.
+
+    A reordered-header file can contain rows written in either the on-disk
+    (``actual``) order or, when a newer writer appended against the stale
+    header, the canonical (``expected``) order. Prefer the on-disk order and
+    only fall back to canonical when the on-disk interpretation is internally
+    inconsistent but the canonical one is.
+    """
+    by_actual = {actual[i]: cells[i] for i in range(min(len(actual), len(cells)))}
+    if _row_fields_consistent(by_actual):
+        return by_actual
+    by_expected = {expected[i]: cells[i] for i in range(min(len(expected), len(cells)))}
+    if _row_fields_consistent(by_expected):
+        return by_expected
+    return by_actual
+
+
+def _rewrite_reordered_history(history_path: Path, actual: list[str], expected: list[str]) -> None:
+    """Rewrite a history CSV whose header has all columns in the wrong order.
+
+    Reconstructs each row via :func:`_reconcile_row_order` and rewrites the
+    file atomically in canonical column order so subsequent appends and reads
+    stay aligned.
+    """
+    raw_rows: list[list[str]] = []
+    try:
+        with open(history_path, newline="", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            try:
+                next(reader)  # skip stale header
+            except StopIteration:
+                return
+            for cells in reader:
+                if cells:
+                    raw_rows.append(cells)
+    except OSError as e:
+        raise HistoryWriteError(f"Failed to read {history_path} for reorder migration: {e}") from e
+
+    entries: list[TransactionHistoryEntry] = []
+    for cells in raw_rows:
+        entry = _row_to_entry(_reconcile_row_order(cells, actual, expected))
+        if entry is not None:
+            entries.append(entry)
+    if not _write_history_entries_atomic(entries, history_path):
+        raise HistoryWriteError(f"Failed to migrate {history_path} to the canonical header order")
+
+
 def _ensure_history_header_current(history_path: Path) -> None:
     """Migrate a legacy history CSV to the current header layout.
 
@@ -209,7 +293,24 @@ def _ensure_history_header_current(history_path: Path) -> None:
 
     missing = [name for name in expected if name not in actual]
     if not missing:
-        # Header has all expected columns (perhaps reordered); leave it.
+        # Same columns, different order. This happens when a field is moved
+        # in the dataclass declaration (e.g. ``source_addresses`` relocated to
+        # last). The danger is subtle: ``csv.DictWriter`` writes appended rows
+        # in canonical ``_get_fieldnames()`` order, but ``csv.DictReader``
+        # maps cells by the on-disk header. With a stale reordered header the
+        # two disagree, so every column after the moved field is shifted on
+        # read (a maker's ``wallet_fingerprint`` silently reads back as one of
+        # its input addresses, ``network`` reads back as the fingerprint, and
+        # the per-wallet pending lookup never matches -> confirmed CoinJoins
+        # stay stuck on ``success=False``). Rewrite to the canonical order,
+        # reconstructing each row by whichever interpretation (on-disk vs
+        # canonical) is internally consistent so rows a newer writer already
+        # appended in canonical order against this stale header are recovered.
+        logger.info(
+            f"Migrating history CSV: normalizing reordered header "
+            f"(on-disk order differs from canonical {len(expected)}-column layout)"
+        )
+        _rewrite_reordered_history(history_path, actual, expected)
         return
 
     logger.info(

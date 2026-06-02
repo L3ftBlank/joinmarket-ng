@@ -2676,6 +2676,119 @@ class TestLegacyHeaderMigration:
         assert path.read_text() == before
 
 
+# A complete-but-reordered header as written by builds where
+# ``source_addresses`` was inserted right after ``utxos_used`` instead of last.
+# All 24 canonical columns are present, only the order differs. Appending a row
+# (written by DictWriter in canonical order) against this header shifts every
+# column after ``utxos_used`` on read: ``wallet_fingerprint`` reads back as a
+# source address and ``network`` reads back as the fingerprint.
+_REORDERED_HEADER = (
+    "timestamp,completed_at,role,success,failure_reason,confirmations,"
+    "confirmed_at,txid,cj_amount,peer_count,counterparty_nicks,fee_received,"
+    "txfee_contribution,total_maker_fees_paid,mining_fee_paid,net_fee,"
+    "source_mixdepth,destination_address,change_address,utxos_used,"
+    "source_addresses,broadcast_method,network,wallet_fingerprint"
+)
+
+
+class TestReorderedHeaderMigration:
+    """A field moved in the dataclass declaration (``source_addresses`` to
+    last) left older CSV files with a complete-but-reordered header. The
+    migration used to bail out on reorder ("all columns present"), so new
+    appends, written in canonical column order by ``DictWriter``, were shifted
+    against the stale header. On read a maker's ``wallet_fingerprint`` then
+    surfaced as one of its input addresses and ``network`` as the fingerprint,
+    breaking per-wallet pending lookups and the ``jm-wallet history`` wallet
+    auto-selection (which listed addresses as fingerprints)."""
+
+    FP = "30e919c2"
+
+    def test_append_against_reordered_header_stays_aligned(self, temp_data_dir: Path) -> None:
+        path = temp_data_dir / "history.csv"
+        path.write_text(_REORDERED_HEADER + "\n")
+
+        entry = TransactionHistoryEntry(
+            timestamp="2026-05-30T21:02:12",
+            role="maker",
+            success=False,
+            failure_reason="Awaiting transaction",
+            cj_amount=1_000_000,
+            destination_address="tb1qdest",
+            change_address="tb1qchange",
+            utxos_used="aa:0",
+            source_addresses="tb1qsrc1,tb1qsrc2",
+            network="signet",
+            wallet_fingerprint=self.FP,
+        )
+        append_history_entry(entry, temp_data_dir)
+
+        got = read_history(temp_data_dir)[0]
+        assert got.wallet_fingerprint == self.FP
+        assert got.network == "signet"
+        assert got.source_addresses == "tb1qsrc1,tb1qsrc2"
+        assert got.broadcast_method == ""
+
+    def test_recovers_already_shifted_rows(self, temp_data_dir: Path) -> None:
+        """A file that already contains both a correctly-aligned legacy row
+        and a row a newer writer appended in canonical order against the stale
+        header. Migration must keep the aligned row and un-shift the other."""
+        path = temp_data_dir / "history.csv"
+        aligned = (
+            "2026-05-29T10:00:00,,maker,True,,1,2026-05-29T10:01:00,goodtx,"
+            "200000,,Jnick,1000,0,0,0,0,0,tb1qd,tb1qc,bb:0,tb1qsrcA,,signet,"
+            f"{self.FP}"
+        )
+        shifted = (
+            "2026-05-30T21:02:12,,maker,False,Awaiting transaction,0,,,1000000,"
+            f",Jnick2,0,0,0,0,0,0,tb1qd2,tb1qc2,cc:0,,signet,{self.FP},tb1qsrcB"
+        )
+        path.write_text(_REORDERED_HEADER + "\n" + aligned + "\n" + shifted + "\n")
+
+        rows = {e.txid: e for e in read_history(temp_data_dir)}
+        assert rows["goodtx"].wallet_fingerprint == self.FP
+        assert rows["goodtx"].source_addresses == "tb1qsrcA"
+        # The pending shifted row, recovered under the active fingerprint.
+        recovered = next(e for e in read_history(temp_data_dir) if not e.txid)
+        assert recovered.wallet_fingerprint == self.FP
+        assert recovered.network == "signet"
+        assert recovered.source_addresses == "tb1qsrcB"
+        assert recovered.broadcast_method == ""
+
+    def test_recovered_pending_confirms_end_to_end(self, temp_data_dir: Path) -> None:
+        """The whole point: once recovered, a pending maker row matches its
+        wallet's fingerprint so the confirmation update flips it to success."""
+        path = temp_data_dir / "history.csv"
+        recent = datetime.now().isoformat()
+        shifted = (
+            f"{recent},,maker,False,Awaiting transaction,0,,pendingtx,1000000,"
+            f",Jnick,0,0,0,0,0,0,tb1qd,tb1qc,cc:0,,signet,{self.FP},tb1qsrcB"
+        )
+        path.write_text(_REORDERED_HEADER + "\n" + shifted + "\n")
+
+        # Before the fix this lookup found nothing (fingerprint read as an
+        # address), so the pending row never confirmed.
+        assert update_transaction_confirmation(
+            "pendingtx", 1, temp_data_dir, wallet_fingerprint=self.FP
+        )
+        stats = get_history_stats_for_period(
+            24, role_filter="maker", data_dir=temp_data_dir, wallet_fingerprint=self.FP
+        )
+        assert stats["successful_coinjoins"] == 1
+
+    def test_migration_is_idempotent(self, temp_data_dir: Path) -> None:
+        path = temp_data_dir / "history.csv"
+        path.write_text(
+            _REORDERED_HEADER + "\n"
+            "2026-05-30T21:02:12,,maker,False,Awaiting transaction,0,,tx,1000000,"
+            f",Jnick,0,0,0,0,0,0,tb1qd,tb1qc,cc:0,,signet,{self.FP},tb1qsrcB\n"
+        )
+        read_history(temp_data_dir)  # one-shot rewrite to canonical order
+        after_first = path.read_text()
+        for _ in range(3):
+            read_history(temp_data_dir)
+        assert path.read_text() == after_first
+
+
 class TestLegacyFilenameMigration:
     """The history CSV was renamed from coinjoin_history.csv to history.csv.
 

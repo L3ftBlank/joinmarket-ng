@@ -68,8 +68,8 @@ modules:
     buildsystem: autotools
     sources:
       - type: archive
-        url: https://dist.torproject.org/tor-0.4.9.8.tar.gz
-        sha256: ac1f394e2dd2ab0877d27d928fd0d9e86662fe3ca6afdffb9fd9b6f0f96d05de
+        url: https://dist.torproject.org/tor-0.4.9.9.tar.gz
+        sha256: bd75ba7fd68f607c7806fcf70156a300aa926e9ad69a5e56a8e6414f5227e833
 
   # =========================================================================
   # Module 3: libsodium
@@ -100,14 +100,14 @@ modules:
       - type: file
         only-arches:
           - x86_64
-        url: https://github.com/m0wer/neutrino-api/releases/download/v1.2.0/neutrinod-linux-amd64
-        sha256: 10035f912e5ed2d813020cde99a42b33bac7d31f44097ed4c1d9952a71052561
+        url: https://github.com/m0wer/neutrino-api/releases/download/v1.3.0/neutrinod-linux-amd64
+        sha256: 8fb15787a8ba5afacd7d8aac194c2521c70ca0950d0eff2718edd8ef97a4ce38
         dest-filename: neutrinod
       - type: file
         only-arches:
           - aarch64
-        url: https://github.com/m0wer/neutrino-api/releases/download/v1.2.0/neutrinod-linux-arm64
-        sha256: d330d953f87b21c20836b1cef955b5d1ce106934f21287490a91c9e4518ce1c2
+        url: https://github.com/m0wer/neutrino-api/releases/download/v1.3.0/neutrinod-linux-arm64
+        sha256: cca8bf8fb18614bf8acc781bade66c0a62207399d936938e52b058c4809604f5
         dest-filename: neutrinod
 
   # =========================================================================
@@ -136,7 +136,7 @@ modules:
     sources:
       - type: git
         url: https://github.com/joinmarket-webui/jam.git
-        commit: 4bbfe95a0b0f7b1c69bd71516f070c6f6a5f366f
+        commit: 5b610bf1868fcb1c3201d85e288a38df3ba7507d
 
   # =========================================================================
   # Module 6: Python application

@@ -8,20 +8,23 @@ _jm_wallet_completion() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
     if [ "$COMP_CWORD" -eq 1 ]; then
-        COMPREPLY=( $(compgen -W "list-bonds generate-bond-address import-bond recover-bonds create-bond-address generate-hot-keypair prepare-certificate-message import-certificate spend-bond debug-info freeze history registry-show send import generate info verify-password validate showseed rescan" -- "$cur") )
+        COMPREPLY=( $(compgen -W "list-bonds generate-bond-address import-bond sync-bonds recover-bonds create-bond-address generate-hot-keypair prepare-certificate-message import-certificate spend-bond debug-info freeze history registry-show send import generate info verify-password validate showseed rescan" -- "$cur") )
         return 0
     fi
 
     subcmd="${COMP_WORDS[1]}"
     case "$subcmd" in
       list-bonds)
-        COMPREPLY=( $(compgen -W "--help --mnemonic-file -f --prompt-bip39-passphrase --wallet-fingerprint --network -n --backend -b --rpc-url --locktime -L --data-dir --funded-only --active-only --json -j --log-level -l" -- "$cur") )
+        COMPREPLY=( $(compgen -W "--help --mnemonic-file -f --prompt-bip39-passphrase --wallet-fingerprint --data-dir --funded-only --active-only --json -j --log-level -l" -- "$cur") )
         ;;
       generate-bond-address)
         COMPREPLY=( $(compgen -W "--help --mnemonic-file -f --prompt-bip39-passphrase --locktime -L --locktime-date -d --network -n --data-dir --no-save --log-level -l" -- "$cur") )
         ;;
       import-bond)
         COMPREPLY=( $(compgen -W "--help --mnemonic-file -f --prompt-bip39-passphrase --locktime -L --locktime-date -d --timenumber -t --path -p --network -n --data-dir --log-level -l" -- "$cur") )
+        ;;
+      sync-bonds)
+        COMPREPLY=( $(compgen -W "--help --mnemonic-file -f --prompt-bip39-passphrase --network -n --backend -b --rpc-url --neutrino-url --data-dir --log-level -l" -- "$cur") )
         ;;
       recover-bonds)
         COMPREPLY=( $(compgen -W "--help --mnemonic-file -f --prompt-bip39-passphrase --network -n --backend -b --rpc-url --neutrino-url --data-dir --log-level -l" -- "$cur") )

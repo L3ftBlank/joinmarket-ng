@@ -6,9 +6,10 @@
 _jm_wallet() {
   local -a commands
   commands=(
-    'list-bonds:List all fidelity bonds in the wallet.'
+    'list-bonds:List fidelity bonds from the local registry (offline, no blockchain access).'
     'generate-bond-address:Generate a fidelity bond (timelocked P2WSH) address.'
     'import-bond:Manually import a fidelity bond into the registry.'
+    'sync-bonds:Refresh funded status of bonds already in the registry (fast).'
     'recover-bonds:Recover fidelity bonds by scanning all 960 possible timelocks.'
     'create-bond-address:Create a fidelity bond address from a public key (cold wallet workflow).'
     'generate-hot-keypair:Generate a hot wallet keypair for fidelity bond certificates.'
@@ -41,17 +42,13 @@ _jm_wallet() {
       case $words[1] in
         list-bonds)
           _arguments \
-            '--mnemonic-file=[]:file:_files' \
+            '--mnemonic-file=[Select the per-wallet bond registry by deriving its fingerprint from this mnemonic file. This does NOT scan the blockchain; use '\''jm-wallet recover-bonds'\'' to discover bonds on-chain.]:file:_files' \
             '--prompt-bip39-passphrase[Prompt for BIP39 passphrase]' \
-            '--wallet-fingerprint=[Select the per-wallet bond registry by its 8-char hex BIP32 master fingerprint (offline mode only). Use this instead of --mnemonic-file when you already know the fingerprint (e.g. from '\''jm-wallet info'\''). When neither --mnemonic-file nor this flag is provided and exactly one wallet has a registry in the data directory, that wallet is selected automatically.]: :' \
-            '--network=[Bitcoin network]: :' \
-            '--backend=[Backend\: descriptor_wallet | neutrino]: :' \
-            '--rpc-url=[]: :' \
-            '--locktime=[Locktime(s) to scan for]: :' \
+            '--wallet-fingerprint=[Select the per-wallet bond registry by its 8-char hex BIP32 master fingerprint. Use this instead of --mnemonic-file when you already know the fingerprint (e.g. from '\''jm-wallet info'\''). When neither --mnemonic-file nor this flag is provided and exactly one wallet has a registry in the data directory, that wallet is selected automatically.]: :' \
             '--data-dir=[Data directory (default\: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR)]:file:_files' \
-            '--funded-only[Show only funded bonds (offline mode)]' \
-            '--active-only[Show only active bonds (offline mode)]' \
-            '--json[Output as JSON (offline mode)]' \
+            '--funded-only[Show only funded bonds]' \
+            '--active-only[Show only active bonds]' \
+            '--json[Output as JSON]' \
             '--log-level=[Log level]: :' \
             '--help[Show this message and exit]'
           ;;
@@ -76,6 +73,18 @@ _jm_wallet() {
             '--timenumber=[Timenumber (0-959). Auto-derived if omitted.]: :' \
             '--path=[Full derivation path with locktime, e.g. m/84'\''/0'\''/0'\''/2/73\:1740787200]: :' \
             '--network=[]: :' \
+            '--data-dir=[Data directory (default\: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR)]:file:_files' \
+            '--log-level=[Log level]: :' \
+            '--help[Show this message and exit]'
+          ;;
+        sync-bonds)
+          _arguments \
+            '--mnemonic-file=[]:file:_files' \
+            '--prompt-bip39-passphrase[Prompt for BIP39 passphrase]' \
+            '--network=[Bitcoin network]: :' \
+            '--backend=[Backend\: descriptor_wallet | neutrino]: :' \
+            '--rpc-url=[]: :' \
+            '--neutrino-url=[]: :' \
             '--data-dir=[Data directory (default\: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR)]:file:_files' \
             '--log-level=[Log level]: :' \
             '--help[Show this message and exit]'
@@ -280,7 +289,7 @@ _jm_wallet() {
             '--prompt-bip39-passphrase[Prompt for BIP39 passphrase interactively]' \
             '--network=[Bitcoin network]: :' \
             '--rpc-url=[]: :' \
-            '--start-height=[Block height to rescan from (default\: 0 = genesis). The wallet'\''s recorded creation height is used as a floor when available, so values below it are clamped up automatically.]: :' \
+            '--start-height=[Block height to rescan from (default\: 0 = genesis). The wallet'\''s recorded creation height is used as a floor when available, so values below it are clamped up automatically. Honored both on its own and together with --scan-depth.]: :' \
             '--scan-depth=[Widen the descriptor address-index range to N per branch before rescanning (re-imports descriptors). Use this once for a wallet whose used addresses sit beyond the configured [wallet].scan_range. See the wallet scanning docs.]: :' \
             '--data-dir=[Data directory (default\: ~/.joinmarket-ng or $JOINMARKET_DATA_DIR)]:file:_files' \
             '--log-level=[Log level]: :' \

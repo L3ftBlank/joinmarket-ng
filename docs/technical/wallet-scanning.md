@@ -89,3 +89,13 @@ Rescans are read-only and run server-side in Bitcoin Core, so they are
 safe to interrupt: pressing Ctrl-C stops only the progress polling, not the
 scan. Re-attach later with `jm-wallet info --scan-status`. A full rescan
 from genesis can take 20+ minutes on mainnet.
+
+### Wallet creation height
+
+When the wallet's creation height is known (recorded in the mnemonic file),
+every rescan, including the background full rescan, fidelity-bond recovery,
+and `jm-wallet rescan`, is floored to that height. Coins cannot predate the
+wallet, so blocks before the creation height are skipped, which can save
+hours on mainnet. `--start-height` values below the creation height are
+clamped up to it. To deliberately scan earlier blocks (for example, if the
+recorded height is wrong), lower the wallet creation height first.

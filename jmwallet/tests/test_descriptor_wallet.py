@@ -1298,6 +1298,64 @@ class TestBackgroundRescan:
         assert observed_kick is True
 
     @pytest.mark.asyncio
+    async def test_start_background_rescan_floors_at_creation_height(self) -> None:
+        """When a wallet creation height is set, a rescan requested below it is
+        floored up to the creation height so genesis blocks are not rescanned."""
+        backend = DescriptorWalletBackend(wallet_name="test_rescan_floor")
+        backend._wallet_loaded = True
+        backend.set_wallet_creation_height(800000)
+
+        captured_height: int | None = None
+
+        async def mock_rpc(
+            method: str,
+            params: list[Any] | None = None,
+            client: Any = None,
+            use_wallet: bool = True,
+        ) -> Any:
+            nonlocal captured_height
+            if method == "rescanblockchain":
+                captured_height = (params or [None])[0]
+                raise httpx.TimeoutException("simulated long-running rescan")
+            if method == "getwalletinfo":
+                return {"scanning": {"progress": 0.01, "duration": 1}}
+            return {}
+
+        backend._rpc_call = mock_rpc  # type: ignore[method-assign]
+
+        # Request genesis (0); it must be floored up to the creation height.
+        await backend.start_background_rescan(start_height=0)
+        assert captured_height == 800000
+
+    @pytest.mark.asyncio
+    async def test_start_background_rescan_keeps_height_above_creation(self) -> None:
+        """A requested height above the creation height is honored as-is."""
+        backend = DescriptorWalletBackend(wallet_name="test_rescan_above")
+        backend._wallet_loaded = True
+        backend.set_wallet_creation_height(800000)
+
+        captured_height: int | None = None
+
+        async def mock_rpc(
+            method: str,
+            params: list[Any] | None = None,
+            client: Any = None,
+            use_wallet: bool = True,
+        ) -> Any:
+            nonlocal captured_height
+            if method == "rescanblockchain":
+                captured_height = (params or [None])[0]
+                raise httpx.TimeoutException("simulated long-running rescan")
+            if method == "getwalletinfo":
+                return {"scanning": {"progress": 0.01, "duration": 1}}
+            return {}
+
+        backend._rpc_call = mock_rpc  # type: ignore[method-assign]
+
+        await backend.start_background_rescan(start_height=850000)
+        assert captured_height == 850000
+
+    @pytest.mark.asyncio
     async def test_start_background_rescan_fast_path_returns_clean(self) -> None:
         """When rescanblockchain returns synchronously (regtest / already-synced),
         we accept that and return without polling."""

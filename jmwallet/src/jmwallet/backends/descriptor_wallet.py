@@ -1018,7 +1018,13 @@ class DescriptorWalletBackend(BlockchainBackend):
         silent no-op.
 
         Args:
-            start_height: Block height to start rescan from (default: 0 = genesis)
+            start_height: Block height to start rescan from (default: 0 = genesis).
+                When a wallet creation height hint is set (via
+                ``set_wallet_creation_height``), the effective start is floored
+                to it, since the wallet cannot hold coins from before it was
+                created. This avoids the common surprise of every rescan
+                starting at genesis and scanning years of irrelevant blocks
+                even though a creation height is configured.
 
         Raises:
             RuntimeError: If Bitcoin Core does not start scanning within
@@ -1026,6 +1032,20 @@ class DescriptorWalletBackend(BlockchainBackend):
         """
         if not self._wallet_loaded:
             raise RuntimeError("Wallet not loaded. Call create_wallet() first.")
+
+        # Floor the rescan at the known wallet creation height. Coins cannot
+        # predate the wallet, so scanning earlier blocks only wastes time
+        # (potentially hours on mainnet). This mirrors the ``jm-wallet rescan``
+        # CLI, which already clamps ``--start-height`` up to the creation
+        # height, and makes recover-bonds / background rescans honor the
+        # configured height instead of always starting from genesis.
+        if self._wallet_creation_height is not None and start_height < self._wallet_creation_height:
+            logger.info(
+                f"Flooring rescan start height {start_height} to wallet creation "
+                f"height {self._wallet_creation_height}; coins cannot predate it. "
+                "Adjust the wallet creation height to scan earlier blocks."
+            )
+            start_height = self._wallet_creation_height
 
         logger.info(
             f"Triggering blockchain rescan from height {start_height}. "

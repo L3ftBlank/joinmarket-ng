@@ -365,9 +365,12 @@ class WalletSyncMixin:
                 if progress_callback:
                     progress_callback(batch_end, total_addrs)
 
-            # Single rescan after all descriptors are registered.
+            # Single rescan after all descriptors are registered. The backend
+            # floors the start height at the wallet creation height when one is
+            # configured, so this does not always scan from genesis.
             logger.info(
-                "All fidelity bond addresses imported, starting full rescan from genesis. "
+                "All fidelity bond addresses imported, starting blockchain rescan "
+                "(from the wallet creation height when configured, otherwise genesis). "
                 "This may take a long time on mainnet (1-2+ hours with HDD)..."
             )
             await descriptor_backend.start_background_rescan(0)

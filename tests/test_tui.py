@@ -1294,6 +1294,68 @@ def test_tui_script_send_uses_whiptail_confirmation() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Config Center Tests (PR: Add Config Center to TUI)
+# ---------------------------------------------------------------------------
+
+
+def test_tui_script_config_center_structure() -> None:
+    """C opens Config Center submenu with all menu items and check_stale_wallet."""
+    content = SCRIPT_PATH.read_text()
+    c_block = content.split("C)\n", 1)[1].split("U)\n", 1)[0]
+
+    # Must have submenu loop
+    assert "while true; do" in c_block, "Config Center must have while loop"
+    assert "case $CCHOICE in" in c_block, "Config Center must have case statement"
+
+    # All 5 menu items present
+    assert '"LOG"' in c_block, "Config Center must have LOG item"
+    assert '"DELPW"' in c_block, "Config Center must have DELPW item"
+    assert '"EDIT"' in c_block, "Config Center must have EDIT item"
+    assert '"BACKUP"' in c_block, "Config Center must have BACKUP item"
+    assert '"REST"' in c_block, "Config Center must have REST item"
+
+    # Must refresh wallet state
+    assert "check_stale_wallet" in c_block, "Config Center must call check_stale_wallet"
+
+
+def test_tui_script_config_center_backup_timestamp_format() -> None:
+    """BACKUP uses human-readable timestamp YYYY-MM-DD_HH-MM-S."""
+    content = SCRIPT_PATH.read_text()
+    backup_case = content.split("BACKUP)", 1)[1].split(";;", 1)[0]
+    assert "date +%Y-%m-%d_%H-%M-%S" in backup_case, (
+        "BACKUP must use YYYY-MM-DD_HH-MM-S format"
+    )
+
+
+def test_tui_script_config_center_restore_lists_backups() -> None:
+    """REST finds config.toml.backup.* files and sorts newest first."""
+    content = SCRIPT_PATH.read_text()
+    rest_case = content.split("REST)", 1)[1].split(";;", 1)[0]
+    assert "config.toml.backup.*" in rest_case, (
+        "REST must search for config.toml.backup.*"
+    )
+    assert "sort -r" in rest_case, "REST must sort reverse (newest first)"
+
+
+def test_tui_script_config_center_log_level_sets_value() -> None:
+    """LOG case in Config Center calls set_config_value for log_level."""
+    content = SCRIPT_PATH.read_text()
+    # Extract C block (Config Center)
+    c_block = content.split("C)\n", 1)[1].split("U)\n", 1)[0]
+    # Check that log_level setting exists in Config Center
+    assert 'set_config_value "log_level"' in c_block, "LOG must call set_config_value"
+
+
+def test_tui_script_config_center_delpw_clears_password() -> None:
+    """DELPW case calls clear_config_value for mnemonic_password."""
+    content = SCRIPT_PATH.read_text()
+    delpw_case = content.split("DELPW)", 1)[1].split(";;", 1)[0]
+    assert 'clear_config_value "mnemonic_password"' in delpw_case, (
+        "DELPW must clear password"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Docker image tests
 # ---------------------------------------------------------------------------
 

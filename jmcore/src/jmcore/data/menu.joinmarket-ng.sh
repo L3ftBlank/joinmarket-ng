@@ -927,7 +927,7 @@ if [ "${RASPIBLITZ}" -eq 1 ]; then
         "S" "Send Bitcoin" \
         "W" "Wallet Management" \
         "M" "Maker Bot Control" \
-        "C" "Edit Configuration" \
+        "C" "Config Center" \
         "U" "Update JoinMarket-NG" \
         "I" "Info / Documentation" \
         "B" "Exit to RaspiBlitz Menu" \
@@ -939,7 +939,7 @@ if [ "${RASPIBLITZ}" -eq 1 ]; then
         "S" "Send Bitcoin" \
         "W" "Wallet Management" \
         "M" "Maker Bot Control" \
-        "C" "Edit Configuration" \
+        "C" "Config Center" \
         "U" "Update JoinMarket-NG" \
         "I" "Info / Documentation" \
         "X" "Exit to JoinMarket-NG CLI Shell" 3>&1 1>&2 2>&3)
@@ -1891,7 +1891,115 @@ if [ "${RASPIBLITZ}" -eq 1 ]; then
       ;;
 
     C)
-      nano "$CONFIG_FILE"
+      # Config Center submenu
+      while true; do
+        check_stale_wallet
+        CCHOICE=$(whiptail --title " Config Center " \
+          --menu "\n$WALLET_INFO | Maker Bot: $MAKER_STATUS" \
+          20 64 8 \
+          "LOG"    "Configure Log Level" \
+          "DELPW"  "Delete Active Wallet Password" \
+          ""   "" \
+          "EDIT"   "Edit config.toml manually (nano)" \
+          "BACKUP" "Backup config.toml" \
+          "REST"   "Restore config.toml" \
+          ""   "" \
+          "BACK"   "Back to Main Menu" 3>&1 1>&2 2>&3)
+
+        [ $? -ne 0 ] && break
+
+        case $CCHOICE in
+          LOG)
+            CURRENT_LOG="${LOGGING__LEVEL:-WARNING}"
+
+            LOG_CHOICE=$(whiptail --title " Log Level " --notags \
+              --menu "\n$WALLET_INFO | Maker Bot: $MAKER_STATUS\n\nSelect log level:\n\nCurrent: ${CURRENT_LOG}" \
+              17 50 4 \
+              "DEBUG"   "DEBUG   - Detailed debugging information" \
+              "INFO"    "INFO    - General information messages" \
+              "WARNING" "WARNING - Warning messages only (default)" \
+              "ERROR"   "ERROR   - Error messages only" 3>&1 1>&2 2>&3) || continue
+
+            set_config_value "log_level" "$LOG_CHOICE" "true"
+            export LOGGING__LEVEL="$LOG_CHOICE"
+
+            whiptail --title " Log Level " --msgbox "Log level set to: $LOG_CHOICE\n\nChanges take effect immediately." 9 50
+            ;;
+
+          DELPW)
+            if ! ensure_active_wallet; then
+              continue
+            fi
+
+            STORED_PW=$(get_stored_mnemonic_password)
+            if [ -z "$STORED_PW" ]; then
+              whiptail --title " Delete Password " --msgbox "No wallet password is currently stored in config.toml." 8 50
+              continue
+            fi
+
+            if whiptail --title " Delete Password " --yesno \
+              "\n$WALLET_INFO | Maker Bot: $MAKER_STATUS\n\nDelete the stored password for wallet:\n$(basename "$CURRENT_WALLET")\n\nThis will require entering the password on next use." \
+              13 60 --defaultno 3>&1 1>&2 2>&3; then
+
+              clear_config_value "mnemonic_password"
+              whiptail --title " Password Deleted " --msgbox "Wallet password removed from config.toml." 8 50
+            fi
+            ;;
+
+          EDIT)
+            nano "$CONFIG_FILE"
+            clear
+            ;;
+
+          BACKUP)
+            TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
+            BACKUP_FILE="${CONFIG_FILE}.backup.${TIMESTAMP}"
+            if cp "$CONFIG_FILE" "$BACKUP_FILE"; then
+              whiptail --title " Config Backup " --msgbox \
+                "Config backed up to:\n\n$(basename "$BACKUP_FILE")\n\n(in ~/.joinmarket-ng/)" 10 60
+            else
+              whiptail --title " Error " --msgbox "Failed to create backup." 8 40
+            fi
+            ;;
+
+          REST)
+            BACKUPS=$(find "${DATA_DIR}" -maxdepth 1 -name 'config.toml.backup.*' -type f -printf '%f\n' 2>/dev/null | sort -r)
+
+            if [ -z "$BACKUPS" ]; then
+              whiptail --title " Restore Config " --msgbox "No backups found." 8 40
+              continue
+            fi
+
+            MENU_ITEMS=()
+            while IFS= read -r bf; do
+              [ -z "$bf" ] && continue
+              MENU_ITEMS+=("$bf" "$bf")
+            done <<< "$BACKUPS"
+
+            SELECTED=$(whiptail --title " Restore Config " --notags \
+              --menu "Select backup to restore:\n\nWARNING: This will overwrite current config!" \
+              20 70 8 \
+              "${MENU_ITEMS[@]}" 3>&1 1>&2 2>&3) || continue
+
+            if ! whiptail --title " Confirm Restore " --yesno \
+              "Restore this backup?\n\n${SELECTED}\n\nWARNING: This will OVERWRITE your current config.toml!" \
+              12 70 --defaultno 3>&1 1>&2 2>&3; then
+              continue
+            fi
+
+            if cp "${DATA_DIR}/${SELECTED}" "$CONFIG_FILE"; then
+              whiptail --title " Config Restored " --msgbox \
+                "Config restored from:\n${SELECTED}" 9 50
+            else
+              whiptail --title " Error " --msgbox "Failed to restore config." 8 40
+            fi
+            ;;
+
+          BACK|"")
+            break
+            ;;
+        esac
+      done
       clear
       ;;
 

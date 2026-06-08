@@ -50,72 +50,10 @@ curl -sSL https://raw.githubusercontent.com/joinmarket-ng/joinmarket-ng/main/ins
 
 ## Flatpak
 
-The Flatpak package (`org.joinmarketng.JamNG`) bundles all services
-(jmwalletd + JAM web UI, Tor, neutrino light client, orderbook watcher) in a
-single sandboxed application.
-
-### Build and install
-
-```bash
-flatpak-builder --user --install --force-clean build-dir flatpak/org.joinmarketng.JamNG.yml
-```
-
-### Run
-
-```bash
-flatpak run org.joinmarketng.JamNG                 # mainnet
-flatpak run org.joinmarketng.JamNG --network signet  # signet
-flatpak run org.joinmarketng.JamNG --no-gui          # headless (opens browser instead of GUI)
-```
-
-### Data directory
-
-The Flatpak is sandboxed. All state lives in:
-
-```
-~/.var/app/org.joinmarketng.JamNG/.joinmarket-ng/
-```
-
-This is separate from the standard `~/.joinmarket-ng/` used by a non-Flatpak
-install. Network-specific sub-directories are used automatically:
-
-```
-~/.var/app/org.joinmarketng.JamNG/.joinmarket-ng/          # mainnet
-~/.var/app/org.joinmarketng.JamNG/.joinmarket-ng/signet/   # signet
-~/.var/app/org.joinmarketng.JamNG/.joinmarket-ng/regtest/  # regtest
-```
-
-### Migrating an existing wallet
-
-If you have a wallet from a previous (non-Flatpak) install at
-`~/.joinmarket-ng/wallets/`, copy it to the Flatpak data directory:
-
-```bash
-cp ~/.joinmarket-ng/wallets/default.mnemonic \
-   ~/.var/app/org.joinmarketng.JamNG/.joinmarket-ng/wallets/
-```
-
-The wallet file format (`.mnemonic`) is the same in both installs.
-If the wallet is encrypted you will be prompted for the password when you
-select it in the TUI or use `jm-wallet` CLI commands via
-`flatpak run --command=sh org.joinmarketng.JamNG -c "jm-wallet info"`.
-
-### Moving wallets between networks
-
-Wallets are stored under the network-specific data directory. If you created a
-wallet on mainnet (no `--network` flag) and want to use it on signet, copy it
-to the signet wallets directory:
-
-```bash
-# Created on mainnet, want to use on signet
-cp ~/.var/app/org.joinmarketng.JamNG/.joinmarket-ng/wallets/my-wallet.jmdat \
-   ~/.var/app/org.joinmarketng.JamNG/.joinmarket-ng/signet/wallets/
-```
-
-The same applies when moving a wallet the other way (signet to mainnet).
-Note that addresses derived from the same mnemonic are different on mainnet vs
-signet because the coin-type in the BIP32 path differs (`0'` for mainnet,
-`1'` for signet/testnet).
+For a single-application install that bundles the JAM web UI, jmwalletd, Tor,
+the Neutrino light client, and the orderbook watcher, use the Flatpak. See the
+dedicated [Flatpak guide](flatpak.md) for build, run, CLI, and data-directory
+details.
 
 ## Updating
 

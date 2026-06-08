@@ -46,6 +46,9 @@ def mock_wallet_service() -> MagicMock:
     ws.get_available_balance_for_mixdepth = Mock(return_value=50_000_000)
     ws.get_receive_address = Mock(return_value="bcrt1qtest1234567890abcdef")
     ws.sync = AsyncMock()
+    # Bond-aware sync used by the wallet-data endpoints (/utxos, /display) so
+    # funded fidelity bonds are surfaced. Defaults to a no-op AsyncMock.
+    ws.sync_with_registered_bonds = AsyncMock()
     # Real WalletService.get_balance is async and returns an int sats total for
     # a mixdepth. The tumbler router consumes it via _mixdepth_balances, so the
     # default mock must be non-zero to allow happy-path plan-creation tests.

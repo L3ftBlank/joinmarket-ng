@@ -53,7 +53,7 @@ class TestWalletDisplay:
         data = resp.json()
         assert data["walletname"] == "test_wallet.jmdat"
         assert "walletinfo" in data
-        ws.sync.assert_awaited_once()
+        ws.sync_with_registered_bonds.assert_awaited_once()
 
     def test_skips_sync_while_rescanning(self, authed_client: tuple[TestClient, str]) -> None:
         client, token = authed_client
@@ -61,7 +61,7 @@ class TestWalletDisplay:
         ws = state.wallet_service
 
         state.rescanning = True
-        ws.sync.reset_mock()
+        ws.sync_with_registered_bonds.reset_mock()
         ws.mixdepth_count = 5
         ws.get_balance = AsyncMock(return_value=100_000_000)
         ws.get_available_balance = AsyncMock(return_value=90_000_000)
@@ -72,7 +72,7 @@ class TestWalletDisplay:
             headers=_auth_headers(token),
         )
         assert resp.status_code == 200
-        ws.sync.assert_not_awaited()
+        ws.sync_with_registered_bonds.assert_not_awaited()
 
 
 class TestWalletDisplayWithHistory:
@@ -172,7 +172,7 @@ class TestWalletDisplayWithHistory:
         assert resp.status_code == 200
         data = resp.json()
         assert data["utxos"] == []
-        ws.sync.assert_awaited_once()
+        ws.sync_with_registered_bonds.assert_awaited_once()
 
     def test_utxos_skip_sync_while_rescanning(self, authed_client: tuple[TestClient, str]) -> None:
         client, token = authed_client
@@ -180,14 +180,76 @@ class TestWalletDisplayWithHistory:
         ws = state.wallet_service
 
         state.rescanning = True
-        ws.sync.reset_mock()
+        ws.sync_with_registered_bonds.reset_mock()
 
         resp = client.get(
             "/api/v1/wallet/test_wallet.jmdat/utxos",
             headers=_auth_headers(token),
         )
         assert resp.status_code == 200
-        ws.sync.assert_not_awaited()
+        ws.sync_with_registered_bonds.assert_not_awaited()
+
+
+class TestListUtxosFidelityBonds:
+    """A funded fidelity bond must be returned by /utxos with a ``locktime``.
+
+    JAM keys fidelity-bond detection off a truthy ``locktime`` field and parses
+    the actual timestamp out of the ``path`` (``.../2/<index>:<locktime>``). If
+    the bond is missing from the response (or the field is absent), the coins
+    "disappear" from JAM. This guards both the presence of the bond UTXO and
+    the legacy-compatible datetime formatting of the field.
+    """
+
+    def test_bond_utxo_surfaces_locktime(self, authed_client: tuple[TestClient, str]) -> None:
+        from jmwallet.wallet.models import UTXOInfo
+
+        client, token = authed_client
+        state = get_daemon_state()
+        ws = state.wallet_service
+        ws.mixdepth_count = 5
+
+        # locktime 1748736000 == 2025-06-01 00:00:00 UTC (a 1st-of-month bond).
+        bond_locktime = 1748736000
+        bond = UTXOInfo(
+            txid="aa" * 32,
+            vout=0,
+            value=200_000_000,
+            address="bcrt1qbond",
+            confirmations=10,
+            scriptpubkey="0020" + "11" * 32,
+            path=f"m/84'/1'/0'/2/0:{bond_locktime}",
+            mixdepth=0,
+            locktime=bond_locktime,
+        )
+        regular = UTXOInfo(
+            txid="bb" * 32,
+            vout=1,
+            value=50_000_000,
+            address="bcrt1qregular",
+            confirmations=5,
+            scriptpubkey="0014" + "22" * 20,
+            path="m/84'/1'/1'/0/3",
+            mixdepth=1,
+        )
+        ws.utxo_cache = {0: [bond], 1: [regular], 2: [], 3: [], 4: []}
+
+        resp = client.get(
+            "/api/v1/wallet/test_wallet.jmdat/utxos",
+            headers=_auth_headers(token),
+        )
+        assert resp.status_code == 200
+        utxos = {u["utxo"]: u for u in resp.json()["utxos"]}
+
+        bond_entry = utxos[f"{'aa' * 32}:0"]
+        # Legacy joinmarket-clientserver UTC datetime string format.
+        assert bond_entry["locktime"] == "2025-06-01 00:00:00"
+        # The path carries the parseable unix timestamp JAM extracts.
+        assert bond_entry["path"].endswith(f":{bond_locktime}")
+        assert bond_entry["mixdepth"] == 0
+
+        # Regular UTXOs must not carry a locktime (field omitted / null).
+        regular_entry = utxos[f"{'bb' * 32}:1"]
+        assert regular_entry["locktime"] is None
 
 
 class TestNewAddress:

@@ -1060,3 +1060,84 @@ class TestNeutrinoCoinJoin:
             logger.info("Stopping taker...")
             await taker.stop()
             await taker_wallet.close()
+
+
+class TestNeutrinoFidelityBonds:
+    """Fidelity bonds must be found by neutrino sync even when registered late.
+
+    Regression (JAM "funds disappear"): a bond address registered *after* the
+    initial wallet sync was never historically rescanned by neutrino, so its
+    already-confirmed funding output stayed invisible. ``sync_all`` also used
+    to ignore bond addresses entirely on the light-client path.
+    """
+
+    async def test_bond_funded_after_initial_sync_is_found(
+        self,
+        neutrino_backend,
+        ensure_blockchain_ready,
+        tmp_path,
+    ):
+        import asyncio
+        import uuid
+
+        from jmcore.timenumber import timenumber_to_timestamp
+        from mnemonic import Mnemonic
+
+        from tests.e2e.rpc_utils import mine_blocks
+
+        # Fresh wallet per run so the bond address starts unknown/unwatched.
+        mnemonic = Mnemonic("english").generate(strength=128)
+        data_dir = tmp_path / f"nwallet-{uuid.uuid4().hex[:8]}"
+        data_dir.mkdir(parents=True, exist_ok=True)
+
+        wallet = WalletService(
+            mnemonic=mnemonic,
+            backend=neutrino_backend,
+            network=NetworkType.REGTEST,
+            data_dir=data_dir,
+        )
+
+        # 1) Initial sync with no bonds. This flips the backend's
+        #    _initial_rescan_done flag, reproducing the real-world ordering.
+        await wallet.sync_all()
+
+        # 2) Derive a (past-locktime, immediately valid) bond address and fund it.
+        timenumber = 0  # Jan 2020 -> already unlocked
+        locktime = timenumber_to_timestamp(timenumber)
+        bond_address = wallet.get_fidelity_bond_address(timenumber, locktime)
+        logger.info(f"Funding neutrino fidelity bond address: {bond_address}")
+
+        await mine_blocks(1, bond_address)
+        await mine_blocks(110, "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080")
+
+        # 3) Sync again, now passing the bond address (as the daemon's bond-aware
+        #    sync does). The historical rescan must surface the funded bond.
+        bond_utxo = None
+        for attempt in range(12):
+            await wallet.sync_all([(bond_address, locktime, timenumber)])
+            bond_utxo = next(
+                (
+                    u
+                    for u in wallet.utxo_cache.get(0, [])
+                    if u.address == bond_address and u.is_fidelity_bond
+                ),
+                None,
+            )
+            if bond_utxo is not None:
+                break
+            logger.info(f"Bond not yet visible (attempt {attempt + 1}); retrying...")
+            await asyncio.sleep(3)
+
+        await wallet.close()
+
+        assert bond_utxo is not None, (
+            "Funded fidelity bond not found via neutrino sync (funds disappeared). "
+            "The historical rescan of the late-registered bond address did not run."
+        )
+        assert bond_utxo.locktime == locktime
+        assert bond_utxo.path.endswith(f":{locktime}")
+        assert bond_utxo.value > 0
+        logger.info(
+            f"Neutrino surfaced fidelity bond {bond_utxo.txid}:{bond_utxo.vout} "
+            f"value={bond_utxo.value} locktime={bond_utxo.locktime}"
+        )

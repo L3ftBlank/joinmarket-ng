@@ -759,6 +759,68 @@ class TestNeutrinoBackend:
         await backend.close()
 
     @pytest.mark.asyncio
+    async def test_ensure_addresses_scanned_rescans_new_address(self):
+        """A newly watched bond address triggers a historical rescan.
+
+        The requested start height must drop below neutrino-api's persisted
+        ``last_start_height`` so its "skip already-scanned range" optimisation is
+        bypassed and the old blocks are genuinely re-evaluated.
+        """
+
+        backend = NeutrinoBackend(
+            neutrino_url="http://localhost:8334",
+            network="signet",
+            scan_start_height=250,
+        )
+        backend.get_block_height = AsyncMock(return_value=1000)
+        backend._api_call = AsyncMock(return_value={})
+        backend._wait_for_rescan = AsyncMock(return_value=True)
+        # neutrino-api already scanned [200, 1000]; the backfill must start below 200.
+        backend._get_rescan_coverage = AsyncMock(return_value=(200, 1000))
+
+        bond_addr = "tb1qbondaddressexample00000000000000000000000000xyz"
+        await backend.ensure_addresses_scanned([bond_addr])
+
+        # A rescan was issued for the new address below the persisted start so
+        # neutrino-api does not skip the already-scanned blocks.
+        rescan_calls = [
+            c for c in backend._api_call.call_args_list if c.args[:2] == ("POST", "v1/rescan")
+        ]
+        assert rescan_calls, "expected a rescan to be triggered"
+        body = rescan_calls[-1].kwargs["data"]
+        assert bond_addr in body["addresses"]
+        assert body["start_height"] == 199  # persisted_start (200) - 1, below the floor
+        assert bond_addr in backend._watched_addresses
+        # Next get_utxos should wait for async indexing.
+        assert backend._just_rescanned is True
+        await backend.close()
+
+    @pytest.mark.asyncio
+    async def test_ensure_addresses_scanned_skips_already_watched(self):
+        """Already-watched addresses do not trigger a redundant rescan."""
+
+        backend = NeutrinoBackend(
+            neutrino_url="http://localhost:8334",
+            network="signet",
+            scan_start_height=100,
+        )
+        backend.get_block_height = AsyncMock(return_value=1000)
+        backend._api_call = AsyncMock(return_value={})
+        backend._wait_for_rescan = AsyncMock(return_value=True)
+        backend._get_rescan_coverage = AsyncMock(return_value=(200, 1000))
+
+        addr = "tb1qalreadywatched0000000000000000000000000000000xyz"
+        await backend.add_watch_address(addr)
+
+        await backend.ensure_addresses_scanned([addr])
+
+        rescan_calls = [
+            c for c in backend._api_call.call_args_list if c.args[:2] == ("POST", "v1/rescan")
+        ]
+        assert not rescan_calls, "should not rescan an already-watched address"
+        await backend.close()
+
+    @pytest.mark.asyncio
     async def test_get_rescan_coverage_returns_metadata(self):
         """_get_rescan_coverage should parse last_start_height and last_scanned_tip."""
 

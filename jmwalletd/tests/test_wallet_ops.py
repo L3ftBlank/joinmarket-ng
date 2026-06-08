@@ -336,6 +336,7 @@ class TestRecoverWallet:
 
         mock_ws = MagicMock()
         mock_ws.sync = AsyncMock()
+        mock_ws.sync_with_registered_bonds = AsyncMock()
         mock_ws.setup_descriptor_wallet = AsyncMock()
         mock_ws_cls.return_value = mock_ws
         mock_get_backend.return_value = _make_descriptor_backend()
@@ -354,6 +355,8 @@ class TestRecoverWallet:
 
         # Recovery with descriptor backend: needs full rescan (default rescan=True).
         mock_ws.setup_descriptor_wallet.assert_awaited_once_with()
+        # Bond-aware sync so recovered fidelity bonds are scanned and surfaced.
+        mock_ws.sync_with_registered_bonds.assert_awaited_once()
 
     @patch("jmwalletd.wallet_ops._get_network", return_value="mainnet")
     @patch("jmwalletd._backend.get_backend", new_callable=AsyncMock)
@@ -371,6 +374,7 @@ class TestRecoverWallet:
 
         mock_ws = MagicMock()
         mock_ws.sync = AsyncMock()
+        mock_ws.sync_with_registered_bonds = AsyncMock()
         mock_ws.setup_descriptor_wallet = AsyncMock()
         mock_ws_cls.return_value = mock_ws
         mock_get_backend.return_value = _make_neutrino_backend()
@@ -386,7 +390,7 @@ class TestRecoverWallet:
 
         # Neutrino backend: setup_descriptor_wallet must NOT be called.
         mock_ws.setup_descriptor_wallet.assert_not_awaited()
-        mock_ws.sync.assert_awaited_once()
+        mock_ws.sync_with_registered_bonds.assert_awaited_once()
 
 
 class TestOpenWallet:
@@ -413,6 +417,7 @@ class TestOpenWallet:
 
         mock_ws = MagicMock()
         mock_ws.sync = AsyncMock()
+        mock_ws.sync_with_registered_bonds = AsyncMock()
         mock_ws.setup_descriptor_wallet = AsyncMock()
         mock_ws_cls.return_value = mock_ws
         mock_get_backend.return_value = _make_descriptor_backend()
@@ -428,6 +433,8 @@ class TestOpenWallet:
 
         # Descriptor backend: setup_descriptor_wallet called with default rescan.
         mock_ws.setup_descriptor_wallet.assert_awaited_once_with()
+        # Bond-aware sync so funded fidelity bonds are surfaced in /utxos.
+        mock_ws.sync_with_registered_bonds.assert_awaited_once()
 
     @patch("jmwalletd.wallet_ops._get_network", return_value="mainnet")
     @patch("jmwalletd._backend.get_backend", new_callable=AsyncMock)
@@ -452,6 +459,7 @@ class TestOpenWallet:
 
         mock_ws = MagicMock()
         mock_ws.sync = AsyncMock()
+        mock_ws.sync_with_registered_bonds = AsyncMock()
         mock_ws.setup_descriptor_wallet = AsyncMock()
         mock_ws_cls.return_value = mock_ws
         mock_get_backend.return_value = _make_neutrino_backend()
@@ -465,8 +473,8 @@ class TestOpenWallet:
 
         # Neutrino backend: setup_descriptor_wallet must NOT be called.
         mock_ws.setup_descriptor_wallet.assert_not_awaited()
-        # sync() must still be called.
-        mock_ws.sync.assert_awaited_once()
+        # sync (bond-aware) must still be called.
+        mock_ws.sync_with_registered_bonds.assert_awaited_once()
 
     async def test_open_nonexistent(self, tmp_path: Path) -> None:
         wallet_path = tmp_path / "nonexistent.jmdat"
@@ -843,6 +851,7 @@ class TestCreationHeight:
 
         mock_ws = MagicMock()
         mock_ws.sync = AsyncMock()
+        mock_ws.sync_with_registered_bonds = AsyncMock()
         mock_ws.setup_descriptor_wallet = AsyncMock()
         mock_ws_cls.return_value = mock_ws
         mock_get_backend.return_value = _make_descriptor_backend()

@@ -22,6 +22,7 @@ def mock_backend():
     """Create a mock blockchain backend."""
     backend = MagicMock()
     backend.get_utxos = AsyncMock(return_value=[])
+    backend.ensure_addresses_scanned = AsyncMock()
     backend.close = AsyncMock()
     return backend
 

@@ -185,7 +185,10 @@ async def recover_wallet(
     if _is_descriptor_backend(backend):
         await ws.setup_descriptor_wallet()
 
-    await ws.sync()
+    # Bond-aware sync so any fidelity bonds recorded in the per-wallet
+    # registry are imported and their UTXOs scanned (otherwise recovered
+    # bonds would be invisible in /utxos and /display).
+    await ws.sync_with_registered_bonds()
 
     logger.info("Recovered wallet: {}", wallet_path.name)
     return ws
@@ -240,7 +243,9 @@ async def open_wallet_with_mnemonic(
         await ws.setup_descriptor_wallet()
 
     if sync_on_open:
-        await ws.sync()
+        # Bond-aware sync so funded fidelity bonds from the registry are
+        # imported and surfaced in /utxos and /display.
+        await ws.sync_with_registered_bonds()
 
     logger.info("Opened wallet: {}", wallet_path.name)
     return ws, seedphrase

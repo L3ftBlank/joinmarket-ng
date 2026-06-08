@@ -208,6 +208,11 @@ class UTXOEntry(BaseModel):
     mixdepth: int
     confirmations: int
     frozen: bool = False
+    # Present only for timelocked fidelity bond UTXOs. Formatted as the legacy
+    # joinmarket-clientserver UTC datetime string (e.g. "2025-06-01 00:00:00")
+    # so JAM (which keys fidelity-bond detection off a truthy ``locktime``)
+    # treats the UTXO as a bond. Regular UTXOs omit the field entirely.
+    locktime: str | None = None
 
 
 class ListUtxosResponse(BaseModel):

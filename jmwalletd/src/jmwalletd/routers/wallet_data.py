@@ -44,6 +44,20 @@ from jmwalletd.state import DaemonState
 router = APIRouter()
 
 
+def _format_bond_locktime(locktime: int | None) -> str | None:
+    """Render a fidelity bond locktime as the legacy UTC datetime string.
+
+    Matches joinmarket-clientserver's ``wallet_showutxos`` output
+    (``datetime.utcfromtimestamp(0) + timedelta(seconds=locktime)``), e.g.
+    ``"2025-06-01 00:00:00"``. Returns ``None`` for non-bond UTXOs so the field
+    is omitted from the response.
+    """
+    if locktime is None:
+        return None
+    dt = datetime.datetime.fromtimestamp(locktime, tz=datetime.UTC)
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
 # ---------------------------------------------------------------------------
 # GET /api/v1/wallet/{walletname}/display
 # ---------------------------------------------------------------------------
@@ -57,7 +71,7 @@ async def wallet_display(
     """Return full wallet display with accounts, branches, and entries."""
     ws = state.wallet_service
     if not state.rescanning:
-        await ws.sync()
+        await ws.sync_with_registered_bonds()
 
     # Load history data so address statuses (cj-out, change, etc.) are
     # classified correctly.  Without this, all funded internal addresses
@@ -146,7 +160,7 @@ async def list_utxos(
     """List all UTXOs in the wallet."""
     ws = state.wallet_service
     if not state.rescanning:
-        await ws.sync()
+        await ws.sync_with_registered_bonds()
     utxo_entries: list[UTXOEntry] = []
 
     for mixdepth in range(ws.mixdepth_count):
@@ -165,6 +179,7 @@ async def list_utxos(
                     mixdepth=u.mixdepth,
                     confirmations=u.confirmations,
                     frozen=u.frozen,
+                    locktime=_format_bond_locktime(u.locktime),
                 )
             )
 

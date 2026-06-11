@@ -4,6 +4,7 @@ Helpers for interacting with local Bitcoin Core regtest node.
 
 from __future__ import annotations
 
+import math
 import os
 from typing import Any
 
@@ -63,29 +64,52 @@ async def ensure_wallet_funded(
     We avoid wallet RPC completely - Bitcoin Core is just a source of truth,
     not for managing funds. The wallet is completely external.
 
-    On regtest, each mined block gives 50 BTC reward.
-    We mine 110 blocks for coinbase maturity + confirmations.
+    The block subsidy is NOT assumed to be 50 BTC: these tests share a
+    long-running regtest chain whose subsidy halves every 150 blocks, so a
+    fixed 110-block mine can deliver far less than ``amount_btc`` and starve
+    downstream operations (under-funded takers fail CoinJoins or time out).
+    Instead we read the current subsidy and mine enough mature coinbases
+    (depth >= 100) to cover ``amount_btc`` plus a fee buffer.
 
     Args:
         target_address: Address to fund
-        amount_btc: Amount needed (ignored, we just mine blocks)
-        confirmations: Additional confirmations needed
+        amount_btc: Minimum spendable amount the address should end up with
+        confirmations: Extra confirmations to mine on top of maturity
 
     Returns:
         True if successful, False otherwise
     """
     try:
-        # Mine directly to target address
-        # 110 blocks for coinbase maturity + confirmations
-        blocks_to_mine = 110 + confirmations
-        logger.info(f"Mining {blocks_to_mine} blocks directly to {target_address}")
+        info = await rpc_call("getblockchaininfo")
+        height = int(info["blocks"])
+        # Authoritative current subsidy (sats) from the chain, so we never
+        # hardcode the halving schedule.
+        stats = await rpc_call("getblockstats", [height, ["subsidy"]])
+        subsidy_btc = float(stats["subsidy"]) / 1e8
+
+        # Fee buffer covers the spends that follow funding (sendmany batches,
+        # CoinJoin inputs). Generous on regtest where it costs nothing.
+        target_btc = amount_btc + 0.5
+
+        if subsidy_btc <= 0:
+            logger.error(
+                f"Block subsidy is zero at height {height}; cannot fund via "
+                "coinbase on this exhausted regtest chain. Recreate the chain "
+                "with `docker compose down -v`."
+            )
+            return False
+
+        # Coinbase needs 100 confirmations to mature, so to end up with
+        # ``needed_mature`` mature coinbases we mine that many plus 100.
+        needed_mature = max(1, math.ceil(target_btc / subsidy_btc))
+        blocks_to_mine = needed_mature + 100 + confirmations
+
+        logger.info(
+            f"Funding {target_address}: subsidy={subsidy_btc:.8f} BTC at "
+            f"height {height}, mining {blocks_to_mine} blocks "
+            f"(~{needed_mature * subsidy_btc:.4f} BTC mature) for >= {target_btc} BTC"
+        )
         await rpc_call("generatetoaddress", [blocks_to_mine, target_address])
-        logger.info(
-            f"Mined {blocks_to_mine} blocks (110 for maturity + {confirmations} confirmations)"
-        )
-        logger.info(
-            f"Funded address with {blocks_to_mine * 50} BTC from coinbase rewards"
-        )
         return True
     except BitcoinRPCError as exc:
         logger.error(f"Failed to auto-fund wallet: {exc}")

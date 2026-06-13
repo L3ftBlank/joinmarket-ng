@@ -626,6 +626,32 @@ def _decrypt_fernet_mnemonic(content: bytes, password: str, path: Path) -> str:
         ) from e
 
 
+def resolve_configured_mnemonic_file(settings: JoinMarketSettings) -> Path | None:
+    """Resolve the active wallet's mnemonic file path without decrypting it.
+
+    Mirrors the file-based portion of :func:`resolve_mnemonic`'s priority
+    chain so per-wallet read commands can locate the configured wallet and
+    read its companion ``.meta`` fingerprint without prompting for a
+    password:
+
+    1. ``MNEMONIC_FILE`` environment variable
+    2. Config file ``wallet.mnemonic_file`` setting
+    3. Default wallet path (``<data_dir>/wallets/default.mnemonic``)
+
+    Raw-mnemonic sources (``--mnemonic``/``MNEMONIC`` env) have no backing
+    file and are intentionally ignored here. Returns ``None`` when no
+    file-based wallet is configured or the default does not exist.
+    """
+    if env_file := os.environ.get("MNEMONIC_FILE"):
+        return Path(env_file)
+    if settings.wallet.mnemonic_file:
+        return Path(settings.wallet.mnemonic_file)
+    default_wallet = settings.get_data_dir() / "wallets" / "default.mnemonic"
+    if default_wallet.exists():
+        return default_wallet
+    return None
+
+
 def resolve_mnemonic(
     settings: JoinMarketSettings,
     *,

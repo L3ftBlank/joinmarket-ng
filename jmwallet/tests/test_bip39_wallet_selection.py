@@ -280,6 +280,102 @@ def test_history_invalid_wallet_fingerprint_rejected() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Active-wallet scoping (issue #523)
+# ---------------------------------------------------------------------------
+
+
+def _make_active_default_wallet(monkeypatch: pytest.MonkeyPatch, data_dir: Path) -> Path:
+    """Point settings at ``data_dir`` and return its default wallet path.
+
+    The configured/active wallet is resolved from the default wallet
+    location (``<data_dir>/wallets/default.mnemonic``), mirroring how the
+    TUI and CLI select the active wallet, rather than ``--mnemonic-file``.
+    """
+    monkeypatch.setenv("JOINMARKET_DATA_DIR", str(data_dir))
+    return data_dir / "wallets" / "default.mnemonic"
+
+
+def test_history_scopes_to_configured_wallet_via_meta(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #523: a freshly created (configured) wallet must show only its
+    own history, not CoinJoins recorded by a previously active wallet. The
+    companion ``.meta`` fingerprint keeps the scoping passwordless."""
+    from jmwallet.cli.mnemonic import save_mnemonic_meta
+
+    fp_other = _fingerprint_for("")  # wallet A that ran the CoinJoins
+    fp_active = "11223344"  # the new, currently active wallet B
+    with tempfile.TemporaryDirectory() as tmpdir:
+        data_dir = Path(tmpdir)
+        _seed_history(data_dir, fp_other, "a")
+
+        # Active wallet B: the default wallet, whose .meta records its identity.
+        active = _make_active_default_wallet(monkeypatch, data_dir)
+        active.parent.mkdir(parents=True, exist_ok=True)
+        active.write_text(_MNEMONIC)
+        save_mnemonic_meta(active, fingerprint=fp_active)
+
+        result = runner.invoke(app, ["history", "--data-dir", str(data_dir)])
+
+        assert result.exit_code == 0, result.stdout
+        assert "No CoinJoin history found." in result.stdout
+        assert "a" * 16 not in result.stdout  # wallet A's row must NOT leak
+        assert "--all-wallets" in result.stdout  # hidden-rows notice present
+
+
+def test_history_scopes_passwordless_for_encrypted_active_wallet(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With the ``.meta`` fingerprint present, scoping the active wallet's
+    history never decrypts the mnemonic, so an encrypted wallet with no
+    configured password resolves without prompting or failing."""
+    from jmwallet.cli.mnemonic import save_mnemonic_file, save_mnemonic_meta
+
+    fp_other = _fingerprint_for("")
+    fp_active = "11223344"
+    with tempfile.TemporaryDirectory() as tmpdir:
+        data_dir = Path(tmpdir)
+        _seed_history(data_dir, fp_other, "a")
+
+        active = _make_active_default_wallet(monkeypatch, data_dir)
+        save_mnemonic_file(_MNEMONIC, active, password="s3cret")
+        save_mnemonic_meta(active, fingerprint=fp_active)
+
+        result = runner.invoke(app, ["history", "--data-dir", str(data_dir)])
+
+        assert result.exit_code == 0, result.stdout
+        assert "No CoinJoin history found." in result.stdout
+        assert "Decryption failed" not in result.output
+        assert "a" * 16 not in result.stdout
+
+
+def test_history_backfills_meta_fingerprint_from_configured_mnemonic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A legacy active wallet without a ``.meta`` fingerprint is resolved by
+    decrypting the configured mnemonic once; the derived identity is then
+    cached so subsequent reads are passwordless."""
+    from jmwallet.cli.mnemonic import load_mnemonic_meta_fingerprint
+
+    fp_active = _fingerprint_for("")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        data_dir = Path(tmpdir)
+        # History recorded under a different (old) wallet only.
+        _seed_history(data_dir, "deadbeef", "a")
+
+        active = _make_active_default_wallet(monkeypatch, data_dir)
+        active.parent.mkdir(parents=True, exist_ok=True)
+        active.write_text(_MNEMONIC)  # plaintext: no password needed to derive
+
+        result = runner.invoke(app, ["history", "--data-dir", str(data_dir)])
+
+        assert result.exit_code == 0, result.stdout
+        assert "No CoinJoin history found." in result.stdout
+        # The fingerprint was derived and cached into the .meta sidecar.
+        assert load_mnemonic_meta_fingerprint(active) == fp_active
+
+
+# ---------------------------------------------------------------------------
 # list-bonds offline
 # ---------------------------------------------------------------------------
 

@@ -659,6 +659,44 @@ def format_yield_generator_report(
     return rows
 
 
+def count_other_wallet_entries(
+    data_dir: Path | None = None,
+    wallet_fingerprint: str | None = None,
+    role_filter: Literal["maker", "taker", "send"] | None = None,
+) -> int:
+    """Count history rows that a per-wallet view hides for ``wallet_fingerprint``.
+
+    Returns the number of rows whose ``wallet_fingerprint`` differs from the
+    active wallet (including legacy rows with an empty fingerprint). Used by
+    ``jm-wallet history`` to tell the user how many entries are excluded so
+    the per-wallet scoping is never silent (they can pass ``--all-wallets``).
+
+    When ``wallet_fingerprint`` is ``None`` (no scoping) this returns ``0``.
+    """
+    if wallet_fingerprint is None:
+        return 0
+    history_path = _get_history_path(data_dir)
+    if not history_path.exists():
+        return 0
+
+    hidden = 0
+    try:
+        with open(history_path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                entry = _row_to_entry(row)
+                if entry is None:
+                    continue
+                if role_filter and entry.role != role_filter:
+                    continue
+                if entry.wallet_fingerprint != wallet_fingerprint:
+                    hidden += 1
+    except Exception as e:  # pragma: no cover - defensive
+        logger.warning(f"Failed to count other-wallet history entries: {e}")
+        return 0
+    return hidden
+
+
 def list_history_fingerprints(data_dir: Path | None = None) -> list[str]:
     """List distinct wallet fingerprints recorded in the history CSV.
 

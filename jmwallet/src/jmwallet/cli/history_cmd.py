@@ -103,6 +103,7 @@ def history(
     Pass ``--all-wallets`` to disable per-wallet filtering entirely.
     """
     from jmwallet.history import (
+        count_other_wallet_entries,
         get_history_stats,
         list_history_fingerprints,
         read_history,
@@ -129,6 +130,13 @@ def history(
             list_known_fingerprints=lambda: list_history_fingerprints(resolved_data_dir),
             command_label="jm-wallet history",
             allow_all_wallets=True,
+            # Scope to the configured active wallet so a freshly created
+            # wallet does not show another wallet's CoinJoins (issue #523).
+            # The companion .meta fingerprint keeps this passwordless; only a
+            # legacy wallet without it triggers a one-time decrypt. The
+            # hidden-rows notice below keeps the scoping explicit, and
+            # --all-wallets remains the escape hatch.
+            fall_back_to_configured_mnemonic=True,
         )
 
     if stats:
@@ -153,8 +161,19 @@ def history(
 
     entries = read_history(data_dir, limit, role_filter, wallet_fingerprint=wallet_fp)
 
+    # Keep per-wallet scoping explicit: tell the user when rows from other
+    # wallets (or legacy untagged rows) were excluded (issue #523).
+    hidden = count_other_wallet_entries(
+        data_dir, wallet_fingerprint=wallet_fp, role_filter=role_filter
+    )
+
     if not entries:
         print("\nNo CoinJoin history found.")
+        if hidden:
+            print(
+                f"({hidden} entries from other wallets are hidden; "
+                "pass --all-wallets to show them.)"
+            )
         return
 
     if csv_output:
@@ -218,3 +237,7 @@ def history(
             )
 
         print("=" * 140)
+        if hidden:
+            print(
+                f"{hidden} entries from other wallets are hidden; pass --all-wallets to show them."
+            )

@@ -20,6 +20,7 @@ from jmwallet.history import (
     _parse_utxos,
     append_history_entry,
     cleanup_stale_pending_transactions,
+    count_other_wallet_entries,
     create_maker_history_entry,
     create_send_history_entry,
     create_taker_history_entry,
@@ -2568,6 +2569,22 @@ class TestWalletFingerprintIsolation:
         # to keep new wallets isolated from pre-existing shared history.
         scoped = read_history(temp_data_dir, wallet_fingerprint=self.FP_A)
         assert scoped == []
+
+    def test_count_other_wallet_entries(self, temp_data_dir: Path) -> None:
+        """count_other_wallet_entries reports how many rows a per-wallet view
+        hides, powering the ``jm-wallet history`` hidden-rows notice (#523)."""
+        append_history_entry(self._make(self.FP_A, "a" * 64, "bc1qaaaa"), temp_data_dir)
+        append_history_entry(self._make(self.FP_A, "c" * 64, "bc1qcccc"), temp_data_dir)
+        append_history_entry(self._make(self.FP_B, "b" * 64, "bc1qbbbb"), temp_data_dir)
+
+        # Active wallet B hides the two FP_A rows.
+        assert count_other_wallet_entries(temp_data_dir, wallet_fingerprint=self.FP_B) == 2
+        # Active wallet A hides the single FP_B row.
+        assert count_other_wallet_entries(temp_data_dir, wallet_fingerprint=self.FP_A) == 1
+        # No scoping requested -> nothing is hidden.
+        assert count_other_wallet_entries(temp_data_dir, wallet_fingerprint=None) == 0
+        # Unknown wallet hides everything.
+        assert count_other_wallet_entries(temp_data_dir, wallet_fingerprint="99999999") == 3
 
 
 # Header used by the v0.27.x release, before the wallet_fingerprint column

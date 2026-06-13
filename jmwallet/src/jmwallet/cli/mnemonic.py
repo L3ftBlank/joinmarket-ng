@@ -250,8 +250,12 @@ def load_mnemonic_file(
 
 
 # ============================================================================
-# Mnemonic Metadata (wallet birthday / creation height)
+# Mnemonic Metadata (wallet birthday / creation height / fingerprint)
 # ============================================================================
+
+# JSON value types stored in a ``.meta`` file. ``creation_height`` is an int,
+# ``fingerprint`` is the 8-char hex BIP32 ``m/0`` wallet identity (a string).
+MnemonicMetaValue = int | str
 
 
 def _meta_path(mnemonic_file: Path) -> Path:
@@ -263,29 +267,9 @@ def _meta_path(mnemonic_file: Path) -> Path:
     return mnemonic_file.with_name(mnemonic_file.name + ".meta")
 
 
-def save_mnemonic_meta(
-    mnemonic_file: Path,
-    *,
-    creation_height: int | None = None,
-) -> None:
-    """Persist wallet metadata alongside a mnemonic file.
-
-    The metadata is stored as a small JSON file (``<mnemonic_file>.meta``)
-    next to the mnemonic file.  Currently only ``creation_height`` is
-    stored, but the format is extensible.
-
-    Args:
-        mnemonic_file: Path to the mnemonic file (the .meta suffix is added).
-        creation_height: Block height at the time the wallet was created.
-    """
+def _write_mnemonic_meta(mnemonic_file: Path, meta: dict[str, MnemonicMetaValue]) -> None:
+    """Atomically persist a metadata dict to the companion ``.meta`` file."""
     import json
-
-    meta: dict[str, int] = {}
-    if creation_height is not None:
-        meta["creation_height"] = creation_height
-
-    if not meta:
-        return  # Nothing to persist
 
     path = _meta_path(mnemonic_file)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -294,7 +278,43 @@ def save_mnemonic_meta(
     logger.debug(f"Saved mnemonic metadata to {path}")
 
 
-def load_mnemonic_meta(mnemonic_file: Path) -> dict[str, int]:
+def save_mnemonic_meta(
+    mnemonic_file: Path,
+    *,
+    creation_height: int | None = None,
+    fingerprint: str | None = None,
+) -> None:
+    """Persist wallet metadata alongside a mnemonic file.
+
+    The metadata is stored as a small JSON file (``<mnemonic_file>.meta``)
+    next to the mnemonic file. Existing fields are preserved: only the
+    fields passed here are added/updated, so writing ``creation_height``
+    does not drop a previously stored ``fingerprint`` and vice versa.
+
+    Args:
+        mnemonic_file: Path to the mnemonic file (the .meta suffix is added).
+        creation_height: Block height at the time the wallet was created.
+        fingerprint: 8-char hex BIP32 ``m/0`` wallet fingerprint. Stored so
+            per-wallet read commands (history, list-bonds, registry-show)
+            can resolve the active wallet's identity without decrypting the
+            mnemonic.
+    """
+    updates: dict[str, MnemonicMetaValue] = {}
+    if creation_height is not None:
+        updates["creation_height"] = creation_height
+    if fingerprint is not None:
+        updates["fingerprint"] = fingerprint.strip().lower()
+
+    if not updates:
+        return  # Nothing to persist
+
+    # Merge into any existing metadata so concurrent fields are not lost.
+    meta = load_mnemonic_meta(mnemonic_file)
+    meta.update(updates)
+    _write_mnemonic_meta(mnemonic_file, meta)
+
+
+def load_mnemonic_meta(mnemonic_file: Path) -> dict[str, MnemonicMetaValue]:
     """Load wallet metadata from a companion ``.meta`` file.
 
     Returns an empty dict if the file does not exist (backward-compatible
@@ -304,7 +324,7 @@ def load_mnemonic_meta(mnemonic_file: Path) -> dict[str, int]:
         mnemonic_file: Path to the mnemonic file.
 
     Returns:
-        Dict with metadata fields (currently only ``creation_height``).
+        Dict with metadata fields (``creation_height``, ``fingerprint``).
     """
     import json
 
@@ -321,6 +341,41 @@ def load_mnemonic_meta(mnemonic_file: Path) -> dict[str, int]:
     except (json.JSONDecodeError, OSError) as exc:
         logger.warning(f"Failed to read mnemonic metadata from {path}: {exc}")
         return {}
+
+
+def load_mnemonic_meta_fingerprint(mnemonic_file: Path) -> str | None:
+    """Return the stored wallet fingerprint from a ``.meta`` file, if valid.
+
+    Returns ``None`` when the file is missing, has no ``fingerprint`` field,
+    or the value is not a valid 8-char hex string. This lets per-wallet read
+    commands resolve the active wallet without decrypting the mnemonic.
+    """
+    raw = load_mnemonic_meta(mnemonic_file).get("fingerprint")
+    if not isinstance(raw, str):
+        return None
+    fp = raw.strip().lower()
+    if len(fp) != 8:
+        return None
+    try:
+        bytes.fromhex(fp)
+    except ValueError:
+        return None
+    return fp
+
+
+def update_mnemonic_meta_fingerprint(mnemonic_file: Path, fingerprint: str) -> None:
+    """Backfill the wallet fingerprint into the ``.meta`` file if not already set.
+
+    No-op when the stored fingerprint already matches, avoiding needless
+    rewrites. Failures are swallowed (best-effort cache) so a read-only data
+    directory never breaks the calling command.
+    """
+    try:
+        if load_mnemonic_meta_fingerprint(mnemonic_file) == fingerprint.strip().lower():
+            return
+        save_mnemonic_meta(mnemonic_file, fingerprint=fingerprint)
+    except OSError as exc:  # pragma: no cover - defensive (read-only datadir)
+        logger.debug(f"Could not persist wallet fingerprint to metadata: {exc}")
 
 
 # ============================================================================

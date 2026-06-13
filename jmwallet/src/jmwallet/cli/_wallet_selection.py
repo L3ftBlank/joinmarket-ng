@@ -30,9 +30,14 @@ from collections.abc import Callable
 from pathlib import Path
 
 import typer
-from jmcore.cli_common import resolve_mnemonic
+from jmcore.cli_common import resolve_configured_mnemonic_file, resolve_mnemonic
 from jmcore.settings import JoinMarketSettings
 from loguru import logger
+
+from jmwallet.cli.mnemonic import (
+    load_mnemonic_meta_fingerprint,
+    update_mnemonic_meta_fingerprint,
+)
 
 
 def validate_fingerprint(fingerprint: str) -> str:
@@ -102,13 +107,11 @@ def resolve_wallet_fingerprint(
     if wallet_fingerprint:
         return validate_fingerprint(wallet_fingerprint)
 
-    # 2) --mnemonic-file derives the fingerprint. Note: we deliberately
-    # do NOT fall through to settings-configured mnemonics here. Auto-
-    # filtering an offline read command by whichever mnemonic happens to
-    # be configured in ``config.toml`` would silently hide history rows
-    # written by other wallets (and legacy untagged rows). Users who
-    # want the configured mnemonic to drive selection must still pass
-    # ``--mnemonic-file`` explicitly.
+    # 2) --mnemonic-file derives the fingerprint explicitly. Selecting the
+    # configured wallet instead is handled by the opt-in step below
+    # (``fall_back_to_configured_mnemonic``); commands that enable it must
+    # surface the fact that other wallets' rows are hidden so the scoping is
+    # never silent (see the hidden-rows notice in ``jm-wallet history``).
     if mnemonic_file is not None:
         try:
             resolved = resolve_mnemonic(
@@ -124,13 +127,25 @@ def resolve_wallet_fingerprint(
             raise typer.Exit(1)
         from jmwallet.backends.descriptor_wallet import get_mnemonic_fingerprint
 
-        return get_mnemonic_fingerprint(resolved.mnemonic, resolved.bip39_passphrase or "")
+        fp = get_mnemonic_fingerprint(resolved.mnemonic, resolved.bip39_passphrase or "")
+        # Cache the derived identity so subsequent offline reads of the same
+        # wallet are passwordless (the .meta lives next to the mnemonic).
+        update_mnemonic_meta_fingerprint(mnemonic_file, fp)
+        return fp
 
-    # 2.5) Opt-in: derive from the configured mnemonic (config.toml / env /
+    # 2.5) Opt-in: resolve the configured active wallet (config.toml / env /
     # default wallet path), mirroring `jm-wallet info`. Only enabled for
     # per-wallet read commands where selecting the configured wallet is the
-    # expected behavior (not for cross-wallet aggregates like history).
+    # expected behavior. We first try the companion ``.meta`` fingerprint
+    # (passwordless); only if it is absent do we decrypt the mnemonic to
+    # derive (and then cache) the identity.
     if fall_back_to_configured_mnemonic:
+        configured_path = resolve_configured_mnemonic_file(settings)
+        if configured_path is not None:
+            cached_fp = load_mnemonic_meta_fingerprint(configured_path)
+            if cached_fp is not None:
+                return cached_fp
+
         try:
             configured = resolve_mnemonic(
                 settings,
@@ -143,7 +158,10 @@ def resolve_wallet_fingerprint(
         if configured is not None:
             from jmwallet.backends.descriptor_wallet import get_mnemonic_fingerprint
 
-            return get_mnemonic_fingerprint(configured.mnemonic, configured.bip39_passphrase or "")
+            fp = get_mnemonic_fingerprint(configured.mnemonic, configured.bip39_passphrase or "")
+            if configured_path is not None:
+                update_mnemonic_meta_fingerprint(configured_path, fp)
+            return fp
 
     # 3) Auto-detect when exactly one wallet has ever written here.
     known = list_known_fingerprints()

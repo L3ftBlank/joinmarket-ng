@@ -598,12 +598,17 @@ async def test_send_fails_when_change_key_unavailable():
         mock_wallet.close.assert_awaited_once()
 
 
-def test_history_command_status_display():
+def test_history_command_status_display(monkeypatch):
     """Test that history command displays correct status for pending, failed, and successful txs."""
     from jmwallet.history import append_history_entry, create_taker_history_entry
 
     with tempfile.TemporaryDirectory() as tmpdir:
         data_dir = Path(tmpdir)
+        # Isolate from the host's configured/default wallet so the active-
+        # wallet scoping (issue #523) does not hide these untagged rows.
+        monkeypatch.setenv("JOINMARKET_DATA_DIR", str(data_dir))
+        monkeypatch.delenv("MNEMONIC_FILE", raising=False)
+        monkeypatch.delenv("MNEMONIC", raising=False)
 
         # Create a pending transaction (broadcast but awaiting confirmation)
         # Note: create_taker_history_entry defaults to "Awaiting transaction",
@@ -680,7 +685,7 @@ def test_history_command_status_display():
         assert failed_line and "[FAILED]" in failed_line, "Failed tx should have [FAILED]"
 
 
-def test_history_command_renders_in_chronological_order():
+def test_history_command_renders_in_chronological_order(monkeypatch):
     """The rendered history table must show entries oldest-first.
 
     Users scroll downward and expect the latest transaction to appear at the
@@ -692,6 +697,11 @@ def test_history_command_renders_in_chronological_order():
 
     with tempfile.TemporaryDirectory() as tmpdir:
         data_dir = Path(tmpdir)
+        # Isolate from the host's configured/default wallet so the active-
+        # wallet scoping (issue #523) does not hide these untagged rows.
+        monkeypatch.setenv("JOINMARKET_DATA_DIR", str(data_dir))
+        monkeypatch.delenv("MNEMONIC_FILE", raising=False)
+        monkeypatch.delenv("MNEMONIC", raising=False)
 
         # Append three entries with strictly increasing timestamps.
         for i, ts in enumerate(

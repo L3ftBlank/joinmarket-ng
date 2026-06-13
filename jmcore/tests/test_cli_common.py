@@ -940,6 +940,69 @@ class TestMnemonicMeta:
 
         assert not _meta_path(mnemonic_file).exists()
 
+    def test_save_fingerprint_round_trips_and_lowercases(self, tmp_path: Path) -> None:
+        """fingerprint is persisted (normalized to lowercase) and read back."""
+        from jmwallet.cli.mnemonic import (
+            load_mnemonic_meta_fingerprint,
+            save_mnemonic_meta,
+        )
+
+        mnemonic_file = tmp_path / "default.mnemonic"
+        mnemonic_file.write_text("dummy")
+
+        save_mnemonic_meta(mnemonic_file, fingerprint="AABBCCDD")
+
+        assert load_mnemonic_meta_fingerprint(mnemonic_file) == "aabbccdd"
+
+    def test_save_fingerprint_preserves_creation_height(self, tmp_path: Path) -> None:
+        """Writing fingerprint must not drop a previously stored creation_height
+        and vice versa (fields are merged, not overwritten)."""
+        from jmwallet.cli.mnemonic import load_mnemonic_meta, save_mnemonic_meta
+
+        mnemonic_file = tmp_path / "default.mnemonic"
+        mnemonic_file.write_text("dummy")
+
+        save_mnemonic_meta(mnemonic_file, creation_height=820000)
+        save_mnemonic_meta(mnemonic_file, fingerprint="aabbccdd")
+
+        meta = load_mnemonic_meta(mnemonic_file)
+        assert meta["creation_height"] == 820000
+        assert meta["fingerprint"] == "aabbccdd"
+
+    def test_load_fingerprint_rejects_invalid(self, tmp_path: Path) -> None:
+        """Non-hex / wrong-length fingerprints in metadata resolve to None so a
+        corrupt cache never drives wallet scoping."""
+        from jmwallet.cli.mnemonic import (
+            _meta_path,
+            load_mnemonic_meta_fingerprint,
+        )
+
+        mnemonic_file = tmp_path / "default.mnemonic"
+        mnemonic_file.write_text("dummy")
+        for bad in ('{"fingerprint": "nothex!!"}', '{"fingerprint": "aabb"}', '{"fingerprint": 5}'):
+            _meta_path(mnemonic_file).write_text(bad)
+            assert load_mnemonic_meta_fingerprint(mnemonic_file) is None
+
+    def test_update_fingerprint_backfills_and_is_idempotent(self, tmp_path: Path) -> None:
+        """update_mnemonic_meta_fingerprint writes a missing fingerprint and is a
+        no-op (no needless rewrite) when it already matches."""
+        from jmwallet.cli.mnemonic import (
+            _meta_path,
+            load_mnemonic_meta_fingerprint,
+            update_mnemonic_meta_fingerprint,
+        )
+
+        mnemonic_file = tmp_path / "default.mnemonic"
+        mnemonic_file.write_text("dummy")
+
+        update_mnemonic_meta_fingerprint(mnemonic_file, "aabbccdd")
+        assert load_mnemonic_meta_fingerprint(mnemonic_file) == "aabbccdd"
+
+        meta_path = _meta_path(mnemonic_file)
+        before = meta_path.stat().st_mtime_ns
+        update_mnemonic_meta_fingerprint(mnemonic_file, "aabbccdd")
+        assert meta_path.stat().st_mtime_ns == before  # idempotent: not rewritten
+
 
 class TestResolveMnemonicCreationHeight:
     """Tests for resolve_mnemonic() loading creation_height from .meta files."""

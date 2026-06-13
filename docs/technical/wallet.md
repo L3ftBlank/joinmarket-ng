@@ -215,7 +215,15 @@ To pick a wallet, the offline commands `history`, `list-bonds` and
    when the wallet was created with a BIP39 passphrase. Without the
    matching passphrase the derived fingerprint will not match any
    recorded data, so the commands will appear "empty".
-3. Auto-detection when the data directory contains exactly one
+3. The configured active wallet (`MNEMONIC_FILE` env, `[wallet]
+   mnemonic_file` in `config.toml`, or `wallets/default.mnemonic`).
+   Its fingerprint is read from the companion `.meta` sidecar without
+   decrypting the mnemonic; for a legacy wallet that has no cached
+   fingerprint yet, the mnemonic is decrypted once and the derived
+   fingerprint is written back to the sidecar so later reads stay
+   passwordless. This is what makes `jm-wallet history` show the active
+   wallet's CoinJoins rather than another wallet's (issue #523).
+4. Auto-detection when the data directory contains exactly one
    wallet's data (one fingerprint in `history.csv` for `history`, one
    `fidelity_bonds_*.json` file for `list-bonds` / `registry-show`).
    The selected fingerprint is logged.
@@ -224,6 +232,15 @@ When several wallets are present and none of the above identifies one,
 the commands abort and list the known fingerprints so the user can
 pick. Pass `--all-wallets` to `jm-wallet history` to disable filtering
 entirely (also surfaces legacy rows written before per-wallet tagging).
+When the active wallet is selected and rows belonging to other wallets
+(or legacy untagged rows) are hidden, `jm-wallet history` prints how
+many were excluded and reminds you to pass `--all-wallets` to see them,
+so the scoping is never silent.
+
+The cached fingerprint is the wallet identity computed with the BIP39
+passphrase in effect when it was first resolved. If you use the same
+mnemonic file under several different BIP39 passphrases, pass
+`--wallet-fingerprint` explicitly for the non-cached identities.
 
 Recommended practice is still to give each wallet its own data directory via
 the `JOINMARKET_DATA_DIR` env variable or the `--data-dir` flag. This keeps

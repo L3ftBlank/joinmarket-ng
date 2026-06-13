@@ -45,6 +45,9 @@ JoinMarket NG uses a dedicated data directory for persistent files shared across
 │   ├── directory.nick     # Current directory server nick
 │   └── orderbook.nick     # Current orderbook watcher nick
 ├── history.csv            # Transaction history log (CoinJoins + plain sends)
+├── wallets/
+│   ├── default.mnemonic        # Encrypted BIP39 mnemonic (CLI wallets)
+│   └── default.mnemonic.meta   # Sidecar: creation_height + cached wallet fingerprint
 ├── wallet_metadata_<fp>.jsonl  # Per-wallet UTXO/address metadata (fp = master-key fingerprint)
 └── fidelity_bonds_<fp>.json    # Per-wallet fidelity bond registry (fp = master-key fingerprint)
 ```
@@ -82,5 +85,36 @@ Records all CoinJoin transactions with:
 - Automatic txid discovery for makers who didn't receive the final transaction
 - Address blacklisting for privacy (addresses recorded before being shared with peers)
 - CSV format for analysis: `jm-wallet history --stats`
+
+## Wallet Persistence Design (issue #524)
+
+Per-wallet state is split across several files keyed by the 8-char BIP32
+`m/0` fingerprint rather than packed into one encrypted container (the
+legacy `.jmdat` model). The split was chosen deliberately:
+
+- **Concurrency:** a running maker, a CLI command, and `jmwalletd` can
+  touch wallet state at the same time. Independent files with atomic
+  per-file writes (and a flock sidecar for the metadata store) avoid the
+  single-file lock contention and stale PID-lock recovery that the
+  reference `.jmdat` format suffers from.
+- **Passwordless reads:** the mnemonic password guards spending, not
+  inspection. History, bond listing, and labels live outside the
+  encrypted mnemonic so they can be read without decryption. The
+  `.mnemonic.meta` sidecar caches the wallet fingerprint so even
+  resolving "which wallet is active" needs no password.
+- **Interoperability:** UTXO/label/freeze state is stored as BIP-329
+  JSON Lines, importable by other wallets; UTXO state itself lives in the
+  external Bitcoin Core descriptor wallet rather than being duplicated.
+
+Active-wallet identity is resolved uniformly for all per-wallet read
+commands (see `wallet.md`): explicit fingerprint, then `--mnemonic-file`,
+then the configured/default wallet's cached `.meta` fingerprint, then
+single-wallet auto-detection. This single resolution path is what keeps
+each wallet's history and bonds isolated (issues #473, #492, #523).
+
+Files that are intentionally **not** per-wallet: `cmtdata/*` (PoDLE
+commitments are UTXO-derived and the blacklist is network-shared),
+`state/*.nick` (per component, for self-CoinJoin protection),
+`ignored_makers.txt`, and `config.toml`.
 
 ---

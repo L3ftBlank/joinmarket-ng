@@ -12,9 +12,11 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 import socket
 import ssl
 import subprocess
+import tempfile
 import urllib.error
 import urllib.request
 import time
@@ -28,6 +30,11 @@ from loguru import logger
 
 if TYPE_CHECKING:
     from jmwallet.backends.base import BlockchainBackend
+
+
+# Stash key holding the throwaway data dir created for the e2e session so it
+# can be removed in ``pytest_unconfigure``.
+_E2E_DATA_DIR_KEY: pytest.StashKey[str] = pytest.StashKey()
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -68,7 +75,41 @@ def pytest_configure(config: pytest.Config) -> None:
     To run Docker tests, use `-m docker` or specific profile markers like `-m e2e`.
     """
     # Note: --fail-on-skip is handled by root conftest.py
-    pass
+    _isolate_data_dir(config)
+
+
+def _isolate_data_dir(config: pytest.Config) -> None:
+    """Redirect JOINMARKET_DATA_DIR to a throwaway dir for the test session.
+
+    The host-run taker/maker/wallet objects in these e2e tests default to
+    ``~/.joinmarket-ng`` for their ancillary state (ignored-makers list, PoDLE
+    commitments, history, nick state, wallet metadata). Reading the developer's
+    real data dir makes runs non-deterministic: a stale ``ignored_makers.txt``
+    can cause the taker to ignore every maker and time out. Point the data dir
+    at a fresh temp directory so each run starts clean and never mutates the
+    user's home.
+
+    This is opt-out: if the caller already exported ``JOINMARKET_DATA_DIR``
+    (e.g. to reuse a specific funded environment), it is left untouched.
+    """
+    if os.environ.get("JOINMARKET_DATA_DIR"):
+        return
+
+    tmp_data_dir = tempfile.mkdtemp(prefix="jm-e2e-data-")
+    os.environ["JOINMARKET_DATA_DIR"] = tmp_data_dir
+    # A leaked JOINMARKET_CONFIG_FILE would override the isolated data dir's
+    # config location, so clear it too.
+    os.environ.pop("JOINMARKET_CONFIG_FILE", None)
+    config.stash[_E2E_DATA_DIR_KEY] = tmp_data_dir
+    logger.info(f"e2e: isolated JOINMARKET_DATA_DIR -> {tmp_data_dir}")
+
+
+def pytest_unconfigure(config: pytest.Config) -> None:
+    """Remove the throwaway data dir created by :func:`_isolate_data_dir`."""
+    tmp_data_dir = config.stash.get(_E2E_DATA_DIR_KEY, None)
+    if tmp_data_dir:
+        shutil.rmtree(tmp_data_dir, ignore_errors=True)
+        os.environ.pop("JOINMARKET_DATA_DIR", None)
 
 
 def pytest_collection_modifyitems(

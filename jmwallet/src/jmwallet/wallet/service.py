@@ -588,13 +588,21 @@ class WalletService(WalletSyncMixin, CoinSelectionMixin, WalletDisplayMixin, Wal
         """Get balance of fidelity bond UTXOs for a mixdepth.
 
         Note:
-            Frozen UTXOs are excluded from balance calculations.
+            Unlike spendable-balance helpers, the ``frozen`` flag is **not**
+            applied here. A fidelity bond is already excluded from automatic
+            coin selection by virtue of being a timelocked bond, so its
+            ``frozen`` flag is orthogonal to its informational value. The
+            maker advertises the bond, ``list-bonds`` reports it as ACTIVE,
+            and the extended wallet view counts it regardless of ``frozen``;
+            this helper backs the basic ``jm-wallet info`` ``(+... FB)``
+            annotation and must report the same bond value so the views stay
+            consistent (see issue: bond hidden from basic info after freeze).
         """
         if mixdepth not in self.utxo_cache:
             await self.sync_mixdepth(mixdepth)
 
         utxos = self.utxo_cache.get(mixdepth, [])
-        return sum(utxo.value for utxo in utxos if utxo.is_fidelity_bond and not utxo.frozen)
+        return sum(utxo.value for utxo in utxos if utxo.is_fidelity_bond)
 
     # -- Address index management (Group I) ---------------------------------
 

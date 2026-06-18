@@ -1430,6 +1430,84 @@ class TestFrozenUTXOWithFidelityBonds:
         assert not selected[0].frozen
         assert not selected[0].is_fidelity_bond
 
+    @pytest.fixture
+    def wallet_frozen_bond(self, test_mnemonic: str, mock_backend) -> WalletService:
+        """WalletService whose only fidelity bond UTXO is also marked frozen.
+
+        Reproduces the real-world report where a funded, ACTIVE bond is
+        persisted as frozen (e.g. via the freeze TUI/metadata store) and is
+        therefore re-flagged ``frozen=True`` by ``_apply_frozen_state`` on
+        every sync. The bond must still be reported by the informational
+        helpers (and the basic ``jm-wallet info`` ``(+... FB)`` annotation),
+        because the maker still advertises it and ``list-bonds`` still shows
+        it as ACTIVE.
+        """
+        ws = WalletService(
+            mnemonic=test_mnemonic,
+            backend=mock_backend,
+            network="regtest",
+            mixdepth_count=5,
+            gap_limit=20,
+        )
+
+        ws.utxo_cache = {
+            0: [
+                UTXOInfo(
+                    txid="b" * 64,
+                    vout=0,
+                    value=500_000,
+                    address="bcrt1timelocked",
+                    confirmations=100,
+                    scriptpubkey="0020" + "bb" * 32,
+                    path="m/84'/0'/0'/2/0:1893456000",
+                    mixdepth=0,
+                    locktime=1893456000,  # Fidelity bond
+                    frozen=True,  # Persisted frozen (the bug condition)
+                ),
+            ],
+            1: [],
+        }
+
+        return ws
+
+    @pytest.mark.asyncio
+    async def test_fidelity_bond_balance_counts_frozen_bond(
+        self, wallet_frozen_bond: WalletService
+    ):
+        """A frozen fidelity bond is still counted by get_fidelity_bond_balance().
+
+        The ``frozen`` flag is orthogonal to a bond's informational value:
+        the bond is already excluded from coin selection by being timelocked.
+        Hiding it here previously made the bond vanish from the basic
+        ``jm-wallet info`` view while remaining visible in the extended view,
+        in ``list-bonds`` (ACTIVE), and in the maker orderbook.
+        """
+        balance = await wallet_frozen_bond.get_fidelity_bond_balance(0)
+        assert balance == 500_000
+
+    @pytest.mark.asyncio
+    async def test_frozen_bond_balance_matches_extended_view(
+        self, wallet_frozen_bond: WalletService
+    ):
+        """Basic-view FB balance equals the extended-view FB balance for a frozen bond.
+
+        The basic view annotation is driven by ``get_fidelity_bond_balance``
+        while the extended view sums ``get_fidelity_bond_addresses_info``
+        balances. Both must agree so the bond does not appear in one view and
+        silently disappear from the other.
+        """
+        # Mirror the address/locktime caches populated during a real sync so
+        # the extended-view helper can resolve the bond address.
+        bond_utxo = wallet_frozen_bond.utxo_cache[0][0]
+        wallet_frozen_bond.address_cache[bond_utxo.address] = (0, 2, 0)
+        wallet_frozen_bond.fidelity_bond_locktime_cache[bond_utxo.address] = bond_utxo.locktime
+
+        basic_balance = await wallet_frozen_bond.get_fidelity_bond_balance(0)
+        extended_balance = sum(
+            info.balance for info in wallet_frozen_bond.get_fidelity_bond_addresses_info()
+        )
+        assert basic_balance == extended_balance == 500_000
+
 
 # ---------------------------------------------------------------------------
 # Hot-reload of metadata store tests

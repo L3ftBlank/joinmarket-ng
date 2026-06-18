@@ -646,24 +646,62 @@ async def _show_wallet_info(
                 addr, _ = await wallet.get_next_safe_deposit_address(md, used_addresses)
                 print(f"  Mixdepth {md}: {addr}")
 
-        # Show Total Balance with aligned columns
+        # Show Total Balance with aligned columns and visual calculation
         unit_suffix = " sats"
         unit_suffix_width = len(unit_suffix)
 
-        total_str = f"{spendable_balance + total_frozen + fb_balance:,}{unit_suffix}"
-        print(f"\n{'Total Wallet Balance:':<35}{total_str:>{balance_width + unit_suffix_width}}")
+        # Calculate total: spendable + frozen + all FBs (locked + expired)
+        total_balance = spendable_balance + total_frozen + fb_balance
+        total_str = f"{total_balance:,}{unit_suffix}"
+        header = f"\033[1;33m{'Total Wallet Balance:':<35}\033[0m"
+        print(f"\n{header}{total_str:>{balance_width + unit_suffix_width}}")
 
+        # Subtract frozen UTXOs (not spendable)
         if total_frozen > 0:
             frozen_str = f"{total_frozen:,}{unit_suffix}"
-            print(f"{'Frozen UTXOs:':<35}{frozen_str:>{balance_width + unit_suffix_width}}")
+            print(f"{'- Frozen UTXOs:':<35}{frozen_str:>{balance_width + unit_suffix_width}}")
 
+        # Subtract Fidelity Bonds (locked and expired, not spendable)
         if fb_balance > 0:
-            fb_str = f"{fb_balance:,}{unit_suffix}"
-            print(f"{'Fidelity Bonds:':<35}{fb_str:>{balance_width + unit_suffix_width}}")
+            # Calculate time-locked FBs (not yet expired)
+            import time
 
+            current_time = int(time.time())
+            bond_locked_total = sum(
+                u.value
+                for utxos in wallet.utxo_cache.values()
+                for u in utxos
+                if u.is_fidelity_bond and u.locktime and u.locktime > current_time
+            )
+
+            # Expired = Total FBs - Locked
+            expired_balance = fb_balance - bond_locked_total
+
+            if bond_locked_total > 0:
+                locked_str = f"{bond_locked_total:,}{unit_suffix}"
+                print(
+                    f"{'- Fidelity Bonds Time-Locked:':<35}"
+                    f"{locked_str:>{balance_width + unit_suffix_width}}"
+                )
+
+                expired_str = f"{expired_balance:,}{unit_suffix}"
+                print(
+                    f"{'- Fidelity Bonds Expired:':<35}"
+                    f"{expired_str:>{balance_width + unit_suffix_width}}"
+                )
+            else:
+                # Only expired bonds present
+                expired_str = f"{expired_balance:,}{unit_suffix}"
+                print(
+                    f"{'- Fidelity Bonds Expired:':<35}"
+                    f"{expired_str:>{balance_width + unit_suffix_width}}"
+                )
+
+        # Final spendable amount after all deductions
         spendable_str = f"{spendable_balance:,}{unit_suffix}"
         print(
-            f"{'Total Spendable Balance:':<35}{spendable_str:>{balance_width + unit_suffix_width}}"
+            f"{'= Total Spendable Balance:':<35}"
+            f"{spendable_str:>{balance_width + unit_suffix_width}}"
         )
 
     finally:
@@ -857,7 +895,7 @@ def _show_extended_wallet_info(
                 frozen_addresses.add(utxo.address)
 
     # Print legend for address statuses
-    print("\nAddress status legend:")
+    print("\n\033[1;37mAddress status legend:\033[0m")
     print("  new           - Unused, safe for receiving")
     print("  deposit       - Address with funds from internal or external sources")
     print("  cj-out        - CoinJoin output (mixed funds)")
@@ -878,14 +916,14 @@ def _show_extended_wallet_info(
         if entry.change_address:
             pending_addresses.add(entry.change_address)
 
+    print("-" * 89)
     for md in range(wallet.mixdepth_count):
         # Get account zpub (BIP84 format for native segwit)
         zpub = wallet.get_account_zpub(md)
 
-        if md > 0:
-            print()  # Visual separator before mixdepths 1-4
+        print()  # Visual separator before mixdepths 0-4
 
-        print(f"Mixdepth {md}\t{zpub}")
+        print(f"\033[1;36mMixdepth {md}\033[0m\t{zpub}")
 
         # External addresses (receive / deposit)
         ext_addresses = wallet.get_address_info_for_mixdepth(
@@ -893,7 +931,7 @@ def _show_extended_wallet_info(
         )
         # Get the external branch zpub path
         ext_path = f"m/84'/{0 if wallet.network == 'mainnet' else 1}'/{md}'/0"
-        print(f"external addresses\t{ext_path}\t{zpub}")
+        print(f"\033[0;36mexternal addresses\033[0m\t{ext_path}\t{zpub}")
 
         ext_balance = 0
         ext_balance, ext_hidden = _print_branch_addresses(
@@ -904,19 +942,28 @@ def _show_extended_wallet_info(
             balance_width=balance_width,
         )
 
+        # Calculate frozen balance for external branch (change=0)
+        ext_frozen = sum(
+            u.value
+            for u in wallet.utxo_cache.get(md, [])
+            if u.frozen
+            and not u.is_fidelity_bond
+            and wallet.address_cache.get(u.address, (None, None, None))[1] == 0
+        )
+
         if ext_hidden:
             print(
                 f"\t\t\t({ext_hidden} empty addresses hidden; "
                 f"to display use CLI and pass --show-empty)"
             )
-        print(f"Balance: {ext_balance:,} sats")
+        print(f"Balance: {ext_balance:,} sats (spendable: {ext_balance - ext_frozen:,} sats)")
 
         # Internal addresses (change / CJ output)
         int_addresses = wallet.get_address_info_for_mixdepth(
             md, 1, gap_limit, used_addresses, history_addresses
         )
         int_path = f"m/84'/{0 if wallet.network == 'mainnet' else 1}'/{md}'/1"
-        print(f"internal addresses\t{int_path}")
+        print(f"\033[0;36minternal addresses\033[0m\t{int_path}")
 
         int_balance, int_hidden = _print_branch_addresses(
             int_addresses,
@@ -926,12 +973,21 @@ def _show_extended_wallet_info(
             balance_width=balance_width,
         )
 
+        # Calculate frozen balance for internal branch (change=1)
+        int_frozen = sum(
+            u.value
+            for u in wallet.utxo_cache.get(md, [])
+            if u.frozen
+            and not u.is_fidelity_bond
+            and wallet.address_cache.get(u.address, (None, None, None))[1] == 1
+        )
+
         if int_hidden:
             print(
                 f"\t\t\t({int_hidden} empty addresses hidden; "
                 f"to display use CLI and pass --show-empty)"
             )
-        print(f"Balance: {int_balance:,} sats")
+        print(f"Balance: {int_balance:,} sats (spendable: {int_balance - int_frozen:,} sats)")
 
         # Fidelity bond branch (only for mixdepth 0)
         bond_addresses: list = []  # Initialize for type checker
@@ -941,7 +997,7 @@ def _show_extended_wallet_info(
                 bond_path = (
                     f"m/84'/{0 if wallet.network == 'mainnet' else 1}'/0'/{FIDELITY_BOND_BRANCH}"
                 )
-                print(f"fidelity bond addresses\t{bond_path}\t{zpub}")
+                print(f"\033[0;36mfidelity bond addresses\033[0m\t{bond_path}\t{zpub}")
 
                 bond_balance = 0
                 bond_locked = 0  # Locked balance (not yet expired)
@@ -961,7 +1017,7 @@ def _show_extended_wallet_info(
                         dt = datetime.fromtimestamp(addr_info.locktime)
                         locktime_str = dt.strftime("%Y-%m-%d")
                         if is_locked:
-                            locktime_str += " [LOCKED]"
+                            locktime_str += " [FB TIME-LOCKED]"
                         else:
                             locktime_str += " [FB EXPIRED]"
 
@@ -971,33 +1027,49 @@ def _show_extended_wallet_info(
 
                     # Pad path to ensure consistent alignment regardless of index digits
                     print(
-                        f"{addr_info.path:<24}{addr_info.address}\t"
+                        f"{addr_info.path:<24}\t{addr_info.address}\t"
                         f"{addr_info.balance:,} sats\t{locktime_str}"
                     )
 
-                # Show bond balance with locked amount in parentheses
-                if bond_locked > 0:
+                expired_balance = bond_balance - bond_locked
+
+                if bond_locked > 0 and expired_balance > 0:
                     print(
-                        f"Balance:\t{bond_balance - bond_locked:,} sats "
-                        f"({bond_locked:,} sats locked)"
+                        f"Balance: {bond_balance:,} sats "
+                        f"({bond_locked:,} time-locked + {expired_balance:,} expired) "
+                        f"(spendable: 0 sats)"
+                    )
+                elif bond_locked > 0:
+                    print(
+                        f"Balance: {bond_balance:,} sats "
+                        f"({bond_locked:,} time-locked) "
+                        f"(spendable: 0 sats)"
                     )
                 else:
-                    print(f"Balance:\t{bond_balance:,} sats")
+                    print(
+                        f"Balance: {bond_balance:,} sats "
+                        f"({expired_balance:,} expired) "
+                        f"(spendable: 0 sats)"
+                    )
 
-        # Total balance for mixdepth
+        # Total balance for mixdepth with spendable calculation
         total_md_balance = ext_balance + int_balance
-        # For mixdepth 0, show FB balance separately if there are bonds
+        spendable_md = (ext_balance - ext_frozen) + (int_balance - int_frozen)
+
+        # For mixdepth 0, add FB balance to total (FBs are not spendable)
         if md == 0 and bond_addresses:
             bond_balance = sum(addr_info.balance for addr_info in bond_addresses)
-            if bond_balance > 0:
-                print(
-                    f"Balance for mixdepth {md}:\t{total_md_balance:,} sats "
-                    f"(+{bond_balance:,} sats FB)"
-                )
-            else:
-                print(f"Balance for mixdepth {md}:\t{total_md_balance:,} sats")
+            total_md_balance += bond_balance
+            print(
+                f"\033[0;36mBalance for mixdepth {md}:\033[0m\t{total_md_balance:,} sats "
+                f"(spendable: {spendable_md:,} sats)"
+            )
         else:
-            print(f"Balance for mixdepth {md}:\t{total_md_balance:,} sats")
+            print(
+                f"\033[0;36mBalance for mixdepth {md}:\033[0m\t{total_md_balance:,} sats "
+                f"(spendable: {spendable_md:,} sats)"
+            )
+        print("-" * 89)
 
 
 @app.command("verify-password")

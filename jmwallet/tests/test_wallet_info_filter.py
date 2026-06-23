@@ -44,7 +44,6 @@ def _capture(addresses: list[AddressInfo], show_empty: bool) -> tuple[str, int, 
         total, hidden = _print_branch_addresses(
             addresses,
             pending_addresses=set(),
-            frozen_addresses=set(),
             show_empty=show_empty,
         )
     return buf.getvalue(), total, hidden
@@ -187,7 +186,7 @@ class TestPrintBranchAddressesConfirmations:
         )
         buf = io.StringIO()
         with redirect_stdout(buf):
-            _print_branch_addresses([ai], pending_addresses=set(), frozen_addresses=set())
+            _print_branch_addresses([ai], pending_addresses=set())
         assert "3 conf" in buf.getvalue()
 
     def test_capped_at_5_plus(self) -> None:
@@ -204,12 +203,12 @@ class TestPrintBranchAddressesConfirmations:
         )
         buf = io.StringIO()
         with redirect_stdout(buf):
-            _print_branch_addresses([ai], pending_addresses=set(), frozen_addresses=set())
+            _print_branch_addresses([ai], pending_addresses=set())
         assert "5+ conf" in buf.getvalue()
         assert "10 conf" not in buf.getvalue()
 
-    def test_min_conf_shown_for_multiple_utxos(self) -> None:
-        """When an address has multiple UTXOs, the minimum confirmation count is shown."""
+    def test_per_utxo_conf_shown_for_multiple_utxos(self) -> None:
+        """When an address has multiple UTXOs, each UTXO's confirmation count is shown."""
         addr = "bc1qtest0003"
         utxos = [_mk_utxo(addr, confirmations=2), _mk_utxo(addr, confirmations=7)]
         ai = AddressInfo(
@@ -223,14 +222,15 @@ class TestPrintBranchAddressesConfirmations:
         )
         buf = io.StringIO()
         with redirect_stdout(buf):
-            _print_branch_addresses([ai], pending_addresses=set(), frozen_addresses=set())
-        assert "2 conf" in buf.getvalue()
+            _print_branch_addresses([ai], pending_addresses=set())
+        output = buf.getvalue()
+        # Each UTXO is listed individually with its own confirmation count.
+        assert "2 conf" in output
+        assert "5+ conf" in output
 
     def test_no_conf_shown_for_empty_address(self) -> None:
         ai = _mk(0, "new", 0)
         buf = io.StringIO()
         with redirect_stdout(buf):
-            _print_branch_addresses(
-                [ai], pending_addresses=set(), frozen_addresses=set(), show_empty=True
-            )
+            _print_branch_addresses([ai], pending_addresses=set(), show_empty=True)
         assert "conf" not in buf.getvalue()

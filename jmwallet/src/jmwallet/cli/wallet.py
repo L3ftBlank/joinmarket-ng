@@ -818,7 +818,6 @@ def _print_scan_status(status: dict) -> None:
 def _print_branch_addresses(
     addresses: list,  # list[AddressInfo] - avoid import cycle at module top
     pending_addresses: set[str],
-    frozen_addresses: set[str],
     show_empty: bool = False,
     new_address_limit: int = 6,
     balance_width: int = 10,
@@ -956,13 +955,6 @@ def _show_extended_wallet_info(
     from jmwallet.history import get_pending_transactions
     from jmwallet.wallet.service import FIDELITY_BOND_BRANCH
 
-    # Build set of addresses with frozen UTXOs
-    frozen_addresses: set[str] = set()
-    for utxos in wallet.utxo_cache.values():
-        for utxo in utxos:
-            if utxo.frozen:
-                frozen_addresses.add(utxo.address)
-
     # Print legend for address statuses
     print(f"\n{_colorize('Address status legend:', _ANSI_BOLD_WHITE)}")
     print("  new           - Unused, safe for receiving")
@@ -1006,7 +998,6 @@ def _show_extended_wallet_info(
         ext_balance, ext_hidden = _print_branch_addresses(
             ext_addresses,
             pending_addresses,
-            frozen_addresses,
             show_empty=show_empty,
             balance_width=balance_width,
         )
@@ -1037,7 +1028,6 @@ def _show_extended_wallet_info(
         int_balance, int_hidden = _print_branch_addresses(
             int_addresses,
             pending_addresses,
-            frozen_addresses,
             show_empty=show_empty,
             balance_width=balance_width,
         )

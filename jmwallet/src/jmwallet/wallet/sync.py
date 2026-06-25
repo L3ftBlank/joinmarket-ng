@@ -125,6 +125,25 @@ class WalletSyncMixin:
                 prior_funded_addresses.add(utxo.address)
         return prior_known_outpoints, prior_funded_addresses
 
+    def _freeze_reused_after_sync(
+        self,
+        prior_used_addresses: set[str],
+        prior_known_outpoints: set[str],
+        prior_funded_addresses: set[str],
+    ) -> None:
+        # On the first sync after init utxo_cache was empty when the snapshot
+        # was taken, so treat the current scan's addresses as funded to avoid
+        # freezing pre-existing coins on used addresses (issue #529).
+        if getattr(self, "_just_initialized", False):
+            if not prior_known_outpoints:
+                prior_funded_addresses = prior_funded_addresses | {
+                    utxo.address for utxos in self.utxo_cache.values() for utxo in utxos
+                }
+            self._just_initialized = False
+        self._auto_freeze_reused_address_utxos(
+            prior_used_addresses, prior_known_outpoints, prior_funded_addresses
+        )
+
     def _record_history_address(self, address: str, origin: str | None = None) -> None:
         """Mark ``address`` as having on-chain history (current or spent).
 
@@ -557,7 +576,7 @@ class WalletSyncMixin:
         if self.backend.supports_descriptor_scan:
             result = await self._sync_all_with_descriptors(fidelity_bond_addresses)
             if result is not None:
-                self._auto_freeze_reused_address_utxos(
+                self._freeze_reused_after_sync(
                     prior_used_addresses, prior_known_outpoints, prior_funded_addresses
                 )
                 self._apply_frozen_state()
@@ -609,7 +628,7 @@ class WalletSyncMixin:
                 await self.sync_fidelity_bonds(bond_locktimes)
 
         logger.info(f"Sync complete: {sum(len(u) for u in result.values())} total UTXOs")
-        self._auto_freeze_reused_address_utxos(
+        self._freeze_reused_after_sync(
             prior_used_addresses, prior_known_outpoints, prior_funded_addresses
         )
         self._apply_frozen_state()
@@ -1548,25 +1567,8 @@ class WalletSyncMixin:
             f"{format_amount(total_value)} total"
         )
 
-        # On the first sync after process initialization, the utxo_cache was
-        # empty at snapshot time (prior_known_outpoints is empty) but
-        # addresses_with_history is already populated from the persisted metadata
-        # store.  Without adjustment, every UTXO on a "used" address would
-        # look like a "freshly arrived coin at an empty used address" and be
-        # auto-frozen.  Supplement prior_funded_addresses with all addresses
-        # present in the current scan so those UTXOs are treated as pre-existing.
-        # _just_initialized is True only on the first sync after __init__.
-        effective_funded = prior_funded_addresses
-        just_initialized = getattr(self, "_just_initialized", False)
-        if just_initialized and not prior_known_outpoints:
-            effective_funded = prior_funded_addresses | {
-                utxo.address for utxos in self.utxo_cache.values() for utxo in utxos
-            }
-        if just_initialized:
-            self._just_initialized = False  # type: ignore[assignment]
-
-        self._auto_freeze_reused_address_utxos(
-            prior_used_addresses, prior_known_outpoints, effective_funded
+        self._freeze_reused_after_sync(
+            prior_used_addresses, prior_known_outpoints, prior_funded_addresses
         )
         self._apply_frozen_state()
         return result

@@ -588,6 +588,39 @@ class NotificationSettings(BaseModel):
         ),
     )
 
+    @field_validator("urls", mode="before")
+    @classmethod
+    def parse_urls(cls, v: Any) -> Any:
+        """Accept a single URL string in addition to a list of URLs.
+
+        ``urls`` must be a TOML array (``urls = ["tgram://bottoken/ChatID"]``),
+        but users frequently write a bare scalar instead
+        (``urls = "tgram://bottoken/ChatID"``). Previously that raised a
+        confusing ``ValidationError`` that crashed the component at startup
+        (a systemd unit just reported ``status=1/FAILURE``). Coerce a single
+        string (optionally comma-separated, or a JSON array) into a list so
+        the friendlier form keeps working, mirroring ``parse_directory_servers``
+        and the comma-separated env handling in ``_CommaListEnvSettingsSource``.
+        """
+        import json
+
+        if isinstance(v, str):
+            v = v.strip()
+            if not v:
+                return []
+            # Try JSON first (handles '["a","b"]' or '"a"' forms).
+            try:
+                parsed = json.loads(v)
+                if isinstance(parsed, list):
+                    return [s.strip() for s in parsed if isinstance(s, str) and s.strip()]
+                if isinstance(parsed, str):
+                    return [parsed.strip()] if parsed.strip() else []
+            except (json.JSONDecodeError, ValueError):
+                pass
+            # Fall back to a comma-separated plain string.
+            return [s.strip() for s in v.split(",") if s.strip()]
+        return v
+
 
 class MakerSettings(BaseModel):
     """Maker-specific settings."""
@@ -1363,6 +1396,9 @@ class TomlConfigSettingsSource(PydanticBaseSettingsSource):
             logger.error("Please fix the syntax errors in your config file and try again.")
             logger.error(
                 "Tip: Make sure section headers like [bitcoin], [tor], etc. are uncommented"
+            )
+            logger.error(
+                'Tip: String values must be quoted, e.g. urls = ["tgram://bottoken/ChatID"]'
             )
             import sys
 

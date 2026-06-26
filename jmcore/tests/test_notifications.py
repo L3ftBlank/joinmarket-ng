@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import os
 from collections.abc import Generator
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -134,6 +135,42 @@ class TestLoadNotificationConfig:
             assert config.enabled is True
             assert [url.get_secret_value() for url in config.urls] == expected
 
+    def test_load_scalar_url_from_toml(self, tmp_path: Path) -> None:
+        """A bare string ``urls`` in config.toml is coerced into a list.
+
+        Regression: users wrote ``urls = "tgram://..."`` (a TOML scalar)
+        instead of a list and the maker crashed at startup with a bare
+        exit code 1 (systemd ``status=1/FAILURE``). The scalar form must
+        now load as a single-element list and auto-enable notifications.
+        """
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            '[notifications]\nurls = "tgram://bottoken/ChatID"\n',
+            encoding="utf-8",
+        )
+
+        with patch.dict(os.environ, {"JOINMARKET_CONFIG_FILE": str(config_file)}, clear=True):
+            config = load_notification_config()
+
+        assert config.enabled is True
+        assert [url.get_secret_value() for url in config.urls] == ["tgram://bottoken/ChatID"]
+
+    def test_load_comma_separated_urls_from_toml(self, tmp_path: Path) -> None:
+        """A comma-separated ``urls`` scalar in config.toml splits into a list."""
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            '[notifications]\nurls = "tgram://bot/chat, gotify://host/token"\n',
+            encoding="utf-8",
+        )
+
+        with patch.dict(os.environ, {"JOINMARKET_CONFIG_FILE": str(config_file)}, clear=True):
+            config = load_notification_config()
+
+        assert [url.get_secret_value() for url in config.urls] == [
+            "tgram://bot/chat",
+            "gotify://host/token",
+        ]
+
     def test_load_disabled_with_urls(self) -> None:
         """Test loading config with URLs but explicitly disabled."""
         env = {
@@ -223,6 +260,48 @@ class TestLoadNotificationConfig:
         assert config.use_tor is True
         assert config.tor_socks_host == "192.168.1.100"
         assert config.tor_socks_port == 9150
+
+
+class TestNotificationSettingsUrlCoercion:
+    """Tests for NotificationSettings.urls accepting scalar/string inputs."""
+
+    def test_single_string_is_wrapped_in_list(self) -> None:
+        """A bare URL string is wrapped into a one-element list."""
+        from jmcore.settings import NotificationSettings
+
+        ns = NotificationSettings(urls="tgram://bottoken/ChatID")  # type: ignore[arg-type]
+
+        assert ns.urls == ["tgram://bottoken/ChatID"]
+
+    def test_comma_separated_string_is_split(self) -> None:
+        """A comma-separated URL string splits into multiple entries."""
+        from jmcore.settings import NotificationSettings
+
+        ns = NotificationSettings(urls="tgram://bot/chat, gotify://host/token")  # type: ignore[arg-type]
+
+        assert ns.urls == ["tgram://bot/chat", "gotify://host/token"]
+
+    def test_json_array_string_is_parsed(self) -> None:
+        """A JSON-array string is parsed into a list (env/CLI ergonomics)."""
+        from jmcore.settings import NotificationSettings
+
+        ns = NotificationSettings(urls='["tgram://bot/chat", "gotify://host/token"]')  # type: ignore[arg-type]
+
+        assert ns.urls == ["tgram://bot/chat", "gotify://host/token"]
+
+    def test_empty_string_is_empty_list(self) -> None:
+        """An empty/whitespace string yields an empty list, not [""]."""
+        from jmcore.settings import NotificationSettings
+
+        assert NotificationSettings(urls="   ").urls == []  # type: ignore[arg-type]
+
+    def test_list_input_is_preserved(self) -> None:
+        """A proper list input is passed through unchanged."""
+        from jmcore.settings import NotificationSettings
+
+        urls = ["tgram://bottoken/ChatID", "gotify://hostname/token"]
+
+        assert NotificationSettings(urls=urls).urls == urls
 
 
 class TestNotifier:

@@ -236,11 +236,17 @@
 # Enable notifications
 # enabled = false
 
-# Apprise notification URLs
-# Examples:
-#   Telegram: "tgram://bottoken/ChatID"
-#   Gotify: "gotify://hostname/token"
-# See: https://github.com/caronc/apprise
+# Apprise notification URLs. This MUST be a TOML array (square brackets) with
+# each URL quoted, even when you only configure a single service:
+#   urls = ["tgram://bottoken/ChatID"]
+# Multiple services (a trailing comma is allowed):
+#   urls = [
+#       "tgram://bottoken/ChatID",
+#       "gotify://hostname/token",
+#   ]
+# A bare string (urls = "tgram://bottoken/ChatID") is also accepted and wrapped
+# into a single-element list, but the array form above is preferred.
+# See https://github.com/caronc/apprise for each service's URL format.
 # urls = []
 
 # Notification preferences

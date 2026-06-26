@@ -210,6 +210,41 @@ class TestSetupCli:
         assert os.environ["JOINMARKET_CONFIG_FILE"] == str(fake_home / "custom.toml")
         assert "~" not in os.environ["JOINMARKET_CONFIG_FILE"]
 
+    def test_setup_cli_invalid_config_exits_cleanly(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """An out-of-range config value exits with code 1, not a raw traceback.
+
+        Guards the friendly ValidationError handler: a bad value in
+        config.toml must produce an actionable message and a clean
+        ``SystemExit(1)`` instead of letting pydantic's traceback propagate.
+        """
+        config_file = tmp_path / "config.toml"
+        # summary_interval_hours is bounded to 1-168; 9999 fails validation.
+        config_file.write_text("[notifications]\nsummary_interval_hours = 9999\n")
+        monkeypatch.delenv("JOINMARKET_CONFIG_FILE", raising=False)
+
+        with pytest.raises(SystemExit) as exc_info:
+            setup_cli(config_file=config_file)
+
+        assert exc_info.value.code == 1
+
+    def test_setup_cli_scalar_notification_url(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A bare string notifications url loads via setup_cli without crashing.
+
+        End-to-end regression for the reported maker startup crash where
+        ``urls = "tgram://..."`` (a scalar) caused ``status=1/FAILURE``.
+        """
+        config_file = tmp_path / "config.toml"
+        config_file.write_text('[notifications]\nurls = "tgram://bottoken/ChatID"\n')
+        monkeypatch.delenv("JOINMARKET_CONFIG_FILE", raising=False)
+
+        settings = setup_cli(config_file=config_file)
+
+        assert settings.notifications.urls == ["tgram://bottoken/ChatID"]
+
 
 class TestLoadMnemonicFromFile:
     """Tests for load_mnemonic_from_file function."""

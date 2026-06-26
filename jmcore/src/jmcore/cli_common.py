@@ -39,13 +39,13 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from loguru import logger
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 
 from jmcore.models import NetworkType
-from jmcore.settings import JoinMarketSettings, get_settings, reset_settings
+from jmcore.settings import JoinMarketSettings, get_config_path, get_settings, reset_settings
 
 # =============================================================================
 # Resolved Settings Dataclasses
@@ -177,13 +177,40 @@ def setup_cli(
     setup_logging(early_level)
 
     reset_settings()
-    settings = get_settings()
+    try:
+        settings = get_settings()
+    except ValidationError as exc:
+        _exit_on_invalid_config(exc)
 
     # Resolve log level: CLI > settings > default
     effective_log_level = log_level if log_level is not None else settings.logging.level
     setup_logging(effective_log_level)
 
     return settings
+
+
+def _exit_on_invalid_config(exc: ValidationError) -> NoReturn:
+    """Log an actionable message for a config validation error and exit.
+
+    pydantic raises ``ValidationError`` when a value in ``config.toml`` (or an
+    environment variable) has the wrong type or is out of range. Without this
+    handler the raw traceback propagates and the process exits with a bare
+    code 1 (e.g. a systemd unit only shows ``status=1/FAILURE``), leaving the
+    operator with no clue which setting is wrong. Translate each error into a
+    ``section.key: message`` line pointing at the offending value.
+    """
+    logger.error(f"Invalid configuration in {get_config_path()}:")
+    for err in exc.errors():
+        location = ".".join(str(part) for part in err.get("loc", ())) or "<root>"
+        message = err.get("msg", "invalid value")
+        logger.error(f"  {location}: {message}")
+        if location.endswith("urls"):
+            logger.error(
+                "    Tip: notification urls must be a TOML array, e.g. "
+                'urls = ["tgram://bottoken/ChatID"]'
+            )
+    logger.error("Please fix these values in your config file and try again.")
+    sys.exit(1)
 
 
 # =============================================================================

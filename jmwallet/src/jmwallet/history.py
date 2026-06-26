@@ -24,6 +24,8 @@ from loguru import logger
 from pydantic.dataclasses import dataclass
 
 if TYPE_CHECKING:
+    from jmcore.bitcoin import CoinjoinAnalysis
+
     from jmwallet.backends.base import BlockchainBackend
 
 
@@ -1844,6 +1846,50 @@ def get_utxo_label(
 
     # If not in history, it's a deposit (external receive)
     return "deposit"
+
+
+# Address-origin tags persisted by import-time on-chain label reconstruction.
+# These follow the BIP-329 ``jm:used:<origin>`` convention documented in
+# ``jmwallet.wallet.utxo_metadata`` and are consumed back by
+# ``UTXOMetadataStore.get_coinjoin_address_types`` for the wallet display.
+ORIGIN_CJ_OUT = "cj_out"
+ORIGIN_CJ_CHANGE = "cj_change"
+ORIGIN_DEPOSIT = "deposit"
+ORIGIN_NON_CJ_CHANGE = "non_cj_change"
+
+# Origins that mark an address as already classified by on-chain analysis, so a
+# later reconstruction pass can skip re-fetching its creating transaction.
+CLASSIFIED_ORIGINS = frozenset(
+    {ORIGIN_CJ_OUT, ORIGIN_CJ_CHANGE, ORIGIN_DEPOSIT, ORIGIN_NON_CJ_CHANGE}
+)
+
+
+def classify_imported_output(
+    analysis: CoinjoinAnalysis,
+    value: int,
+    is_external: bool,
+) -> str:
+    """Classify a wallet output from its creating transaction's structure.
+
+    Returns one of the address-origin tags (:data:`ORIGIN_CJ_OUT`,
+    :data:`ORIGIN_CJ_CHANGE`, :data:`ORIGIN_DEPOSIT`,
+    :data:`ORIGIN_NON_CJ_CHANGE`) following the same rules legacy
+    joinmarket-clientserver uses to label coins on display:
+
+    - an equal-amount CoinJoin output -> ``cj_out``
+    - our other output inside a CoinJoin (the change) -> ``cj_change``
+    - a non-CoinJoin coin on the external branch -> ``deposit``
+    - a non-CoinJoin coin on the internal branch -> ``non_cj_change``
+
+    The CoinJoin cases are decided purely by output value (parity with the
+    reference), so an equal-amount output is labeled ``cj_out`` regardless of
+    which branch it sits on.
+    """
+    if analysis.is_coinjoin and value == analysis.cj_amount:
+        return ORIGIN_CJ_OUT
+    if analysis.is_coinjoin:
+        return ORIGIN_CJ_CHANGE
+    return ORIGIN_DEPOSIT if is_external else ORIGIN_NON_CJ_CHANGE
 
 
 async def detect_coinjoin_peer_count(

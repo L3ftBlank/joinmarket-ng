@@ -690,6 +690,37 @@ class TestMarkAddressUsed:
         assert s2.foreign_addr_lines == [foreign]
 
 
+class TestCoinjoinAddressTypes:
+    """Tests for the import-label readers used by the wallet display."""
+
+    def test_get_address_origins(self, tmp_path):
+        s = UTXOMetadataStore(path=tmp_path / "m.jsonl")
+        s.load()
+        s.mark_address_used("bcrt1qa", "cj_out")
+        assert s.get_address_origins("bcrt1qa") == {"cj_out"}
+        # Unknown address has no origins.
+        assert s.get_address_origins("bcrt1qmissing") == set()
+
+    def test_coinjoin_types_map_origins_to_display_vocabulary(self, tmp_path):
+        s = UTXOMetadataStore(path=tmp_path / "m.jsonl")
+        s.load()
+        s.mark_address_used("bcrt1qcjout", "cj_out")
+        s.mark_address_used("bcrt1qcjchange", "cj_change")
+        s.mark_address_used("bcrt1qdeposit", "deposit")
+        s.mark_address_used("bcrt1qplain")  # no origin
+
+        types = s.get_coinjoin_address_types()
+        # cj_change maps to the "change" vocabulary used by get_address_history_types.
+        assert types == {"bcrt1qcjout": "cj_out", "bcrt1qcjchange": "change"}
+
+    def test_coinjoin_types_prefers_cj_out_when_both_present(self, tmp_path):
+        s = UTXOMetadataStore(path=tmp_path / "m.jsonl")
+        s.load()
+        s.mark_address_used("bcrt1qreused", "cj_change")
+        s.mark_address_used("bcrt1qreused", "cj_out")
+        assert s.get_coinjoin_address_types() == {"bcrt1qreused": "cj_out"}
+
+
 # ---------------------------------------------------------------------------
 # Per-wallet partitioning + legacy shared-file migration
 # ---------------------------------------------------------------------------

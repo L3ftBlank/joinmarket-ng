@@ -105,6 +105,11 @@ class WalletService(WalletSyncMixin, CoinSelectionMixin, WalletDisplayMixin, Wal
         # metadata store.  Without this guard every UTXO on a "used" address
         # would look like a "freshly arrived coin at an empty used address".
         self._just_initialized: bool = True
+        # Guards the once-per-process import-label reconstruction pass (see
+        # WalletSyncMixin.reconstruct_imported_labels). Coins received while
+        # running are either this wallet's own CoinJoins (recorded in history)
+        # or genuine deposits, so only the imported backlog needs scanning.
+        self._imported_labels_scanned: bool = False
 
         # UTXO + address metadata store (BIP-329 JSONL). Frozen UTXO state,
         # output labels, and the persistent "addresses with on-chain history"

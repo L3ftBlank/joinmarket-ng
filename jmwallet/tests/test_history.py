@@ -11,14 +11,20 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from jmcore.bitcoin import analyze_coinjoin_outputs
 
 from jmwallet.backends.base import Transaction
 from jmwallet.history import (
+    ORIGIN_CJ_CHANGE,
+    ORIGIN_CJ_OUT,
+    ORIGIN_DEPOSIT,
+    ORIGIN_NON_CJ_CHANGE,
     YIELD_GENERATOR_REPORT_HEADER,
     HistoryWriteError,
     TransactionHistoryEntry,
     _parse_utxos,
     append_history_entry,
+    classify_imported_output,
     cleanup_stale_pending_transactions,
     count_other_wallet_entries,
     create_maker_history_entry,
@@ -1811,6 +1817,36 @@ class TestPeerCountDetection:
         peer_count = await detect_coinjoin_peer_count(mock_backend, "nonexistent", 30000)
 
         assert peer_count is None
+
+
+class TestClassifyImportedOutput:
+    """Tests for classifying an imported coin from its creating transaction."""
+
+    @staticmethod
+    def _out(value: int, tag: int):
+        from jmcore.bitcoin import TxOutput
+
+        return TxOutput(value=value, script=b"\x00\x14" + bytes([tag]) * 20)
+
+    def test_coinjoin_equal_output_is_cj_out(self) -> None:
+        outputs = [self._out(30_000, 1), self._out(30_000, 2), self._out(7_000, 3)]
+        analysis = analyze_coinjoin_outputs(outputs)
+        # Equal-amount output is cj_out regardless of branch (parity with legacy).
+        assert classify_imported_output(analysis, 30_000, is_external=False) == ORIGIN_CJ_OUT
+        assert classify_imported_output(analysis, 30_000, is_external=True) == ORIGIN_CJ_OUT
+
+    def test_coinjoin_other_output_is_cj_change(self) -> None:
+        outputs = [self._out(30_000, 1), self._out(30_000, 2), self._out(7_000, 3)]
+        analysis = analyze_coinjoin_outputs(outputs)
+        assert classify_imported_output(analysis, 7_000, is_external=False) == ORIGIN_CJ_CHANGE
+
+    def test_non_coinjoin_external_is_deposit(self) -> None:
+        analysis = analyze_coinjoin_outputs([self._out(50_000, 1), self._out(1_234, 2)])
+        assert classify_imported_output(analysis, 50_000, is_external=True) == ORIGIN_DEPOSIT
+
+    def test_non_coinjoin_internal_is_non_cj_change(self) -> None:
+        analysis = analyze_coinjoin_outputs([self._out(50_000, 1), self._out(1_234, 2)])
+        assert classify_imported_output(analysis, 1_234, is_external=False) == ORIGIN_NON_CJ_CHANGE
 
     def test_update_transaction_peer_count(self, temp_data_dir: Path) -> None:
         """Test updating peer count for a maker transaction."""

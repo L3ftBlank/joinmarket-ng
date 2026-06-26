@@ -543,6 +543,9 @@ async def rescan_blockchain(
             logger.exception("Rescan failed")
         finally:
             state.rescanning = False
+            # A rescan can surface coins the wallet had never seen; allow the
+            # next sync to re-run import-label reconstruction over them.
+            ws._imported_labels_scanned = False
 
     asyncio.create_task(_do_rescan())
     return RescanBlockchainResponse(walletname=walletname)

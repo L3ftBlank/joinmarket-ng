@@ -77,6 +77,8 @@ class WalletSyncMixin:
     metadata_store: Any  # UTXOMetadataStore | None (deferred import)
     fidelity_bond_locktime_cache: dict[str, int]
     max_sats_freeze_reuse: int
+    # Guards the once-per-process import-label reconstruction pass.
+    _imported_labels_scanned: bool
 
     # Methods provided by the host class
     def get_address(self, mixdepth: int, change: int, index: int) -> str:
@@ -183,6 +185,154 @@ class WalletSyncMixin:
             store.mark_addresses_used(new_addresses, origin)
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning(f"Could not persist {len(new_addresses)} used addresses: {exc}")
+
+    # -- Imported-wallet CoinJoin label reconstruction ----------------------
+
+    @staticmethod
+    def _is_external_path(path: str) -> bool:
+        """Return True when a derivation path is on the external (receive) branch.
+
+        Paths look like ``m/84'/<coin>'/<md>'/<change>/<index>``; the ``change``
+        element (``0`` external, ``1`` internal) is second from the end.
+        """
+        parts = path.split("/")
+        return len(parts) >= 2 and parts[-2] == "0"
+
+    async def _reconstruct_imported_labels_safe(self) -> None:
+        """Best-effort wrapper: label reconstruction must never break a sync."""
+        try:
+            await self.reconstruct_imported_labels()
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug(f"Import label reconstruction skipped: {exc}")
+
+    async def reconstruct_imported_labels(
+        self,
+        *,
+        force: bool = False,
+        max_transactions: int = 1000,
+    ) -> int:
+        """Reconstruct CoinJoin labels for an imported wallet from chain data.
+
+        JoinMarket-NG derives ``cj-out`` / ``cj-change`` address statuses from a
+        local CoinJoin history file written by this wallet's own maker/taker
+        activity. A wallet recovered from seed (or otherwise imported) has no
+        such file, so every funded coin falls back to ``deposit`` (external) or
+        ``non-cj-change`` (internal), even when it actually came from a CoinJoin.
+
+        This scans the current UTXO set, fetches the transaction that created
+        each unclassified funded coin, applies the same equal-output CoinJoin
+        heuristic the legacy client uses (:func:`jmcore.bitcoin.analyze_coinjoin_outputs`),
+        and persists the derived origin (``cj_out`` / ``cj_change`` / ``deposit``
+        / ``non_cj_change``) into the BIP-329 metadata store. The wallet display
+        then surfaces the correct status via
+        :meth:`UTXOMetadataStore.get_coinjoin_address_types`.
+
+        The pass is best-effort and bounded: it runs at most once per process
+        (unless ``force`` is set), skips addresses the local history already
+        classifies and addresses already classified on a previous run, dedupes
+        work by transaction, and degrades silently to the existing fallback when
+        the backend cannot return a transaction. Only the pre-existing imported
+        backlog needs this: coins received while running are either this
+        wallet's own CoinJoins (recorded in history) or genuine deposits (already
+        labeled correctly).
+
+        Args:
+            force: Re-run even if a pass already completed in this process.
+            max_transactions: Safety cap on transactions fetched in one pass.
+
+        Returns:
+            The number of coins newly classified.
+        """
+        store = getattr(self, "metadata_store", None)
+        if store is None or self.data_dir is None:
+            # Without persistence we would re-fetch every transaction on each
+            # display; only run when results can be cached.
+            return 0
+        if getattr(self, "_imported_labels_scanned", False) and not force:
+            return 0
+
+        from jmcore.bitcoin import analyze_coinjoin_outputs, parse_transaction
+
+        from jmwallet.history import (
+            CLASSIFIED_ORIGINS,
+            ORIGIN_CJ_CHANGE,
+            ORIGIN_CJ_OUT,
+            classify_imported_output,
+            get_address_history_types,
+        )
+
+        # Addresses this wallet's own CoinJoin history already classifies are
+        # authoritative; never override them with a heuristic guess (issue #517).
+        authoritative = set(
+            get_address_history_types(self.data_dir, wallet_fingerprint=self.wallet_fingerprint)
+        )
+
+        # Group unclassified funded coins by the transaction that created them.
+        by_txid: dict[str, list[UTXOInfo]] = {}
+        for utxos in self.utxo_cache.values():
+            for utxo in utxos:
+                if utxo.is_fidelity_bond:
+                    continue
+                if utxo.address in authoritative:
+                    continue
+                if store.get_address_origins(utxo.address) & CLASSIFIED_ORIGINS:
+                    continue
+                by_txid.setdefault(utxo.txid, []).append(utxo)
+
+        if not by_txid:
+            self._imported_labels_scanned = True
+            return 0
+
+        origin_to_addresses: dict[str, list[str]] = {}
+        classified = 0
+        fetched = 0
+        for txid, utxos in by_txid.items():
+            if fetched >= max_transactions:
+                logger.warning(
+                    f"Import label reconstruction hit the {max_transactions}-transaction "
+                    "cap; remaining coins will be classified on a later run."
+                )
+                break
+            try:
+                tx = await self.backend.get_transaction(txid)
+            except Exception as exc:  # pragma: no cover - backend/network dependent
+                logger.debug(f"Could not fetch tx {txid[:16]}... for labels: {exc}")
+                continue
+            fetched += 1
+            if tx is None or not tx.raw:
+                continue
+            try:
+                analysis = analyze_coinjoin_outputs(parse_transaction(tx.raw).outputs)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.debug(f"Could not analyze tx {txid[:16]}... for labels: {exc}")
+                continue
+            for utxo in utxos:
+                origin = classify_imported_output(
+                    analysis, utxo.value, self._is_external_path(utxo.path)
+                )
+                origin_to_addresses.setdefault(origin, []).append(utxo.address)
+                # Surface the label on the in-memory UTXO for /utxos and
+                # interactive coin selection, without clobbering a user label.
+                if utxo.label is None:
+                    if origin == ORIGIN_CJ_OUT:
+                        utxo.label = "cj-out"
+                    elif origin == ORIGIN_CJ_CHANGE:
+                        utxo.label = "cj-change"
+                classified += 1
+
+        for origin, addresses in origin_to_addresses.items():
+            try:
+                store.mark_addresses_used(addresses, origin)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.debug(f"Could not persist {origin} origins: {exc}")
+
+        self._imported_labels_scanned = True
+        if classified:
+            logger.info(
+                f"Reconstructed CoinJoin labels for {classified} imported coin(s) "
+                f"from {fetched} transaction(s)."
+            )
+        return classified
 
     # -- Address-by-address sync (Groups B+C) --------------------------------
 
@@ -691,7 +841,9 @@ class WalletSyncMixin:
 
         if not isinstance(self.backend, DescriptorWalletBackend):
             # Non-descriptor backends scan bond addresses directly in sync_all.
-            return await self.sync_all(bond_addresses or None)
+            result = await self.sync_all(bond_addresses or None)
+            await self._reconstruct_imported_labels_safe()
+            return result
 
         # Ensure the base descriptor wallet exists before scanning. This is a
         # no-op when it is already set up (``setup_descriptor_wallet`` checks
@@ -720,7 +872,9 @@ class WalletSyncMixin:
             if missing:
                 await self.import_fidelity_bond_addresses(missing, rescan=True)
 
-        return await self.sync_with_descriptor_wallet(bond_addresses or None)
+        result = await self.sync_with_descriptor_wallet(bond_addresses or None)
+        await self._reconstruct_imported_labels_safe()
+        return result
 
     async def _imported_bond_addresses(self) -> set[str]:
         """Return the set of fidelity bond addresses (lowercased) already imported.

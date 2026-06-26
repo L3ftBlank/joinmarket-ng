@@ -74,6 +74,18 @@ class WalletDisplayMixin:
         if history_addresses is None:
             history_addresses = {}
 
+        # Imported/recovered wallets have no local CoinJoin history file, so
+        # coins that actually came from CoinJoins would fall back to
+        # ``deposit`` / ``non-cj-change``. Merge in CoinJoin types reconstructed
+        # from on-chain analysis and persisted in the metadata store (see
+        # ``WalletSyncMixin.reconstruct_imported_labels``). The local history
+        # file stays authoritative and wins on any conflict.
+        store = getattr(self, "metadata_store", None)
+        if store is not None:
+            onchain_types = store.get_coinjoin_address_types()
+            if onchain_types:
+                history_addresses = {**onchain_types, **history_addresses}
+
         is_external = change == 0
         addresses: list[AddressInfo] = []
 

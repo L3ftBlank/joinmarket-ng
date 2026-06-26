@@ -646,6 +646,32 @@ class UTXOMetadataStore:
         """
         return set(self.address_records.keys())
 
+    def get_address_origins(self, address: str) -> set[str]:
+        """Return the origin tags recorded for ``address`` (empty if none)."""
+        record = self.address_records.get(address)
+        return record.origins if record else set()
+
+    def get_coinjoin_address_types(self) -> dict[str, str]:
+        """Map addresses to a CoinJoin display type from persisted origins.
+
+        Import-time label reconstruction (see
+        ``WalletService.reconstruct_imported_labels``) tags addresses with
+        ``cj_out`` / ``cj_change`` origins derived from on-chain analysis of
+        their creating transaction. This returns those addresses using the
+        vocabulary the wallet display expects (``cj_out`` and ``change``,
+        matching ``get_address_history_types``), so imported wallets surface
+        ``cj-out`` / ``cj-change`` instead of falling back to ``deposit`` /
+        ``non-cj-change``.
+        """
+        result: dict[str, str] = {}
+        for address, record in self.address_records.items():
+            origins = record.origins
+            if "cj_out" in origins:
+                result[address] = "cj_out"
+            elif "cj_change" in origins:
+                result[address] = "change"
+        return result
+
     def verify_writable(self) -> None:
         """Verify that the metadata file's directory is writable.
 

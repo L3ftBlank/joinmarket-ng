@@ -105,6 +105,38 @@ value `<= N` sats, and `0` disables the behavior. This is based on the legacy
 joinmarket-clientserver `POLICY.max_sats_freeze_reuse` option (joinmarket-ng
 additionally restricts freezing to spent-empty addresses).
 
+### Address Status Labels
+
+The wallet display annotates each funded address with a status: `deposit`
+(external coin received from outside), `cj-out` (an equal-amount CoinJoin
+output), `cj-change` (our change inside a CoinJoin, which is deanonymising and
+shown distinctly), and `non-cj-change` (ordinary, non-CoinJoin change). These
+are derived primarily from the per-wallet CoinJoin history file, which records
+the output and change addresses of every CoinJoin this wallet performed as
+maker or taker.
+
+A wallet imported or recovered from seed has no such history file, so every
+coin would otherwise fall back to `deposit` (external branch) or
+`non-cj-change` (internal branch), even when it actually came from a CoinJoin.
+To recover the correct labels, the wallet reconstructs them from on-chain data:
+for each funded coin without a local-history classification it fetches the
+transaction that created it and applies the same equal-output heuristic the
+legacy joinmarket-clientserver uses (a transaction is a CoinJoin when its most
+frequent output value repeats more than once and the count of those equal
+outputs matches the number of other outputs, with `+1` slack for one
+no-change participant). The derived origin (`cj_out` / `cj_change` / `deposit`
+/ `non_cj_change`) is persisted into the BIP-329 metadata store, so the work is
+done once and the display then surfaces the true status.
+
+The reconstruction is best-effort and bounded: it runs once per process during
+the bond-aware sync, skips addresses the local history already classifies (those
+remain authoritative) and addresses classified on a previous run, dedupes work
+per transaction, and degrades silently to the `deposit` / `non-cj-change`
+fallback when the backend cannot return a transaction. A blockchain rescan
+re-runs it so coins surfaced by the rescan are classified too. Only the imported
+backlog needs this; coins received while running are either this wallet's own
+CoinJoins (recorded in history) or genuine deposits.
+
 ### Backend Systems
 
 **Descriptor Wallet Backend (Recommended):**

@@ -6,10 +6,12 @@ Provides shared functionality for protocol, crypto, and networking.
 
 # Bitcoin utilities - consolidated from multiple modules
 from jmcore.bitcoin import (
+    CoinjoinAnalysis,
     ParsedTransaction,
     TxInput,
     TxOutput,
     address_to_scriptpubkey,
+    analyze_coinjoin_outputs,
     create_p2wpkh_script_code,
     decode_varint,
     encode_varint,
@@ -310,10 +312,12 @@ __all__ = [
     "timestamp_to_timenumber",
     "validate_locktime",
     # Bitcoin utilities (consolidated)
+    "CoinjoinAnalysis",
     "ParsedTransaction",
     "TxInput",
     "TxOutput",
     "address_to_scriptpubkey",
+    "analyze_coinjoin_outputs",
     "create_p2wpkh_script_code",
     "decode_varint",
     "encode_varint",

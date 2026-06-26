@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import hashlib
 import struct
+from collections import Counter
+from collections.abc import Sequence
 from enum import StrEnum
 from typing import Any
 
@@ -969,6 +971,64 @@ def parse_transaction_bytes(tx_bytes: bytes) -> ParsedTransaction:
         witnesses=witnesses,
         locktime=locktime,
         has_witness=has_witness,
+    )
+
+
+@dataclass
+class CoinjoinAnalysis:
+    """Result of the equal-output CoinJoin heuristic for a transaction.
+
+    Attributes:
+        is_coinjoin: True when the output structure matches a JoinMarket-style
+            CoinJoin (N equal-value outputs and roughly N other outputs).
+        cj_amount: The repeated (equal) output value in satoshis. Meaningful
+            only when ``is_coinjoin`` is True (0 otherwise).
+        cj_count: The number of equal-value outputs (the participant count).
+    """
+
+    is_coinjoin: bool
+    cj_amount: int
+    cj_count: int
+
+
+def analyze_coinjoin_outputs(outputs: Sequence[TxOutput]) -> CoinjoinAnalysis:
+    """Detect a JoinMarket-style CoinJoin from a transaction's outputs.
+
+    Mirrors the legacy joinmarket-clientserver heuristic (``get_tx_info`` in
+    ``wallet_utils.py``): a transaction is treated as a CoinJoin when its most
+    frequent output value repeats more than once and the number of those equal
+    outputs equals the number of all other outputs, allowing ``+1`` slack for a
+    single participant that contributed without change (an exact/sweep join).
+
+    Outputs are de-duplicated by ``scriptPubKey`` first (matching the reference),
+    so two outputs paying the same address are counted once. This makes the
+    classification a pure function of on-chain data, which is what lets an
+    imported wallet recover CoinJoin labels it never recorded locally.
+
+    Args:
+        outputs: The transaction outputs (``TxOutput`` with ``value``/``script``).
+
+    Returns:
+        A :class:`CoinjoinAnalysis` describing the detection result.
+    """
+    # De-duplicate by scriptPubKey: equal CoinJoin outputs always pay distinct
+    # participant addresses, so collapsing same-script outputs only removes
+    # accidental address reuse that would otherwise inflate the equal-output
+    # count and cause false positives.
+    script_values: dict[bytes, int] = {out.script: out.value for out in outputs}
+    if not script_values:
+        return CoinjoinAnalysis(is_coinjoin=False, cj_amount=0, cj_count=0)
+
+    value_freq = sorted(Counter(script_values.values()).most_common(), key=lambda x: -x[1])
+    top_value, top_count = value_freq[0]
+    # Number of outputs that are *not* part of the most-frequent value group
+    # (the per-participant change outputs in a CoinJoin).
+    non_cj_freq = 0 if len(value_freq) == 1 else sum(count for _, count in value_freq[1:])
+    is_coinjoin = top_count > 1 and top_count in (non_cj_freq, non_cj_freq + 1)
+    return CoinjoinAnalysis(
+        is_coinjoin=is_coinjoin,
+        cj_amount=top_value if is_coinjoin else 0,
+        cj_count=top_count,
     )
 
 

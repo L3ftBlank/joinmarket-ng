@@ -11,10 +11,12 @@ import pytest
 from jmcore.bitcoin import (
     PSBT_MAGIC,
     BIP32Derivation,
+    CoinjoinAnalysis,
     PSBTInput,
     TxInput,
     TxOutput,
     address_to_scriptpubkey,
+    analyze_coinjoin_outputs,
     btc_to_sats,
     calculate_relative_fee,
     calculate_sweep_amount,
@@ -1423,3 +1425,76 @@ class TestSerializeTransactionWithWitness:
         tx = serialize_transaction(2, [inp], [out], 0, witnesses=None)
         parsed = parse_transaction(tx.hex())
         assert not parsed.has_witness
+
+
+def _p2wpkh_output(value: int, tag: int) -> TxOutput:
+    """Build a distinct P2WPKH output with the given value and a unique script."""
+    return TxOutput(value=value, script=b"\x00\x14" + bytes([tag]) * 20)
+
+
+class TestAnalyzeCoinjoinOutputs:
+    """Tests for the equal-output CoinJoin detection heuristic."""
+
+    def test_balanced_coinjoin(self) -> None:
+        """N equal outputs + N distinct change outputs -> CoinJoin."""
+        outputs = [
+            _p2wpkh_output(30_000, 1),
+            _p2wpkh_output(30_000, 2),
+            _p2wpkh_output(30_000, 3),
+            _p2wpkh_output(11_111, 4),
+            _p2wpkh_output(22_222, 5),
+            _p2wpkh_output(33_333, 6),
+        ]
+        result = analyze_coinjoin_outputs(outputs)
+        assert result == CoinjoinAnalysis(is_coinjoin=True, cj_amount=30_000, cj_count=3)
+
+    def test_coinjoin_with_one_no_change_participant(self) -> None:
+        """N equal outputs + (N-1) change (one sweep contributor) -> CoinJoin."""
+        outputs = [
+            _p2wpkh_output(30_000, 1),
+            _p2wpkh_output(30_000, 2),
+            _p2wpkh_output(30_000, 3),
+            _p2wpkh_output(11_111, 4),
+            _p2wpkh_output(22_222, 5),
+        ]
+        result = analyze_coinjoin_outputs(outputs)
+        assert result.is_coinjoin is True
+        assert result.cj_amount == 30_000
+        assert result.cj_count == 3
+
+    def test_plain_payment_is_not_coinjoin(self) -> None:
+        """A payment + change (two distinct values) is not a CoinJoin."""
+        outputs = [_p2wpkh_output(50_000, 1), _p2wpkh_output(12_345, 2)]
+        result = analyze_coinjoin_outputs(outputs)
+        assert result.is_coinjoin is False
+        assert result.cj_amount == 0
+
+    def test_single_output_is_not_coinjoin(self) -> None:
+        """A sweep with a single output is not a CoinJoin."""
+        result = analyze_coinjoin_outputs([_p2wpkh_output(50_000, 1)])
+        assert result.is_coinjoin is False
+
+    def test_empty_outputs(self) -> None:
+        """No outputs degrades gracefully to a non-CoinJoin result."""
+        result = analyze_coinjoin_outputs([])
+        assert result == CoinjoinAnalysis(is_coinjoin=False, cj_amount=0, cj_count=0)
+
+    def test_same_script_outputs_are_deduplicated(self) -> None:
+        """Two outputs paying the same script must not look like a CoinJoin."""
+        same = TxOutput(value=30_000, script=b"\x00\x14" + b"\x01" * 20)
+        result = analyze_coinjoin_outputs([same, same])
+        assert result.is_coinjoin is False
+
+    def test_too_many_equal_outputs_without_change(self) -> None:
+        """All-equal outputs with no change (e.g. a fan-out) are not a CoinJoin.
+
+        With 3 equal outputs and zero other outputs, ``non_cj_freq`` is 0 and
+        the equal count (3) is not in {0, 1}, so the heuristic rejects it.
+        """
+        outputs = [
+            _p2wpkh_output(30_000, 1),
+            _p2wpkh_output(30_000, 2),
+            _p2wpkh_output(30_000, 3),
+        ]
+        result = analyze_coinjoin_outputs(outputs)
+        assert result.is_coinjoin is False

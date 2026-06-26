@@ -297,3 +297,41 @@ async def test_first_sync_after_restart_keeps_existing_coins_spendable(
     assert utxo.frozen is False
     assert not ws.metadata_store.is_frozen(utxo.outpoint)
     assert ws._just_initialized is False
+
+
+async def test_reuse_is_still_frozen_on_sync_after_restart_guard(
+    tmp_path: Path,
+) -> None:
+    """The first-sync guard is one-shot: later syncs still freeze forced reuse.
+
+    The restart guard only suppresses false positives on the very first sync
+    after init. Once consumed, a dust payment that lands on a spent-empty used
+    address must still be auto-frozen, otherwise the forced-address-reuse
+    defense would be permanently disabled for the whole process lifetime.
+    """
+    ws = _make_wallet(tmp_path, max_sats_freeze_reuse=-1)
+    # Restart state: REUSED_ADDRESS is known-used but currently empty.
+    ws.addresses_with_history = {REUSED_ADDRESS}
+
+    scan: dict[int, list[UTXOInfo]] = {0: []}
+
+    async def fake_descriptor_sync(_bonds: object = None) -> dict[int, list[UTXOInfo]]:
+        ws.utxo_cache = {0: list(scan[0])}
+        return ws.utxo_cache
+
+    ws.backend.is_wallet_setup = AsyncMock(return_value=True)
+    ws.backend.list_descriptors = AsyncMock(return_value=[])
+    ws.setup_descriptor_wallet = AsyncMock(return_value=True)
+    ws._sync_all_with_descriptors = fake_descriptor_sync
+
+    # First sync after restart consumes the guard (no coins present yet).
+    await ws.sync_all()
+    assert ws._just_initialized is False
+
+    # A forced-reuse dust payment now arrives on the spent-empty used address.
+    reuse = _utxo(txid="e5" * 32, address=REUSED_ADDRESS, value=600)
+    scan[0] = [reuse]
+    await ws.sync_all()
+
+    assert reuse.frozen is True
+    assert ws.metadata_store.is_frozen(reuse.outpoint)

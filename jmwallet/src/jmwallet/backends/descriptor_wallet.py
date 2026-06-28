@@ -64,6 +64,16 @@ DEFAULT_RPC_TIMEOUT = httpx.Timeout(
 # of bubbling up a confusing ReadTimeout (issue #472).
 IMPORT_RPC_TIMEOUT = 1800.0
 
+# Maximum time to wait for a transient "wallet already loading" state to clear.
+# Bitcoin Core keeps a previously issued ``loadwallet``/``createwallet`` running
+# server-side even after the HTTP request that triggered it timed out; while it
+# runs, any new ``loadwallet`` is rejected with ``RPC error -4: Wallet already
+# loading.`` (issue #465). Polling ``listwallets`` until the wallet appears
+# resolves the condition. ~60s matches the cumulative create_wallet backoff
+# schedule and is generous enough for typical load-on-restart waits without
+# making a genuinely stuck node appear hung forever (users can Ctrl-C).
+WALLET_LOADING_MAX_WAIT = 60.0
+
 # Default gap limit for descriptor ranges
 DEFAULT_GAP_LIMIT = 1000
 
@@ -268,7 +278,16 @@ class DescriptorWalletBackend(BlockchainBackend):
                 return True
 
             # Wallet not in list -- attempt to load it
-            await self._rpc_call("loadwallet", [self.wallet_name], use_wallet=False)
+            try:
+                await self._rpc_call("loadwallet", [self.wallet_name], use_wallet=False)
+            except ValueError as e:
+                # A prior load is still running server-side (issue #465);
+                # wait for it to finish rather than reporting failure.
+                if self._is_wallet_loading_error(e) and await self._poll_until_wallet_loaded(
+                    WALLET_LOADING_MAX_WAIT
+                ):
+                    return True
+                raise
             logger.info(f"Reloaded wallet '{self.wallet_name}' after Bitcoin Core restart")
             return True
         except Exception as e:
@@ -506,6 +525,37 @@ class DescriptorWalletBackend(BlockchainBackend):
 
         return results
 
+    async def _poll_until_wallet_loaded(self, max_total_wait: float) -> bool:
+        """Poll ``listwallets`` until our wallet appears, up to ``max_total_wait`` seconds.
+
+        Bitcoin Core returns ``RPC error -4: Wallet already loading`` while a
+        prior ``loadwallet``/``createwallet`` call is still running server-side
+        (commonly after a previous call timed out at the HTTP layer). The state
+        is transient: once the load finishes the wallet shows up in
+        ``listwallets``. Returns True as soon as the wallet is observed loaded
+        (setting ``_wallet_loaded``), or False if the budget is exhausted first.
+        See issue #465.
+        """
+        waited = 0.0
+        delay = 1.0
+        while waited < max_total_wait:
+            await asyncio.sleep(delay)
+            waited += delay
+            try:
+                wallets = await self._rpc_call("listwallets", use_wallet=False)
+                if self.wallet_name in wallets:
+                    logger.info(
+                        f"Wallet '{self.wallet_name}' finished loading after "
+                        f"~{waited:.0f}s of waiting"
+                    )
+                    self._wallet_loaded = True
+                    return True
+            except (ValueError, httpx.HTTPError) as poll_err:
+                # Keep polling; listwallets may also transiently error.
+                logger.debug(f"listwallets poll failed (will retry): {poll_err}")
+            delay = min(delay * 2, 8.0)
+        return False
+
     async def create_wallet(self, disable_private_keys: bool = True) -> bool:
         """
         Create a descriptor wallet in Bitcoin Core.
@@ -529,28 +579,6 @@ class DescriptorWalletBackend(BlockchainBackend):
         # Retry schedule for transient "already loading" errors. Bitcoin Core
         # load times scale with rescan depth; back off up to ~60s total.
         loading_backoff_s: tuple[float, ...] = (1.0, 2.0, 4.0, 8.0, 15.0, 30.0)
-
-        async def _poll_until_loaded(max_total_wait: float) -> bool:
-            """Poll listwallets until our wallet appears, up to ``max_total_wait`` seconds."""
-            waited = 0.0
-            delay = 1.0
-            while waited < max_total_wait:
-                await asyncio.sleep(delay)
-                waited += delay
-                try:
-                    wallets = await self._rpc_call("listwallets", use_wallet=False)
-                    if self.wallet_name in wallets:
-                        logger.info(
-                            f"Wallet '{self.wallet_name}' finished loading after "
-                            f"~{waited:.0f}s of waiting"
-                        )
-                        self._wallet_loaded = True
-                        return True
-                except (ValueError, httpx.HTTPError) as poll_err:
-                    # Keep polling; listwallets may also transiently error.
-                    logger.debug(f"listwallets poll failed (will retry): {poll_err}")
-                delay = min(delay * 2, 8.0)
-            return False
 
         try:
             # First check if wallet already exists
@@ -588,7 +616,7 @@ class DescriptorWalletBackend(BlockchainBackend):
                             f"(attempt {attempt}/{len(loading_backoff_s)}); "
                             f"waiting {delay:.0f}s and polling listwallets..."
                         )
-                        if await _poll_until_loaded(delay):
+                        if await self._poll_until_wallet_loaded(delay):
                             return True
                         continue
                     error_str = str(e).lower()
@@ -630,7 +658,7 @@ class DescriptorWalletBackend(BlockchainBackend):
                             f"(attempt {attempt}/{len(loading_backoff_s)}); "
                             f"waiting up to {delay:.0f}s for prior load to finish..."
                         )
-                        if await _poll_until_loaded(delay):
+                        if await self._poll_until_wallet_loaded(delay):
                             return True
                         continue
                     raise
@@ -1418,8 +1446,17 @@ class DescriptorWalletBackend(BlockchainBackend):
                 try:
                     await self._rpc_call("loadwallet", [self.wallet_name], use_wallet=False)
                     self._wallet_loaded = True
-                except ValueError:
-                    return False
+                except ValueError as e:
+                    # Transient "already loading" (issue #465): a prior load
+                    # (e.g. one whose HTTP read timed out during a load-time
+                    # rescan) is still running server-side. Wait for it to
+                    # finish instead of reporting the wallet as not-set-up,
+                    # which would trigger a needless full re-import/rescan.
+                    if not (
+                        self._is_wallet_loading_error(e)
+                        and await self._poll_until_wallet_loaded(WALLET_LOADING_MAX_WAIT)
+                    ):
+                        return False
 
             # Check if descriptors are imported
             descriptors = await self.list_descriptors()

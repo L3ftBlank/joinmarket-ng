@@ -231,6 +231,93 @@ class TestDescriptorWalletBackendUnit:
         with pytest.raises(ValueError, match="still loading"):
             await backend.create_wallet()
 
+    @pytest.mark.asyncio
+    async def test_is_wallet_setup_waits_out_already_loading(self, monkeypatch):
+        """A fully-set-up wallet that is merely mid-load must not be reported
+        as not-set-up (issue #465).
+
+        ``is_wallet_setup`` is the first ``loadwallet`` site in the sync flow.
+        If that load raises a transient ``RPC error -4: Wallet already loading``
+        and the method returns False, the caller performs a needless full
+        re-import/rescan. Instead it should poll until the load finishes and
+        then report the (already imported) descriptors.
+        """
+        backend = DescriptorWalletBackend(wallet_name="loading_wallet")
+        monkeypatch.setattr("asyncio.sleep", AsyncMock(return_value=None))
+
+        listwallets_calls = {"count": 0}
+
+        async def mock_rpc(method, params=None, client=None, use_wallet=True):
+            if method == "listwallets":
+                listwallets_calls["count"] += 1
+                # Initial check: not loaded yet. Subsequent poll: loaded.
+                if listwallets_calls["count"] == 1:
+                    return []
+                return ["loading_wallet"]
+            if method == "loadwallet":
+                raise ValueError("RPC error -4: Wallet already loading.")
+            raise AssertionError(f"Unexpected method: {method}")
+
+        backend._rpc_call = mock_rpc
+        # Descriptors already imported (wallet really is set up).
+        backend.list_descriptors = AsyncMock(  # type: ignore[method-assign]
+            return_value=[{"desc": "wpkh(xpub.../0/*)"}] * 10
+        )
+
+        result = await backend.is_wallet_setup(expected_descriptor_count=10)
+
+        assert result is True
+        assert backend._wallet_loaded is True
+        assert listwallets_calls["count"] >= 2
+
+    @pytest.mark.asyncio
+    async def test_is_wallet_setup_returns_false_when_load_never_clears(self, monkeypatch):
+        """If the "already loading" state never clears, is_wallet_setup falls
+        back to reporting not-set-up (so the caller can attempt setup, which
+        has its own bounded retry) instead of hanging or crashing."""
+        backend = DescriptorWalletBackend(wallet_name="stuck_wallet")
+        monkeypatch.setattr("asyncio.sleep", AsyncMock(return_value=None))
+
+        async def mock_rpc(method, params=None, client=None, use_wallet=True):
+            if method == "listwallets":
+                return []  # never appears
+            if method == "loadwallet":
+                raise ValueError("RPC error -4: Wallet already loading.")
+            raise AssertionError(f"Unexpected method: {method}")
+
+        backend._rpc_call = mock_rpc
+
+        result = await backend.is_wallet_setup()
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_ensure_wallet_loaded_waits_out_already_loading(self, monkeypatch):
+        """The Bitcoin-Core-restart reload path must also tolerate the
+        transient "already loading" state (issue #465) rather than logging a
+        failure and returning False."""
+        backend = DescriptorWalletBackend(wallet_name="reloading_wallet")
+        monkeypatch.setattr("asyncio.sleep", AsyncMock(return_value=None))
+
+        listwallets_calls = {"count": 0}
+
+        async def mock_rpc(method, params=None, client=None, use_wallet=True):
+            if method == "listwallets":
+                listwallets_calls["count"] += 1
+                if listwallets_calls["count"] == 1:
+                    return []  # not loaded yet
+                return ["reloading_wallet"]  # finished loading during poll
+            if method == "loadwallet":
+                raise ValueError("RPC error -4: Wallet already loading.")
+            raise AssertionError(f"Unexpected method: {method}")
+
+        backend._rpc_call = mock_rpc
+
+        result = await backend._ensure_wallet_loaded()
+
+        assert result is True
+        assert backend._wallet_loaded is True
+
     # ------------------------------------------------------------------
     # Regression tests for wallet-subsystem-disabled detection.
     #

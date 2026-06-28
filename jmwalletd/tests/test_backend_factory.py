@@ -27,7 +27,6 @@ def _clear_backend_cache() -> Iterator[None]:
 def _make_settings_stub(
     *,
     backend_type: str = "descriptor_wallet",
-    descriptor_wallet_name: str = "jm_default",
     network: str = "regtest",
 ) -> object:
     """Build a minimal stub of ``jmcore.settings.get_settings`` output."""
@@ -35,7 +34,6 @@ def _make_settings_stub(
     class _Bitcoin:
         def __init__(self) -> None:
             self.backend_type = backend_type
-            self.descriptor_wallet_name = descriptor_wallet_name
             self.rpc_url = "http://127.0.0.1:18443"
             self.rpc_user = "test"
             self.rpc_password = "test"
@@ -134,8 +132,9 @@ class TestPerWalletDescriptorBackend:
             await get_backend(tmp_path, mnemonic="abandon " * 11 + "about")
 
     @pytest.mark.asyncio
-    async def test_no_mnemonic_falls_back_to_settings_wallet_name(self, tmp_path: Path) -> None:
-        settings = _make_settings_stub(descriptor_wallet_name="legacy_jm_wallet")
-        with patch("jmcore.settings.get_settings", return_value=settings):
-            backend = await get_backend(tmp_path)
-        assert backend.wallet_name == "legacy_jm_wallet"
+    async def test_descriptor_backend_without_wallet_identity_raises(self, tmp_path: Path) -> None:
+        with (
+            patch("jmcore.settings.get_settings", return_value=_make_settings_stub()),
+            pytest.raises(ValueError, match="requires either a mnemonic or a wallet_service"),
+        ):
+            await get_backend(tmp_path)

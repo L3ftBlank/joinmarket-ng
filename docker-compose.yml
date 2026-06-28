@@ -322,7 +322,6 @@ services:
       - BITCOIN__RPC_URL=http://jm-bitcoin:18443
       # Cookie-based auth: reads credentials from Bitcoin Core's .cookie file
       - BITCOIN__RPC_COOKIE_FILE=/shared/.cookie
-      - BITCOIN__DESCRIPTOR_WALLET_NAME=jm_playwright_regtest
       # Use testnet for protocol compatibility with directory server and makers
       # (the reference JoinMarket implementation uses "testnet" for regtest networks)
       - NETWORK_CONFIG__NETWORK=testnet

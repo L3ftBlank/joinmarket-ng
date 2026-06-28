@@ -64,10 +64,10 @@ async def get_backend(
 ) -> Any:
     """Return a blockchain backend instance.
 
-    When ``wallet_service`` or ``mnemonic`` identifies a specific JoinMarket
-    wallet, the descriptor backend is built (and cached) with a per-wallet
-    bitcoind descriptor wallet name.  Otherwise the legacy
-    ``settings.bitcoin.descriptor_wallet_name`` is used.
+    For the descriptor backend, ``wallet_service`` or ``mnemonic`` must
+    identify a specific JoinMarket wallet; the backend is built (and cached)
+    with a per-wallet bitcoind descriptor wallet name derived from the
+    wallet's BIP32 m/0 fingerprint.
 
     Args:
         data_dir: Path to data directory (kept for API compatibility).
@@ -101,7 +101,12 @@ async def get_backend(
         elif wallet_service is not None:
             descriptor_wallet_name = wallet_name_for_service(wallet_service)
         else:
-            descriptor_wallet_name = settings.bitcoin.descriptor_wallet_name
+            msg = (
+                "get_backend: descriptor_wallet backend requires either a "
+                "mnemonic or a wallet_service to derive the per-wallet "
+                "bitcoind descriptor wallet name"
+            )
+            raise ValueError(msg)
 
     cache_key = descriptor_wallet_name
 

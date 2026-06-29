@@ -60,11 +60,17 @@ class TakerMonitoringMixin:
         """
         logger.info("Starting pending transaction monitor...")
         check_interval = 60.0  # Check every 60 seconds
-        has_mempool = self.backend.has_mempool_access()
+        # Confirmation tracking needs a backend that reports confirmation depth
+        # by txid. Neutrino cannot (get_transaction is mempool-only, even with
+        # the watched mempool tracker), so it is verified via block-level
+        # address matching instead. has_mempool_access() is not the right
+        # signal here -- neutrino+tracker has mempool access yet still cannot
+        # confirm by txid.
+        can_confirm_by_txid = self.backend.can_get_confirmations_by_txid()
 
-        if not has_mempool:
+        if not can_confirm_by_txid:
             logger.info(
-                "Backend has no mempool access (Neutrino). "
+                "Backend cannot confirm transactions by txid (Neutrino). "
                 "Pending transactions will be verified via block confirmation only."
             )
 
@@ -89,7 +95,7 @@ class TakerMonitoringMixin:
                         continue
 
                     try:
-                        if has_mempool:
+                        if can_confirm_by_txid:
                             # Full node / Mempool API: can get transaction directly
                             await self._check_pending_with_mempool(entry)
                         else:

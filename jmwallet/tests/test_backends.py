@@ -1527,6 +1527,34 @@ class TestNeutrinoBackend:
             await backend.close()
 
     @pytest.mark.asyncio
+    async def test_can_get_confirmations_by_txid_is_false(self):
+        """Neutrino's get_transaction is mempool-only, so it cannot confirm by txid.
+
+        Pending-transaction monitors must fall back to verify_tx_output() for
+        Neutrino. This holds even with the watched mempool tracker enabled,
+        where get_transaction() still reports confirmations=0 (or 501 once a tx
+        confirms).
+        """
+        backend = NeutrinoBackend(neutrino_url="http://localhost:8334", network="regtest")
+        try:
+            assert backend.can_get_confirmations_by_txid() is False
+            backend._server_capabilities.has_mempool_tracker = True
+            assert backend.can_get_confirmations_by_txid() is False
+        finally:
+            await backend.close()
+
+    @pytest.mark.asyncio
+    async def test_descriptor_backend_can_get_confirmations_by_txid(self):
+        """Full-node backends report confirmation depth by txid (base default)."""
+        from jmwallet.backends.descriptor_wallet import DescriptorWalletBackend
+
+        backend = DescriptorWalletBackend()
+        try:
+            assert backend.can_get_confirmations_by_txid() is True
+        finally:
+            await backend.close()
+
+    @pytest.mark.asyncio
     async def test_api_call_expected_status_logged_as_debug(self):
         """A declared expected status code (501) is logged at debug, not error.
 

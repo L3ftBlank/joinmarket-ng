@@ -8,6 +8,7 @@ directory reconnection, and pending transaction monitoring.
 from __future__ import annotations
 
 import asyncio
+from typing import TYPE_CHECKING
 
 from jmcore.crypto import NickIdentity
 from jmcore.directory_client import DirectoryClient, DirectoryClientError
@@ -19,6 +20,9 @@ from loguru import logger
 from maker.config import MakerConfig
 from maker.protocols import MakerBotProtocol
 from maker.rate_limiting import DirectConnectionRateLimiter, OrderbookRateLimiter
+
+if TYPE_CHECKING:
+    from jmwallet.history import TransactionHistoryEntry
 
 
 class BackgroundTasksMixin:
@@ -455,10 +459,18 @@ class BackgroundTasksMixin:
                         logger.debug("Pending entry has no txid and no destination address")
                         continue
 
-                # Check if transaction exists and get confirmations
-                tx_info = await self.backend.get_transaction(entry.txid)
+                # Determine confirmation depth. Full nodes report it directly
+                # by txid; light clients (Neutrino) are mempool-only there
+                # (get_transaction returns None once a tx confirms), so confirm
+                # via a chain lookup of the CoinJoin output address instead of
+                # mistaking a confirmed CoinJoin for a dropped one.
+                if self.backend.can_get_confirmations_by_txid():
+                    tx_info = await self.backend.get_transaction(entry.txid)
+                    confirmations = tx_info.confirmations if tx_info is not None else None
+                else:
+                    confirmations = await self._chain_confirmations_for_entry(entry)
 
-                if tx_info is None:
+                if confirmations is None:
                     # Transaction not found - might have been rejected/replaced
                     # or never made it to the mempool
                     if age_minutes >= timeout_minutes:
@@ -480,8 +492,6 @@ class BackgroundTasksMixin:
                             f"{age_minutes:.1f} minutes"
                         )
                     continue
-
-                confirmations = tx_info.confirmations
 
                 # First time we observe this CoinJoin in the mempool (still
                 # unconfirmed). Dedupe per-process so we do not re-notify on
@@ -542,6 +552,28 @@ class BackgroundTasksMixin:
         except Exception as e:
             logger.debug(f"Error discovering txid for {address[:20]}...: {e}")
             return None
+
+    async def _chain_confirmations_for_entry(self, entry: TransactionHistoryEntry) -> int | None:
+        """Confirmation depth for a pending entry on a light-client backend.
+
+        Neutrino cannot resolve a transaction by txid, so confirmation is read
+        from the CoinJoin output itself: look up UTXOs for the entry's
+        destination address and match the recorded txid. Returns the output's
+        confirmation count (0 while it is still an unconfirmed mempool entry),
+        or None when no matching output is found, which the caller treats the
+        same as a missing transaction.
+        """
+        if not entry.destination_address or not entry.txid:
+            return None
+        try:
+            utxos = await self.backend.get_utxos([entry.destination_address])
+        except Exception as e:
+            logger.debug(f"Chain confirmation lookup failed for {entry.txid[:16]}...: {e}")
+            return None
+        match = next((utxo for utxo in utxos if utxo.txid == entry.txid), None)
+        if match is None:
+            return None
+        return match.confirmations if match.confirmations > 0 else 0
 
     async def _deferred_wallet_resync(self: MakerBotProtocol) -> None:
         """Resync wallet in background after a CoinJoin completes."""

@@ -1051,7 +1051,7 @@ class TestPendingConfirmationRefresh:
         append_history_entry(entry, temp_data_dir)
 
         mock_backend = MagicMock()
-        mock_backend.has_mempool_access.return_value = True
+        mock_backend.can_get_confirmations_by_txid.return_value = True
         mock_backend.get_transaction = AsyncMock(
             return_value=Transaction(
                 txid="mempool_txid",
@@ -1076,7 +1076,7 @@ class TestPendingConfirmationRefresh:
         append_history_entry(entry, temp_data_dir)
 
         mock_backend = MagicMock()
-        mock_backend.has_mempool_access.return_value = True
+        mock_backend.can_get_confirmations_by_txid.return_value = True
         mock_backend.get_transaction = AsyncMock(
             return_value=Transaction(
                 txid="confirmed_txid",
@@ -1094,6 +1094,37 @@ class TestPendingConfirmationRefresh:
         assert entries[0].txid == "confirmed_txid"
         assert entries[0].success is True
         assert entries[0].confirmations == 3
+
+    @pytest.mark.asyncio
+    async def test_neutrino_confirms_via_verify_tx_output(self, temp_data_dir: Path) -> None:
+        """Light clients (Neutrino) confirm via verify_tx_output, not get_transaction.
+
+        Regression: with the watched mempool tracker, has_mempool_access() is
+        True yet get_transaction() is mempool-only (confirmations=0 / 501), so a
+        confirmed CoinJoin must be detected with a compact-filter address match.
+        """
+        entry = _make_pending_maker_entry(txid="neutrino_txid")
+        append_history_entry(entry, temp_data_dir)
+
+        mock_backend = MagicMock()
+        # Neutrino + tracker: has mempool access but cannot confirm by txid.
+        mock_backend.can_get_confirmations_by_txid.return_value = False
+        mock_backend.has_mempool_access.return_value = True
+        mock_backend.get_block_height = AsyncMock(return_value=200)
+        mock_backend.verify_tx_output = AsyncMock(return_value=True)
+        mock_backend.get_transaction = AsyncMock(
+            side_effect=AssertionError("get_transaction must not be used for Neutrino")
+        )
+
+        updated = await update_all_pending_transactions(mock_backend, data_dir=temp_data_dir)
+        assert updated == 1
+
+        entries = read_history(temp_data_dir)
+        assert len(entries) == 1
+        assert entries[0].txid == "neutrino_txid"
+        assert entries[0].success is True
+        assert entries[0].confirmations == 1
+        mock_backend.verify_tx_output.assert_awaited_once()
 
 
 class TestUsedAddressTracking:

@@ -1211,6 +1211,19 @@ class NeutrinoBackend(BlockchainBackend):
         """
         return self.include_mempool and self._server_capabilities.has_mempool_tracker
 
+    def can_get_confirmations_by_txid(self) -> bool:
+        """Neutrino's ``get_transaction()`` is mempool-only and never reports
+        confirmation depth.
+
+        Even with the watched mempool tracker enabled, ``GET /v1/tx/{txid}``
+        returns a transaction only while it is an unconfirmed watched entry
+        (``confirmations=0``) and ``501`` once it confirms. Pending-transaction
+        confirmation is therefore detected via :meth:`verify_tx_output`
+        (compact block filter match on the output address), regardless of
+        whether the mempool tracker is available.
+        """
+        return False
+
     async def get_block_height(self) -> int:
         """Get current blockchain height from neutrino."""
         try:

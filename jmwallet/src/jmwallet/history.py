@@ -2010,7 +2010,14 @@ async def update_all_pending_transactions(
         return 0
 
     updated_count = 0
-    has_mempool = backend.has_mempool_access()
+    # Full node / mempool-API backends report confirmation depth via
+    # get_transaction(). Light clients (Neutrino) are mempool-only there
+    # (get_transaction reports confirmations=0 and returns None once a tx
+    # confirms), so they must confirm via verify_tx_output() against the output
+    # address. has_mempool_access() is not a reliable proxy: neutrino with the
+    # watched mempool tracker has mempool access yet still cannot report
+    # confirmations by txid.
+    can_lookup_by_txid = backend.can_get_confirmations_by_txid()
 
     for entry in pending:
         if not entry.txid:
@@ -2018,8 +2025,8 @@ async def update_all_pending_transactions(
             continue
 
         try:
-            if has_mempool:
-                # Full node: can check mempool directly
+            if can_lookup_by_txid:
+                # Full node: can check confirmation depth directly by txid
                 tx_info = await backend.get_transaction(entry.txid)
                 if tx_info is not None:
                     # Only mark as success after first block confirmation.
@@ -2035,7 +2042,8 @@ async def update_all_pending_transactions(
                             f"({tx_info.confirmations} confs)"
                         )
             else:
-                # Neutrino: can only check confirmed blocks
+                # Neutrino: get_transaction cannot report confirmations, so
+                # confirm via a compact-filter match on the output address.
                 if not entry.destination_address:
                     continue
 

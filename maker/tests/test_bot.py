@@ -1222,6 +1222,82 @@ class TestPendingConfirmationNotifications:
         assert kwargs["cj_amount"] == 91554
         notifier.notify_confirmed.assert_not_awaited()
 
+    def _make_neutrino_backend(self, *, confirmations, height):
+        """Neutrino-style backend: cannot confirm by txid, only via get_utxos."""
+        from unittest.mock import AsyncMock
+
+        from jmwallet.backends.base import UTXO
+
+        backend = MagicMock()
+        backend.can_get_confirmations_by_txid.return_value = False
+        backend.get_block_height = AsyncMock(return_value=930000)
+        backend.get_utxos = AsyncMock(
+            return_value=[
+                UTXO(
+                    txid="test_txid_123",
+                    vout=0,
+                    value=91554,
+                    address="bc1qtest",
+                    confirmations=confirmations,
+                    scriptpubkey="0014" + "00" * 20,
+                    height=height,
+                )
+            ]
+        )
+        # get_transaction must never be used for confirmation on Neutrino.
+        backend.get_transaction = AsyncMock(return_value=None)
+        return backend
+
+    @pytest.mark.asyncio
+    async def test_neutrino_confirms_via_utxo_lookup(self, mock_wallet, config, tmp_path):
+        """Neutrino makers confirm a CoinJoin via get_utxos, not get_transaction.
+
+        Regression: with the watched mempool tracker, get_transaction returns
+        None once the tx confirms, which previously looked like a dropped tx.
+        """
+        from unittest.mock import AsyncMock, patch
+
+        backend = self._make_neutrino_backend(confirmations=1, height=929999)
+        bot = MakerBot(wallet=mock_wallet, backend=backend, config=config)
+        self._append_pending(tmp_path)
+
+        notifier = MagicMock()
+        notifier.notify_mempool = AsyncMock()
+        notifier.notify_confirmed = AsyncMock()
+
+        with (
+            patch("maker.background_tasks.get_notifier", return_value=notifier),
+            patch(
+                "jmwallet.history.detect_coinjoin_peer_count",
+                new=AsyncMock(return_value=3),
+            ),
+        ):
+            await bot._update_pending_history()
+
+        notifier.notify_confirmed.assert_awaited_once()
+        assert notifier.notify_confirmed.await_args.kwargs["confirmations"] == 1
+        backend.get_utxos.assert_awaited()
+        backend.get_transaction.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_neutrino_mempool_only_stays_unconfirmed(self, mock_wallet, config, tmp_path):
+        """A Neutrino CoinJoin still in the watched mempool (height 0) is not confirmed."""
+        from unittest.mock import AsyncMock, patch
+
+        backend = self._make_neutrino_backend(confirmations=0, height=0)
+        bot = MakerBot(wallet=mock_wallet, backend=backend, config=config)
+        self._append_pending(tmp_path)
+
+        notifier = MagicMock()
+        notifier.notify_mempool = AsyncMock()
+        notifier.notify_confirmed = AsyncMock()
+
+        with patch("maker.background_tasks.get_notifier", return_value=notifier):
+            await bot._update_pending_history()
+
+        notifier.notify_mempool.assert_awaited_once()
+        notifier.notify_confirmed.assert_not_awaited()
+
 
 class TestDirectoryReconnection:
     """Tests for directory server reconnection functionality."""

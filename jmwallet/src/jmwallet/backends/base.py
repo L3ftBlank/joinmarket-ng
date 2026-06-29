@@ -224,6 +224,23 @@ class BlockchainBackend(ABC):
         """
         return True
 
+    def can_get_confirmations_by_txid(self) -> bool:
+        """Whether get_transaction() can report a confirmation count for an
+        arbitrary txid.
+
+        Full node and mempool-API backends resolve any txid and report how
+        deeply it is confirmed, so pending-transaction monitors can rely on
+        ``get_transaction()`` to detect confirmation. Light clients (Neutrino)
+        are mempool-only here: ``get_transaction()`` only surfaces watched
+        *unconfirmed* txs (``confirmations=0``) and returns ``None`` once a tx
+        confirms, so confirmation must instead be established with
+        :meth:`verify_tx_output` against the output's address.
+
+        Returns:
+            True if ``get_transaction()`` reports confirmation depth by txid.
+        """
+        return True
+
     @abstractmethod
     async def get_block_height(self) -> int:
         """Get current blockchain height"""

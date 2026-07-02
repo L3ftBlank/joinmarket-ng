@@ -241,6 +241,84 @@ async def test_sync_with_registered_bonds_no_bonds_first_time_setup(tmp_path: Pa
 
 
 @pytest.mark.asyncio
+async def test_sync_recognizes_unregistered_bond_via_canonical_derivation(
+    tmp_path: Path,
+) -> None:
+    """A bond UTXO Bitcoin Core already tracks must not be dropped just
+    because the local registry has no matching entry.
+
+    Reproduces the reported bug: a wallet whose bond registry never
+    received a matching entry for a funded bond -- e.g. a stale
+    legacy-only entry that fails the per-wallet migration's ownership
+    predicate, or a registry file that was lost -- while Bitcoin Core
+    still tracks the bond's ``addr()`` descriptor (from a past
+    ``recover-bonds`` run or an older jmwallet version). A plain
+    ``sync_with_descriptor_wallet()`` call, exactly as
+    ``sync_with_registered_bonds`` performs when the registry has no
+    bonds, must still recognize and count the UTXO by re-deriving the
+    canonical timenumber address, and must self-register it so future
+    syncs do not repeat the recovery.
+    """
+    from jmcore.timenumber import timenumber_to_timestamp
+
+    # Compute the real canonical bond address from an *independent* wallet
+    # instance so the wallet under test starts with empty caches, exactly
+    # like a freshly opened process that never derived this address before.
+    reference = _make_wallet(tmp_path / "reference")
+    timenumber = 78
+    locktime = timenumber_to_timestamp(timenumber)
+    bond_address = reference.get_fidelity_bond_address(timenumber, locktime)
+
+    ws = _make_wallet(tmp_path)  # No registry entry for this bond.
+    assert ws.load_registered_bond_addresses() == []
+
+    bond_utxo = UTXO(
+        txid="ee" * 32,
+        vout=0,
+        value=20_000,
+        address=bond_address,
+        confirmations=10,
+        scriptpubkey="0020" + "cc" * 32,
+    )
+    ws.backend.get_all_utxos = AsyncMock(return_value=[bond_utxo])  # type: ignore[method-assign]
+
+    result = await ws.sync_with_descriptor_wallet()
+
+    bond_in_result = [u for u in result.get(0, []) if u.address == bond_address]
+    assert len(bond_in_result) == 1, "Bond UTXO was dropped instead of recognized"
+    recognized = bond_in_result[0]
+    assert recognized.is_fidelity_bond
+    assert recognized.locktime == locktime
+    assert recognized.value == 20_000
+
+    # Self-healed into the per-wallet registry so future syncs (and
+    # `list-bonds` / the maker bot) see it without user intervention.
+    assert ws.load_registered_bond_addresses() == [(bond_address, locktime, timenumber)]
+
+
+@pytest.mark.asyncio
+async def test_sync_ignores_unrelated_p2wsh_utxo(tmp_path: Path) -> None:
+    """A P2WSH UTXO that is not one of this wallet's canonical bond
+    addresses must still be skipped (not misattributed as a bond)."""
+    ws = _make_wallet(tmp_path)
+
+    foreign_utxo = UTXO(
+        txid="ff" * 32,
+        vout=0,
+        value=5_000,
+        address="bcrt1qforeignp2wshaddress00000000000000000000000000xyz",
+        confirmations=1,
+        scriptpubkey="0020" + "dd" * 32,
+    )
+    ws.backend.get_all_utxos = AsyncMock(return_value=[foreign_utxo])  # type: ignore[method-assign]
+
+    result = await ws.sync_with_descriptor_wallet()
+
+    assert all(u.address != foreign_utxo.address for utxos in result.values() for u in utxos)
+    assert ws.load_registered_bond_addresses() == []
+
+
+@pytest.mark.asyncio
 async def test_sync_with_registered_bonds_non_descriptor_backend(tmp_path: Path) -> None:
     """Non-descriptor backends scan bond addresses directly via sync_all."""
     ws = _make_wallet(tmp_path)

@@ -77,6 +77,9 @@ class WalletSyncMixin:
     metadata_store: Any  # UTXOMetadataStore | None (deferred import)
     fidelity_bond_locktime_cache: dict[str, int]
     max_sats_freeze_reuse: int
+    # Lazily-built canonical bond address cache; see
+    # ``_canonical_bond_address_map`` below for what populates it.
+    _canonical_bond_addresses: dict[str, tuple[int, int]] | None
     # Guards the once-per-process import-label reconstruction pass.
     _imported_labels_scanned: bool
     # Forced-address-reuse defense state (see WalletService.__init__): addresses
@@ -92,6 +95,12 @@ class WalletSyncMixin:
         raise NotImplementedError
 
     def get_fidelity_bond_address(self, index: int, locktime: int) -> str:
+        raise NotImplementedError
+
+    def get_fidelity_bond_key(self, index: int, locktime: int) -> HDKey:
+        raise NotImplementedError
+
+    def get_fidelity_bond_script(self, index: int, locktime: int) -> bytes:
         raise NotImplementedError
 
     def _apply_frozen_state(self) -> None:
@@ -890,6 +899,110 @@ class WalletSyncMixin:
                 imported.add(base[5:-1].lower())
         return imported
 
+    def _canonical_bond_address_map(self) -> dict[str, tuple[int, int]]:
+        """Return every canonical fidelity-bond address mapped to (locktime, timenumber).
+
+        Every fidelity bond address is deterministically derivable from the
+        wallet's seed (``m/84'/coin'/0'/2/<timenumber>``, one address per
+        timenumber, 960 total covering Jan 2020 - Dec 2099). This lets
+        :meth:`sync_with_descriptor_wallet` recognize a bond UTXO that
+        Bitcoin Core already tracks even when the local bond registry has no
+        matching entry -- e.g. a previous ``recover-bonds`` run (or a
+        pre-#492 jmwallet version) imported the ``addr()`` descriptor, but
+        the registry entry was never written, was lost, or sits unclaimed in
+        the legacy shared file because the per-wallet migration's pubkey
+        check did not match it. Without this fallback such a UTXO is
+        silently dropped from the wallet's balance (it hits the "unknown
+        P2WSH" branch below) even though it demonstrably belongs to this
+        wallet.
+
+        Computed once per process and cached: it is pure key derivation with
+        no backend calls, but 960 BIP32 derivations still cost roughly a
+        second, so it is only paid the first time an unrecognized P2WSH UTXO
+        is actually seen (see call site).
+        """
+        if self._canonical_bond_addresses is None:
+            from jmcore.timenumber import TIMENUMBER_COUNT, timenumber_to_timestamp
+
+            mapping: dict[str, tuple[int, int]] = {}
+            for timenumber in range(TIMENUMBER_COUNT):
+                locktime = timenumber_to_timestamp(timenumber)
+                address = self.get_fidelity_bond_address(timenumber, locktime).lower()
+                mapping[address] = (locktime, timenumber)
+            self._canonical_bond_addresses = mapping
+        return self._canonical_bond_addresses
+
+    def _self_register_bond_utxos(self, discovered: list[UTXOInfo]) -> None:
+        """Persist canonically-recognized fidelity bond UTXOs into the registry.
+
+        ``discovered`` are bond UTXOs that :meth:`sync_with_descriptor_wallet`
+        recognized via :meth:`_canonical_bond_address_map` rather than the
+        bond registry, i.e. Bitcoin Core already tracks them but this
+        wallet's ``fidelity_bonds_<fp>.json`` does not know about them yet.
+        Writing them back means the next sync, ``jm-wallet list-bonds``, and
+        the maker bot see them without the user having to run
+        ``recover-bonds`` or ``import-bond`` again.
+
+        Best-effort and non-fatal: a failure here only means this same
+        self-heal is retried on the next sync, never that the (already
+        recognized) UTXO disappears from the current sync's result.
+        """
+        if self.data_dir is None or not discovered:
+            return
+        try:
+            from jmwallet.wallet.bond_registry import (
+                create_bond_info,
+                load_registry,
+                save_registry,
+            )
+
+            registry = load_registry(
+                self.data_dir, self.wallet_fingerprint, allow_legacy_fallback=False
+            )
+
+            # Multiple UTXOs can land on the same bond address; keep only the
+            # largest-value one per address, matching ``recover-bonds``.
+            best_by_address: dict[str, UTXOInfo] = {}
+            for utxo in discovered:
+                addr_lower = utxo.address.lower()
+                current = best_by_address.get(addr_lower)
+                if current is None or utxo.value > current.value:
+                    best_by_address[addr_lower] = utxo
+
+            registered = 0
+            for addr_lower, utxo in best_by_address.items():
+                if registry.get_bond_by_address(utxo.address) is not None:
+                    continue
+                locktime, timenumber = self._canonical_bond_address_map()[addr_lower]
+                key = self.get_fidelity_bond_key(timenumber, locktime)
+                pubkey_hex = key.get_public_key_bytes(compressed=True).hex()
+                witness_script = self.get_fidelity_bond_script(timenumber, locktime)
+                path = f"{self.root_path}/0'/{FIDELITY_BOND_BRANCH}/{timenumber}"
+                bond_info = create_bond_info(
+                    address=utxo.address,
+                    locktime=locktime,
+                    index=timenumber,
+                    path=path,
+                    pubkey_hex=pubkey_hex,
+                    witness_script=witness_script,
+                    network=self.network,
+                )
+                bond_info.txid = utxo.txid
+                bond_info.vout = utxo.vout
+                bond_info.value = utxo.value
+                bond_info.confirmations = utxo.confirmations
+                registry.add_bond(bond_info)
+                registered += 1
+
+            if registered:
+                save_registry(registry, self.data_dir, self.wallet_fingerprint)
+                logger.info(
+                    f"Self-registered {registered} fidelity bond address(es), recognized "
+                    "during sync via canonical derivation, into the wallet's bond registry"
+                )
+        except Exception as exc:
+            logger.warning(f"Could not self-register recognized fidelity bond(s): {exc}")
+
     # -- Descriptor-based sync (Group D) ------------------------------------
 
     async def _sync_all_with_descriptors(
@@ -1359,6 +1472,12 @@ class WalletSyncMixin:
         # Organize UTXOs by mixdepth
         result: dict[int, list[UTXOInfo]] = {md: [] for md in range(self.mixdepth_count)}
         fidelity_bond_utxos: list[UTXOInfo] = []
+        # Bond UTXOs recognized below via canonical timenumber derivation
+        # rather than a registry/cache hit (see ``_canonical_bond_address_map``).
+        # Persisted into the registry after the loop so they are not lost
+        # again on the next sync.
+        newly_recognized_bond_utxos: list[UTXOInfo] = []
+        unknown_p2wsh_count = 0
 
         # Build fidelity bond address lookup
         # Note: Normalize addresses to lowercase for consistent comparison
@@ -1442,7 +1561,51 @@ class WalletSyncMixin:
                             f"{address[:20]}... locktime={cached_locktime}"
                         )
                         continue
-                    # Unknown P2WSH - silently skip (fidelity bonds we don't know about)
+                    # Not in the registry/cache either. Every fidelity bond
+                    # address is deterministically derivable from the seed
+                    # (m/84'/coin'/0'/2/<timenumber>), so check the canonical
+                    # map before giving up: Bitcoin Core can already be
+                    # tracking this UTXO (e.g. a past ``recover-bonds`` run,
+                    # or a bond registry entry that was lost or never
+                    # migrated to the per-wallet file) even though we have no
+                    # local record of it. See ``_canonical_bond_address_map``.
+                    canonical = self._canonical_bond_address_map().get(address)
+                    if canonical is not None:
+                        canonical_locktime, canonical_index = canonical
+                        self.address_cache[address] = (
+                            0,
+                            FIDELITY_BOND_BRANCH,
+                            canonical_index,
+                        )
+                        self.fidelity_bond_locktime_cache[address] = canonical_locktime
+                        path = (
+                            f"{self.root_path}/0'/{FIDELITY_BOND_BRANCH}/"
+                            f"{canonical_index}:{canonical_locktime}"
+                        )
+                        self._record_history_address(address)
+                        utxo_info = _make_utxo_info(
+                            txid=utxo.txid,
+                            vout=utxo.vout,
+                            value=utxo.value,
+                            address=original_address,  # Preserve original case
+                            confirmations=utxo.confirmations,
+                            scriptpubkey=utxo.scriptpubkey,
+                            path=path,
+                            mixdepth=0,
+                            height=utxo.height,
+                            locktime=canonical_locktime,
+                        )
+                        fidelity_bond_utxos.append(utxo_info)
+                        newly_recognized_bond_utxos.append(utxo_info)
+                        logger.warning(
+                            f"Recognized fidelity bond UTXO {address[:20]}... "
+                            f"(value={utxo.value}, locktime={canonical_locktime}) via "
+                            "canonical derivation; it was not in the bond registry and "
+                            "is being self-registered now"
+                        )
+                        continue
+                    # Genuinely unknown P2WSH (not one of our fidelity bonds).
+                    unknown_p2wsh_count += 1
                     logger.trace(f"Skipping unknown P2WSH address {address}")
                     continue
                 logger.debug(f"Unknown address {address}, skipping")
@@ -1504,9 +1667,21 @@ class WalletSyncMixin:
             )
             result[mixdepth].append(utxo_info)
 
+        if unknown_p2wsh_count:
+            logger.debug(
+                f"Skipped {unknown_p2wsh_count} unknown P2WSH UTXO(s): scriptPubKey "
+                "matches neither a registered fidelity bond nor a canonical "
+                "timenumber-derived bond address for this wallet"
+            )
+
         # Add fidelity bonds to mixdepth 0
         if fidelity_bond_utxos:
             result[0].extend(fidelity_bond_utxos)
+
+        # Persist bonds recognized above via canonical derivation (not a
+        # registry hit) so they are not dropped again on the next sync.
+        if newly_recognized_bond_utxos:
+            self._self_register_bond_utxos(newly_recognized_bond_utxos)
 
         # Update cache
         self.utxo_cache = result

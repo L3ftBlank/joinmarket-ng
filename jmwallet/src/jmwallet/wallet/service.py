@@ -184,6 +184,14 @@ class WalletService(WalletSyncMixin, CoinSelectionMixin, WalletDisplayMixin, Wal
         self.issued_receive_addresses: set[str] = set()
         # Cache for fidelity bond locktimes (address -> locktime)
         self.fidelity_bond_locktime_cache: dict[str, int] = {}
+        # Lazily-built cache of every canonical fidelity-bond address (all
+        # 960 timenumbers) mapped to its (locktime, timenumber). Populated on
+        # first use by ``WalletSyncMixin._canonical_bond_address_map``; see
+        # that method for why this exists (recognizing bond UTXOs Bitcoin
+        # Core already tracks even when the local registry has no matching
+        # entry, issue: fidelity bonds invisible after per-wallet registry
+        # partition / #492 migration gaps).
+        self._canonical_bond_addresses: dict[str, tuple[int, int]] | None = None
 
         # One-shot migration of the legacy shared ``fidelity_bonds.json``
         # registry into a per-wallet ``fidelity_bonds_<fp>.json`` file

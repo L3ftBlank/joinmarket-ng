@@ -295,6 +295,76 @@ async def test_sync_recognizes_unregistered_bond_via_canonical_derivation(
     # `list-bonds` / the maker bot) see it without user intervention.
     assert ws.load_registered_bond_addresses() == [(bond_address, locktime, timenumber)]
 
+    # Regression (960-address pollution): recognizing one bond must not seed
+    # the caches with every canonical bond address. Only the single
+    # recognized address may be present, otherwise `jm-wallet info` lists all
+    # 960 timenumbers as bonds (it iterates fidelity_bond_locktime_cache).
+    assert list(ws.fidelity_bond_locktime_cache) == [bond_address.lower()]
+    assert ws.get_fidelity_bond_addresses_info() != []
+    assert len(ws.get_fidelity_bond_addresses_info()) == 1
+
+
+@pytest.mark.asyncio
+async def test_sync_self_registers_all_recognized_bonds_and_max_utxo(
+    tmp_path: Path,
+) -> None:
+    """Multiple bond addresses (and multiple UTXOs on one) must all be
+    recognized and self-registered, keeping the largest UTXO per address.
+
+    Reproduces the follow-up regression: building the canonical address map
+    seeded the caches with all 960 bond addresses, so only the first bond
+    UTXO went through the canonical branch (and got self-registered); every
+    later bond UTXO -- a second UTXO on the same address, or a different bond
+    address -- was matched via the cache path and silently excluded from
+    self-registration. Result: `list-bonds` showed one bond at the wrong
+    (non-max) value and missed the others.
+    """
+    from jmcore.timenumber import timenumber_to_timestamp
+
+    reference = _make_wallet(tmp_path / "reference")
+    tn_a, tn_b = 78, 77
+    lt_a = timenumber_to_timestamp(tn_a)
+    lt_b = timenumber_to_timestamp(tn_b)
+    addr_a = reference.get_fidelity_bond_address(tn_a, lt_a)
+    addr_b = reference.get_fidelity_bond_address(tn_b, lt_b)
+
+    ws = _make_wallet(tmp_path)  # Empty registry.
+    assert ws.load_registered_bond_addresses() == []
+
+    # Two UTXOs on addr_a (10k and 20k) plus one on addr_b (5k), in an order
+    # where the smaller UTXO on addr_a is seen first.
+    utxos = [
+        UTXO("aa" * 32, 0, 10_000, addr_a, 5, "0020" + "11" * 32),
+        UTXO("bb" * 32, 1, 20_000, addr_a, 5, "0020" + "11" * 32),
+        UTXO("cc" * 32, 0, 5_000, addr_b, 5, "0020" + "22" * 32),
+    ]
+    ws.backend.get_all_utxos = AsyncMock(return_value=utxos)  # type: ignore[method-assign]
+
+    result = await ws.sync_with_descriptor_wallet()
+
+    # All three bond UTXOs are recognized into mixdepth 0.
+    bond_utxos = [u for u in result.get(0, []) if u.is_fidelity_bond]
+    assert len(bond_utxos) == 3
+
+    # Both bond addresses are self-registered (not just the first).
+    registered = dict((a, (lt, idx)) for a, lt, idx in ws.load_registered_bond_addresses())
+    assert set(registered) == {addr_a, addr_b}
+    assert registered[addr_a] == (lt_a, tn_a)
+    assert registered[addr_b] == (lt_b, tn_b)
+
+    # The registry keeps the largest UTXO per address (matching recover-bonds).
+    from jmwallet.wallet.bond_registry import load_registry
+
+    reg = load_registry(ws.data_dir, ws.wallet_fingerprint, allow_legacy_fallback=False)
+    bond_a = reg.get_bond_by_address(addr_a)
+    assert bond_a is not None and bond_a.value == 20_000
+    bond_b = reg.get_bond_by_address(addr_b)
+    assert bond_b is not None and bond_b.value == 5_000
+
+    # Caches hold only the two recognized bonds, never all 960 timenumbers.
+    assert set(ws.fidelity_bond_locktime_cache) == {addr_a.lower(), addr_b.lower()}
+    assert len(ws.get_fidelity_bond_addresses_info()) == 2
+
 
 @pytest.mark.asyncio
 async def test_sync_ignores_unrelated_p2wsh_utxo(tmp_path: Path) -> None:

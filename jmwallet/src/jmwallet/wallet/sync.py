@@ -924,10 +924,23 @@ class WalletSyncMixin:
         if self._canonical_bond_addresses is None:
             from jmcore.timenumber import TIMENUMBER_COUNT, timenumber_to_timestamp
 
+            from jmwallet.wallet.address import script_to_p2wsh_address
+
             mapping: dict[str, tuple[int, int]] = {}
             for timenumber in range(TIMENUMBER_COUNT):
                 locktime = timenumber_to_timestamp(timenumber)
-                address = self.get_fidelity_bond_address(timenumber, locktime).lower()
+                # Derive the address WITHOUT ``get_fidelity_bond_address``,
+                # which caches every address it produces into
+                # ``address_cache`` and ``fidelity_bond_locktime_cache``.
+                # Building the full 960-entry map through it would seed both
+                # caches with every timenumber, so the wallet-info display
+                # (which iterates ``fidelity_bond_locktime_cache``) would list
+                # all 960 addresses as bonds, and later bond UTXOs would be
+                # recognized via the cache path instead of the canonical path
+                # (so self-registration would miss them). Deriving the script
+                # directly has no caching side effect.
+                script = self.get_fidelity_bond_script(timenumber, locktime)
+                address = script_to_p2wsh_address(script, self.network).lower()
                 mapping[address] = (locktime, timenumber)
             self._canonical_bond_addresses = mapping
         return self._canonical_bond_addresses
@@ -973,7 +986,12 @@ class WalletSyncMixin:
             for addr_lower, utxo in best_by_address.items():
                 if registry.get_bond_by_address(utxo.address) is not None:
                     continue
-                locktime, timenumber = self._canonical_bond_address_map()[addr_lower]
+                canonical = self._canonical_bond_address_map().get(addr_lower)
+                if canonical is None:
+                    # Not a canonically-derivable bond (e.g. an external/cold
+                    # bond); those are managed via their own registry flow.
+                    continue
+                locktime, timenumber = canonical
                 key = self.get_fidelity_bond_key(timenumber, locktime)
                 pubkey_hex = key.get_public_key_bytes(compressed=True).hex()
                 witness_script = self.get_fidelity_bond_script(timenumber, locktime)
@@ -1472,11 +1490,16 @@ class WalletSyncMixin:
         # Organize UTXOs by mixdepth
         result: dict[int, list[UTXOInfo]] = {md: [] for md in range(self.mixdepth_count)}
         fidelity_bond_utxos: list[UTXOInfo] = []
-        # Bond UTXOs recognized below via canonical timenumber derivation
-        # rather than a registry/cache hit (see ``_canonical_bond_address_map``).
-        # Persisted into the registry after the loop so they are not lost
-        # again on the next sync.
-        newly_recognized_bond_utxos: list[UTXOInfo] = []
+        # Bond addresses recognized below via canonical timenumber derivation
+        # rather than a registry hit (see ``_canonical_bond_address_map``).
+        # After the loop, every recognized UTXO on these addresses is
+        # persisted into the registry (keeping the largest per address) so
+        # the bonds are not lost again on the next sync. A *set of addresses*
+        # (not a list of the specific canonical-branch UTXOs) is tracked so a
+        # second UTXO on the same address -- recognized via the cache path
+        # once the first populated the cache -- is still considered for
+        # registration and the largest value wins.
+        canonically_recognized_bond_addresses: set[str] = set()
         unknown_p2wsh_count = 0
 
         # Build fidelity bond address lookup
@@ -1596,13 +1619,13 @@ class WalletSyncMixin:
                             locktime=canonical_locktime,
                         )
                         fidelity_bond_utxos.append(utxo_info)
-                        newly_recognized_bond_utxos.append(utxo_info)
-                        logger.warning(
-                            f"Recognized fidelity bond UTXO {address[:20]}... "
-                            f"(value={utxo.value}, locktime={canonical_locktime}) via "
-                            "canonical derivation; it was not in the bond registry and "
-                            "is being self-registered now"
-                        )
+                        if address not in canonically_recognized_bond_addresses:
+                            canonically_recognized_bond_addresses.add(address)
+                            logger.warning(
+                                f"Recognized fidelity bond address {address[:20]}... "
+                                f"(locktime={canonical_locktime}) via canonical derivation; "
+                                "it was not in the bond registry and will be self-registered"
+                            )
                         continue
                     # Genuinely unknown P2WSH (not one of our fidelity bonds).
                     unknown_p2wsh_count += 1
@@ -1679,9 +1702,19 @@ class WalletSyncMixin:
             result[0].extend(fidelity_bond_utxos)
 
         # Persist bonds recognized above via canonical derivation (not a
-        # registry hit) so they are not dropped again on the next sync.
-        if newly_recognized_bond_utxos:
-            self._self_register_bond_utxos(newly_recognized_bond_utxos)
+        # registry hit) so they are not dropped again on the next sync. Pass
+        # every recognized UTXO on those addresses -- including a second UTXO
+        # on the same address that was matched via the cache path once the
+        # first populated the cache -- so ``_self_register_bond_utxos`` can
+        # keep the largest value per address (matching ``recover-bonds``).
+        if canonically_recognized_bond_addresses:
+            self._self_register_bond_utxos(
+                [
+                    u
+                    for u in fidelity_bond_utxos
+                    if u.address.lower() in canonically_recognized_bond_addresses
+                ]
+            )
 
         # Update cache
         self.utxo_cache = result

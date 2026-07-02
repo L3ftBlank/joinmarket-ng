@@ -119,6 +119,13 @@ Stores bond metadata including:
 - UTXO info (txid, vout, value, confirmations)
 - Certificate fields for cold storage bonds
 
+Entries are not only written by `generate-bond-address`, `import-bond`, and
+`recover-bonds`: a descriptor-wallet sync also self-registers any bond UTXO
+Bitcoin Core already tracks but the registry does not, by re-deriving the
+canonical timenumber address from the seed. This recovers funded bonds left
+behind by a failed/partial legacy-registry migration without requiring a
+manual `recover-bonds` scan.
+
 Commands:
 - `jm-wallet list-bonds` - List all bonds from the registry with status (offline)
 - `jm-wallet sync-bonds` - Refresh funded status of registered bonds from the blockchain (fast)

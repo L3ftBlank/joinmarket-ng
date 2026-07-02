@@ -247,6 +247,20 @@ them. Without this the bond branch is never queried and funded bonds would be
 invisible (the coins would appear to "disappear", or the bond address would
 show as locked with a 0 sat balance).
 
+For descriptor-wallet backends, sync also self-heals bonds that have no
+registry entry at all. Every fidelity bond address is deterministically
+derivable from the seed (`m/84'/coin'/0'/2/<timenumber>`, one address per
+timenumber, 960 total), so if Bitcoin Core already tracks a bond UTXO -- for
+example from a previous `recover-bonds` run, or a legacy registry entry that
+the per-wallet migration could not claim (mismatched `pubkey`/`path`) -- sync
+re-derives the canonical address, recognizes the UTXO, and writes it into the
+per-wallet registry automatically. This closes the gap where a wallet's
+displayed bond count (which reads the registry with the legacy-file fallback
+enabled for `jm-wallet info`) could disagree with what sync actually counted
+(which never uses that fallback): the funded bond is recovered on the next
+sync either way, without requiring `recover-bonds` or `import-bond` to be run
+manually.
+
 To pick a wallet, the offline commands `history`, `list-bonds` and
 `registry-show` accept the following inputs (in priority order):
 

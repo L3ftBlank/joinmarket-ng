@@ -171,6 +171,99 @@ def test_reopening_wallet_is_idempotent(tmp_path: Path) -> None:
     assert [b.address for b in second_view.bonds] == ["bc1qonly"]
 
 
+def test_predicate_claims_bond_with_stale_path_but_correct_canonical_pubkey() -> None:
+    """Stored ``path`` is wrong (e.g. a legacy pre-timenumber scheme) but the
+    stored ``pubkey`` still matches this wallet's canonical timenumber-derived
+    branch for the bond's locktime. The predicate must not stop at the first
+    (mismatching) path-based check.
+    """
+    from jmcore.timenumber import timenumber_to_timestamp
+
+    seed = mnemonic_to_seed(MNEMONIC_A)
+    master = HDKey.from_seed(seed)
+    root_path = "m/84'/0'"
+    timenumber = 42
+    locktime = timenumber_to_timestamp(timenumber)
+    canonical_path = f"{root_path}/0'/{FIDELITY_BOND_BRANCH}/{timenumber}"
+    canonical_pubkey = master.derive(canonical_path).get_public_key_bytes(compressed=True).hex()
+
+    bond = FidelityBondInfo(
+        address="bc1qwhatever",
+        locktime=locktime,
+        locktime_human="2023-07-01 00:00:00",
+        index=0,
+        path="m/84'/0'/0'/2/0",  # stale/wrong path (e.g. legacy index-based)
+        pubkey=canonical_pubkey,  # correct pubkey despite the wrong path
+        witness_script_hex="00" * 50,
+        network="mainnet",
+        created_at="2025-01-01T00:00:00",
+    )
+
+    predicate = make_wallet_ownership_predicate(master, root_path)
+    assert predicate(bond) is True
+
+
+def test_predicate_claims_bond_by_address_when_pubkey_and_path_are_stale() -> None:
+    """Last-resort check: both the stored ``path`` and ``pubkey`` are wrong
+    (e.g. written by a historical bug), but the bond's ``address`` still
+    matches the P2WSH address this wallet's canonical derivation produces
+    for the locktime. Address is what actually matters on-chain, so the
+    predicate must still claim the bond.
+    """
+    from jmcore.btc_script import mk_freeze_script
+    from jmcore.timenumber import timenumber_to_timestamp
+
+    from jmwallet.wallet.address import script_to_p2wsh_address
+
+    seed = mnemonic_to_seed(MNEMONIC_A)
+    master = HDKey.from_seed(seed)
+    root_path = "m/84'/0'"
+    timenumber = 7
+    locktime = timenumber_to_timestamp(timenumber)
+    canonical_path = f"{root_path}/0'/{FIDELITY_BOND_BRANCH}/{timenumber}"
+    real_pubkey = master.derive(canonical_path).get_public_key_bytes(compressed=True).hex()
+    witness_script = mk_freeze_script(real_pubkey, locktime)
+    real_address = script_to_p2wsh_address(witness_script, "mainnet")
+
+    bond = FidelityBondInfo(
+        address=real_address,
+        locktime=locktime,
+        locktime_human="2020-08-01 00:00:00",
+        index=0,
+        path="m/84'/0'/0'/2/0",  # stale/wrong path
+        pubkey="02" + "ee" * 32,  # stale/wrong pubkey
+        witness_script_hex=witness_script.hex(),
+        network="mainnet",
+        created_at="2025-01-01T00:00:00",
+    )
+
+    predicate = make_wallet_ownership_predicate(master, root_path)
+    assert predicate(bond) is True
+
+
+def test_predicate_rejects_bond_with_no_matching_path_pubkey_or_address() -> None:
+    """A genuinely foreign bond (belongs to no derivation of this wallet)
+    must never be claimed, regardless of how many fallbacks are tried."""
+    seed = mnemonic_to_seed(MNEMONIC_A)
+    master = HDKey.from_seed(seed)
+    root_path = "m/84'/0'"
+
+    bond = FidelityBondInfo(
+        address="bc1qcompletelyforeignaddress0000000000000000000000",
+        locktime=1893456000,
+        locktime_human="2030-01-01 00:00:00",
+        index=0,
+        path="external",
+        pubkey="02" + "ff" * 32,
+        witness_script_hex="00" * 50,
+        network="mainnet",
+        created_at="2025-01-01T00:00:00",
+    )
+
+    predicate = make_wallet_ownership_predicate(master, root_path)
+    assert predicate(bond) is False
+
+
 def _offline_register_bond(tmp_path: Path, mnemonic: str, *, address: str, timenumber: int) -> str:
     """Replicate the offline ``generate-bond-address`` / ``import-bond`` write
     flow: derive the wallet identity, run the wallet-aware legacy migration,

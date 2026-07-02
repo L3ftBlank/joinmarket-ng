@@ -536,13 +536,30 @@ def make_wallet_ownership_predicate(
 ) -> Callable[[FidelityBondInfo], bool]:
     """Build the ``bond_belongs_to_wallet`` predicate for migration.
 
-    The predicate re-derives the expected compressed pubkey for a bond and
-    compares it to the bond's stored ``pubkey``. It first tries the bond's
-    explicit BIP32 ``path`` (covering external/cold entries that may not be
-    on the canonical fidelity-bond branch); if that path is not derivable it
-    falls back to the canonical fidelity-bond branch derived from the bond's
-    ``locktime`` (timenumber). Only bonds owned by ``master_key`` match, so
-    foreign legacy entries are never claimed.
+    Three checks are tried, in order, and a match on any of them claims the
+    bond:
+
+    1. Re-derive the pubkey at the bond's stored explicit BIP32 ``path`` and
+       compare it to ``bond.pubkey``. Covers external/cold-wallet entries
+       that may not be on the canonical fidelity-bond branch.
+    2. Re-derive the pubkey at the canonical fidelity-bond branch for
+       ``bond.locktime`` (``root_path/0'/2/<timenumber>``) and compare it to
+       ``bond.pubkey``. Tried even when (1) already derived successfully but
+       produced a *different* pubkey, not only when the stored ``path`` is
+       malformed: older jmwallet versions and manual registry edits have
+       stored inconsistent or stale ``path`` values (e.g. a legacy
+       index-based scheme predating the timenumber-derived branch) for a
+       bond that is nonetheless genuinely on the current wallet's canonical
+       branch.
+    3. Reconstruct the P2WSH address from the canonically re-derived pubkey
+       and ``bond.locktime`` and compare it to ``bond.address``. This is the
+       last resort when both the stored ``pubkey`` and ``path`` fields are
+       themselves stale or wrong (e.g. written by a buggy older version) but
+       the address -- what actually matters on-chain -- still matches this
+       wallet's canonical derivation.
+
+    Only bonds owned by ``master_key`` match, so foreign legacy entries are
+    never claimed.
 
     This is shared by :class:`jmwallet.wallet.service.WalletService` and the
     offline ``jm-wallet`` bond commands so both paths use identical
@@ -553,20 +570,46 @@ def make_wallet_ownership_predicate(
         root_path: The wallet's account root path (e.g. ``m/84'/0'``); used
             to build the canonical fidelity-bond derivation path.
     """
+    from jmcore.btc_script import mk_freeze_script
+
+    from jmwallet.wallet.address import script_to_p2wsh_address
     from jmwallet.wallet.constants import FIDELITY_BOND_BRANCH
 
-    def _matches(bond: FidelityBondInfo) -> bool:
+    def _pubkey_at(path: str) -> str | None:
         try:
-            key = master_key.derive(bond.path)
+            key = master_key.derive(path)
         except Exception:
-            try:
-                from jmcore.timenumber import timestamp_to_timenumber
+            return None
+        return key.get_public_key_bytes(compressed=True).hex()
 
-                timenumber = timestamp_to_timenumber(bond.locktime)
-                key = master_key.derive(f"{root_path}/0'/{FIDELITY_BOND_BRANCH}/{timenumber}")
-            except Exception:
-                return False
-        derived_pubkey = key.get_public_key_bytes(compressed=True).hex()
-        return derived_pubkey == bond.pubkey
+    def _canonical_path(locktime: int) -> str | None:
+        try:
+            from jmcore.timenumber import timestamp_to_timenumber
+
+            timenumber = timestamp_to_timenumber(locktime)
+        except Exception:
+            return None
+        return f"{root_path}/0'/{FIDELITY_BOND_BRANCH}/{timenumber}"
+
+    def _matches(bond: FidelityBondInfo) -> bool:
+        stored_pubkey = _pubkey_at(bond.path)
+        if stored_pubkey is not None and stored_pubkey == bond.pubkey:
+            return True
+
+        canonical_path = _canonical_path(bond.locktime)
+        if canonical_path is None:
+            return False
+        canonical_pubkey = _pubkey_at(canonical_path)
+        if canonical_pubkey is None:
+            return False
+        if canonical_pubkey == bond.pubkey:
+            return True
+
+        try:
+            script = mk_freeze_script(canonical_pubkey, bond.locktime)
+            address = script_to_p2wsh_address(script, bond.network)
+        except Exception:
+            return False
+        return address.lower() == bond.address.lower()
 
     return _matches
